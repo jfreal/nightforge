@@ -48,8 +48,9 @@ explains it — that is the doc page's job.
 
 **The tag gets a line to itself.** This repo's sources are prose, so a scan for the bare string
 `@doc:` also hits every sentence that merely mentions the convention — this page included. Only a
-comment line carrying nothing but tags counts, and the audit additionally skips its own directory,
-every registered doc page, and the README.
+comment line carrying nothing but tags counts. The audit also strips fenced code blocks before
+matching — a tag inside a fence is an example, not a use — and skips three paths outright: its own
+directory, everything under `docs/`, and the README.
 
 JSON has no comments. A JSON source is recorded in the registry by hand instead (see
 `sourcesManual` below).
@@ -109,7 +110,7 @@ no list mentions is an adapter nobody runs.
 
 ## Running it
 
-```
+```text
 /sync-docs
 ```
 
@@ -117,7 +118,7 @@ Default scope is **audit**: it reads, compares, and reports. The only thing it w
 registry's `sources` arrays, refreshed from the tags it just found — bookkeeping, not a doc rewrite.
 No doc page is touched.
 
-```
+```text
 /sync-docs fix
 ```
 
@@ -127,11 +128,14 @@ match disk. It never deletes a doc page — a feature that looks gone is flagged
 it never invents a specific: every field name, path, and count it writes is read out of the source
 being described.
 
-```
+```text
 /sync-docs project-card
 ```
 
-A key name scopes both the audit and the fix to that one feature.
+A key name scopes both the audit and the fix to that one feature: only that key is diffed, only that
+key's registry entry is rewritten, and only that key's page is repaired. The repo-wide checks — index
+coverage for other pages, the README file tree, the adapter roster — run under `audit` and `fix`
+scope only.
 
 ## Adapted from Pheidi
 
