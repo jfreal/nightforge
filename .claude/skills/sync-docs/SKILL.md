@@ -1,11 +1,9 @@
 ---
 name: sync-docs
 description: Scan nightforge's sources for @doc keys, detect which documented behaviour changed, and update the matching doc page so docs never drift from the skills they describe. Also verifies every registered doc is linked from the README index, and that the README file tree and the adapter list match what is actually on disk.
-user-invokable: true
-args:
-  - name: scope
-    description: "'audit' (report only, default), 'fix' (update stale docs), or a specific doc key to check (e.g. 'project-card')"
-    required: false
+user-invocable: true
+argument-hint: "[audit | fix | <doc-key>]"
+arguments: [scope]
 ---
 
 Maintain bidirectional traceability between the files that define behaviour and the pages that explain it. Every documented feature has a **doc key** (e.g. `project-card`) that appears both in the source that implements it (as a `@doc:<key>` comment) and on the doc page that explains it (as a `docKey:` marker). When a tagged source changes, the doc page carrying that key must be updated to match.
@@ -44,8 +42,8 @@ Rules:
 
 **A tag is a whole comment line, nothing else on it.** This repo's sources are prose, so a scan for the bare string `@doc:` also hits every sentence and code sample that *mentions* the convention. A real tag matches:
 
-```
-^\s*(<!--|#|//)\s*(@doc:[a-z0-9-]+\s*)+(-->)?\s*$
+```regex
+^\s*(<!--|#|//)\s*(@doc:[a-z0-9]+(-[a-z0-9]+)*\s*)+(-->)?\s*$
 ```
 
 An inline mention in a sentence is never a tag. See the scan exclusions in Phase 1 for the rest of the rule.
@@ -100,26 +98,47 @@ Two lists in this repo restate what is on disk, and both go stale silently. The 
 
 Both are the same invariant the doc keys enforce, applied to a list instead of a page: the repo must never advertise more or less than it actually has.
 
+## Scope
+
+This run's scope is `$scope`, read as:
+
+| `$scope` | Meaning |
+|---|---|
+| *(empty)* | **audit** — the default. Scan, diff, report, refresh `sources`. No doc page is touched |
+| `audit` | the same, said out loud |
+| `fix` | audit, then repair every finding (Phase 4) |
+| a doc key, e.g. `project-card` | audit **and** fix, narrowed to that one key |
+
+A key-scoped run stays inside its key: it diffs that key alone, rewrites that key's registry entry alone, and repairs that key's page alone. The repo-wide checks — index coverage for other pages, the README tree, the adapter roster — run under `audit` and `fix` only.
+
+If `$scope` is neither `audit`, `fix`, nor a key in the registry, stop and say so. Do not silently fall back to `audit`.
+
 ## Procedure
 
 ### Phase 1: Scan
 
 1. **Read the registry** — `.claude/skills/sync-docs/registry.json`
-2. **Scan sources** — grep for `@doc:` across the repo, then keep only lines matching the whole-line tag form above. Exclude three things, all of which discuss the convention rather than using it:
-   - `.claude/skills/sync-docs/**` — this skill's own directory
-   - every registered doc page (a doc page is a target, never a source)
-   - `README.md` — the index
+2. **Scan sources** — grep for `@doc:` across the repo, then keep only lines matching the whole-line tag form above. Two more filters, both required:
+   - **Strip fenced code blocks first.** A tag inside a ``` fence is an example *of* the convention, not a use of it. Track fence open/close per file and drop every line between them before matching.
+   - **Exclude three paths**, all of which discuss the convention rather than using it:
+     - `.claude/skills/sync-docs/**` — this skill's own directory
+     - `docs/**` — every page under `docs/`, registered or not. A doc page is a target, never a source
+     - `README.md` — the index
 
-   Skipping either filter produces phantom keys: the exclusions alone still hit fenced examples elsewhere, and the line form alone still hits the examples inside this skill and its doc page. For each surviving match: extract the key(s), record file path and line number, and read the surrounding section.
+   Drop any one of the three and the scan invents keys. The path exclusions alone still hit fenced examples under `skills/`; the line form alone still hits the prose in this skill and its doc page; and excluding only *registered* doc pages lets a page written but not yet registered be recorded as a source. For each surviving match: extract the key(s), record file path and line number, and read the surrounding section.
 3. **Scan doc pages** — for each registry entry, read the page under `docs/` and extract:
    - The `docKey:` marker (must match the registry key)
    - The body content — what it currently claims the feature does
-4. **Scan the README index** — collect every link and every file path named in `README.md`, including the paths inside the file-tree block.
+4. **Scan the README index** — collect two lists *separately*, never one merged list of paths the file happens to mention:
+   - **Link destinations** — the `<dest>` of every Markdown link `[text](<dest>)`
+   - **Tree entries** — the file paths inside the fenced repo file-tree block, parsed as tree lines
+
+   A bare path in prose, or inside any other fenced block, is neither. Only these two lists satisfy index coverage.
 5. **Scan the inventory lists** — list `skills/error-sweep/adapters/*.md` on disk and read the `Adapters available today:` line in `skills/error-sweep/SKILL.md`. List everything under `skills/` and `docs/` and compare against the README tree block.
 
 ### Phase 2: Diff
 
-For each doc key:
+For each doc key **in scope** — every registered key under `audit` or `fix`, exactly the one named key under a key-scoped run:
 
 1. **Gather all sources** tagged with that key
 2. **Compare against the doc page** — check whether:
@@ -128,12 +147,12 @@ For each doc key:
    - Examples still reflect the current shape
    - Tagged sections were added or removed since the page was last touched
 3. **Flag discrepancies** with file:line on both sides
-4. **Check index coverage** — a registered doc not linked from `README.md` is a finding
-5. **Check inventory coverage** — README tree entries with no file, files with no tree entry, and adapter-roster mismatches are findings
+4. **Check index coverage** — a registered doc reachable from `README.md` as neither a link destination nor a tree entry is a finding. Under a key-scoped run, check that key's page only
+5. **Check inventory coverage** — README tree entries with no file, files with no tree entry, and adapter-roster mismatches are findings. These are repo-wide rather than per-key: skip them entirely under a key-scoped run
 
 ### Phase 3: Report (audit mode)
 
-First write the scanned `sources` arrays back to `registry.json` — that is bookkeeping, not a doc rewrite, so **audit does it too**, in every scope. Entries flagged `sourcesManual` are left alone.
+First write the scanned `sources` arrays back to `registry.json` — that is bookkeeping, not a doc rewrite, so **audit does it too**. Write only the entries in scope: every key under `audit` or `fix`, and under a key-scoped run that one key's entry alone, leaving every other entry byte-for-byte as it was. Entries flagged `sourcesManual` are never rewritten.
 
 Then output a structured report. Omit any section with nothing in it — do not pad.
 
@@ -165,7 +184,9 @@ Registered doc pages not linked from `README.md`. Name the page and suggest wher
 - Files under `skills/` or `docs/` absent from the README tree
 - Adapters on disk missing from the `Adapters available today:` line, or listed there with no file
 
-### Phase 4: Fix (only if scope is 'fix' or a specific key)
+### Phase 4: Fix (only if `$scope` is `fix` or a doc key)
+
+Under a key-scoped run every step below is confined to that key — its page, its registry entry, its README link. Steps 5 and 6 rewrite repo-wide lists, so they run under `fix` only.
 
 1. **Update stale doc pages** — rewrite the sections that no longer match their sources:
    - Keep the page's voice; these pages explain, they do not restate the source
@@ -181,7 +202,7 @@ Registered doc pages not linked from `README.md`. Name the page and suggest wher
 
 ## Verification Checklist
 
-- [ ] Every `@doc:` tag outside this skill's own directory has a registry entry
+- [ ] Every `@doc:` tag surviving the Phase 1 exclusions has a registry entry
 - [ ] Every registry entry points at a `docs/<name>.md` that exists
 - [ ] Every doc page carries a `docKey:` marker matching its registry key
 - [ ] Field lists, paths, and commands in each doc page match its tagged sources
