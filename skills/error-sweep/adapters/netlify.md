@@ -2,6 +2,7 @@
 
 Function, edge-function, and deploy errors from a Netlify site. The CLI is logged in under the user's Windows profile — **no token needed**.
 
+<!-- @doc:project-card -->
 Card must supply: `site_id`, and whether the repo is `netlify link`ed.
 
 ## 1. Working directory

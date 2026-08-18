@@ -17,6 +17,8 @@ skills/error-sweep/
   adapters/app-insights.md      exceptions, failed requests, traces, dependencies
   adapters/github-auto-issues.md  issues the app files about itself
 docs/project-card-template.md   the per-project input, and how to fill it in
+docs/sync-docs.md               how this repo keeps its own docs from drifting
+.claude/skills/sync-docs/       the audit that enforces it (repo-local, not published)
 ```
 
 **The split:** the pipeline is identical everywhere, collection is per-stack, and only identifiers
@@ -78,3 +80,20 @@ Mechanical traps the adapters document, each of which fails *quietly*:
   non-zero exit, which reads as a dead collector when it worked.
 - `min(timestamp)` aliased to `first` or `last` is rejected as a reserved word, with an opaque error
   that names nothing.
+
+## `sync-docs`
+
+Repo-local tooling, not a published skill: it lives in `.claude/skills/sync-docs/` and runs *on*
+nightforge. It keeps the pages under `docs/` honest about the files they describe.
+
+Most of this repo documents itself — `skills/error-sweep/SKILL.md` explains the pipeline it also
+defines, so it cannot drift. The exceptions are the pages that describe something living elsewhere:
+`docs/project-card-template.md` documents a card that the pipeline and every adapter *read*, so a
+new required field in an adapter silently makes that page wrong. `sync-docs` ties the two together
+with a **doc key** — a name that appears as a `@doc:<key>` comment in each source and as a
+`docKey:` marker on the page — and audits the pair. It also checks that every doc page is linked
+from this README, that this README's file tree matches disk, and that the adapter roster inside
+`skills/error-sweep/SKILL.md` matches the adapter files that actually exist.
+
+Run `/sync-docs` to audit, `/sync-docs fix` to repair. Full mechanism:
+[docs/sync-docs.md](docs/sync-docs.md).

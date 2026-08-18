@@ -1,5 +1,7 @@
 # Project card template
 
+<!-- docKey: project-card -->
+
 A **project card** is the only per-project input the `error-sweep` skill needs. Everything else —
 signature normalization, ledger discipline, triage rules, the fix-agent brief, the report format —
 lives in the shared skill.
