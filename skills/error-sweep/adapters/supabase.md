@@ -2,6 +2,7 @@
 
 Postgres, API, auth, and edge-function errors plus security advisories, via the Supabase MCP tools.
 
+<!-- @doc:project-card -->
 Card must supply: `project_ref`.
 
 ## 1. Which tool

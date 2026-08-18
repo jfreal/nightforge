@@ -1,0 +1,22 @@
+{
+  "project-card": {
+    "doc": "docs/project-card-template.md",
+    "summary": "The project card: the only per-project input error-sweep takes. Required fields, where the card lives, why it stays out of a public repo, and the rule for where a learned gotcha goes (adapter vs card vs shared skill). Drifts whenever the pipeline or an adapter changes what it reads off the card.",
+    "sources": [
+      "skills/error-sweep/SKILL.md",
+      "skills/error-sweep/adapters/netlify.md",
+      "skills/error-sweep/adapters/supabase.md",
+      "skills/error-sweep/adapters/app-insights.md",
+      "skills/error-sweep/adapters/github-auto-issues.md"
+    ]
+  },
+  "sync-docs": {
+    "doc": "docs/sync-docs.md",
+    "summary": "The doc-key mechanism itself: what a doc key is, how to tag a source, how to add and register a doc page, what the audit reports, and how to run it in audit vs fix scope.",
+    "sourcesManual": true,
+    "sources": [
+      ".claude/skills/sync-docs/SKILL.md",
+      ".claude/skills/sync-docs/registry.json"
+    ]
+  }
+}
