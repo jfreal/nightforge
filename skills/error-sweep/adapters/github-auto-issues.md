@@ -2,6 +2,7 @@
 
 Issues the app or a CI workflow filed about itself. **Usually the highest-value source in the whole sweep** — each one came from a real user session or a real telemetry query, already deduped at the point of filing.
 
+<!-- @doc:project-card -->
 Card must supply: `slug` and the `label(s)` that mark auto-filed issues.
 
 ## 1. Collect

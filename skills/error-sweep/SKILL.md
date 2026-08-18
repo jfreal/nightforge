@@ -7,6 +7,7 @@ Sweep one project's production errors, triage each genuinely new one, and spawn 
 
 This file is the pipeline. It is stack-agnostic — every tech-specific detail lives in an adapter under `adapters/`, and every project-specific detail lives in the calling task's **project card**. If you are reading this because a scheduled task told you to, you should already have that card. If you do not, stop and say so.
 
+<!-- @doc:project-card -->
 ## What the caller gives you
 
 A project card naming: app + URL, repo path + GitHub slug + default branch, the **adapters** to run, the ledger path, the report paths, the fix-session cap, and per-project known-noise. Everything below reads those values; nothing below hardcodes a project.
