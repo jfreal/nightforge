@@ -2,6 +2,7 @@
 
 Exceptions, failed requests, dependencies, and traces from Azure Application Insights via `az`.
 
+<!-- @doc:project-card -->
 Card must supply: `app_name`, `resource_group`, and optionally `workspace_id` and `subscription`.
 
 ## 1. The window trap — read this before writing any query
