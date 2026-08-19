@@ -63,3 +63,16 @@ If every occurrence is in the first ~35 s of a fresh instance a few minutes afte
 ## 7. Deploy drift
 
 Compare `origin/<default branch>` head against the SHA of the last successful deploy workflow run. Prod running stale is a finding — it has silently happened for 3 days before.
+
+**`gh run list --status success` does not mean "conclusion: success".** `--status` filters the run *status* field (`queued` / `in_progress` / `completed`); passing a conclusion value to it returns a stale, wrongly-ordered subset rather than an error. On one run this reported the newest successful deploy as 4 days old while prod was in fact current — a false "prod is stale" finding, which is the exact failure this check exists to avoid.
+
+Ask for the conclusions and filter yourself:
+
+```
+gh run list --repo <slug> --workflow deploy.yml --limit 15 \
+  --json databaseId,headSha,createdAt,status,conclusion,displayTitle
+```
+
+Then read the newest row whose `conclusion` is `success`. Do the same to spot **failed** deploys: a failure that a later push silently corrected still matters, because any fix that shipped in the failed run was not actually live until that later push — which can invalidate a "this is now suppressed/fixed" claim made by an earlier sweep. Check the deploy time of a fix against the last occurrence of the thing it fixes before calling it verified.
+
+Also note `gh run list --json ... --template` chokes on `{{"\n"}}`; pipe the JSON to a parser instead.
