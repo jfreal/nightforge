@@ -16,7 +16,10 @@ skills/error-sweep/
   adapters/supabase.md          postgres/api/auth/edge logs, security advisors
   adapters/app-insights.md      exceptions, failed requests, traces, dependencies
   adapters/github-auto-issues.md  issues the app files about itself
+skills/docs-sweep/
+  SKILL.md                      the weekly docs sweep — discover, audit, fix, draft PR
 docs/project-card-template.md   the per-project input, and how to fill it in
+docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/sync-docs.md               how this repo keeps its own docs from drifting
 .claude/skills/sync-docs/       the audit that enforces it (repo-local, not published)
 ```
@@ -80,6 +83,30 @@ Mechanical traps the adapters document, each of which fails *quietly*:
   non-zero exit, which reads as a dead collector when it worked.
 - `min(timestamp)` aliased to `first` or `last` is rejected as a reserved word, with an opaque error
   that names nothing.
+
+## `docs-sweep`
+
+The weekly counterpart to `sync-docs` (below): where sync-docs keeps *one* repo's docs honest when
+you remember to run it, `docs-sweep` runs it for you, across every repo that has it. It discovers
+each local repo carrying a repo-local `.claude/skills/sync-docs/` port, runs that repo's own audit
+in a fresh worktree off the default branch, and where the docs drifted, runs that port's fix scope
+and opens a **draft PR** for review. Clean repos get one line in the report; nothing is pushed to a
+default branch and nothing is merged.
+
+The split mirrors error-sweep, one level up: the pipeline is identical everywhere, and the per-repo
+knowledge is not in a card — it is the target repo's own sync-docs port, versioned beside the docs
+it guards. A repo joins the sweep by carrying the port; there is no registration step. The one
+roster card (see `docs/`) only says where to scan, what to exclude, the PR cap, and per-repo
+overrides like a docs build command.
+
+### Install
+
+```
+cmd /c mklink /J "%USERPROFILE%\.claude\skills\docs-sweep" "<clone>\skills\docs-sweep"
+```
+
+Then write the roster card into a weekly scheduled task (see
+[docs/docs-sweep-card-template.md](docs/docs-sweep-card-template.md)).
 
 ## `sync-docs`
 
