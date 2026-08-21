@@ -2,6 +2,59 @@
 
 Agentic "dark factory" tools and skills that I use across my repos.
 
+## `ELI10` output style
+
+A Claude Code output style for end-of-day brains: plain English, jargon defined once, every report
+structured as *what I did / did it work (with proof) / what I need from you* — and that last part is
+skipped when nothing is left for you to do. Git commands never appear in the report; you get the
+branch, the short hash, and the file count in words instead. Technical detail stays: paths, error
+text, test counts, and versions are kept exact. Decisions come as two options max with a
+recommendation.
+
+```text
+output-styles/ELI10.md
+```
+
+### Install
+
+Copy the file into your global output-styles folder and select it:
+
+```bat
+mkdir "%USERPROFILE%\.claude\output-styles" 2>nul
+copy output-styles\ELI10.md "%USERPROFILE%\.claude\output-styles\ELI10.md"
+```
+
+`copy` does not create parent directories, so the `mkdir` matters on a fresh install. It is
+harmless when the folder already exists.
+
+Then set `"outputStyle": "ELI10"` in `%USERPROFILE%\.claude\settings.json` to make it your
+default everywhere. The standalone `/output-style` command is gone — as of 2.1.237 it just
+redirects into `/config`.
+
+`/config` works too, but mind the scope: it saves the choice to the **project-local**
+`.claude/settings.local.json`, so it applies to that one repo and does not follow you to the
+next. A global default means editing the global file.
+
+For one session, persisting nothing:
+
+```bat
+claude --settings "{\"outputStyle\":\"ELI10\"}"
+```
+
+However you set it, the style is part of the system prompt, so it takes effect on a new
+session or after `/clear`, never mid-conversation.
+
+No clone handy? Paste this into any Claude Code session and it installs itself. An output
+style becomes part of your system prompt in every later session, so read the file it fetches
+before you let it be saved — that is what the "show me the file first" line is for:
+
+> Set my Output Style to the one at
+> https://raw.githubusercontent.com/jfreal/nightforge/main/output-styles/ELI10.md
+> Show me the file first, and only if I say go: save it in my global
+> output-styles folder as ELI10.md, set outputStyle to ELI10 in my global
+> settings file without breaking the existing JSON, list the files you changed,
+> and tell me to restart Claude Code.
+
 ## `error-sweep`
 
 One pipeline for unattended production error sweeps, whatever the stack. It collects errors,
@@ -9,7 +62,7 @@ normalizes them to stable signatures, dedupes against a ledger *and* the issue t
 survivor against the actual source, files an issue, and spawns a worktree-isolated fix agent that
 opens a PR. It runs overnight and reports one line when there is nothing new.
 
-```
+```text
 skills/error-sweep/
   SKILL.md                      the pipeline — steps 0-8, stack-agnostic
   adapters/netlify.md           functions, edge functions, failed deploys
@@ -33,7 +86,7 @@ pipeline fix is one edit every project inherits.
 Clone, then junction the skill into your Claude config so the live path and the repo are the same
 bytes — no sync script, no drift:
 
-```
+```bat
 cmd /c mklink /J "%USERPROFILE%\.claude\skills\error-sweep" "<clone>\skills\error-sweep"
 ```
 
