@@ -2,6 +2,35 @@
 
 Agentic "dark factory" tools and skills that I use across my repos.
 
+## `ELI10` output style
+
+A Claude Code output style for end-of-day brains: plain English, jargon defined once, every report
+structured as *what I did / did it work (with proof) / what you do next*. Decisions come as two
+options max with a recommendation. Paths, commands, and code stay exact.
+
+```
+output-styles/ELI10.md
+```
+
+### Install
+
+Copy the file into your global output-styles folder and select it:
+
+```
+copy output-styles\ELI10.md "%USERPROFILE%\.claude\output-styles\ELI10.md"
+```
+
+Then run `/output-style ELI10` for the session, or set `"outputStyle": "ELI10"` in
+`%USERPROFILE%\.claude\settings.json` to make it the default.
+
+No clone handy? Paste this into any Claude Code session and it installs itself:
+
+> Set my Output Style to the one at
+> https://raw.githubusercontent.com/jfreal/nightforge/main/output-styles/ELI10.md
+> Save it in my global output-styles folder as ELI10.md, set outputStyle to ELI10
+> in my global settings file without breaking the existing JSON, list the files
+> you changed, and tell me to restart Claude Code.
+
 ## `error-sweep`
 
 One pipeline for unattended production error sweeps, whatever the stack. It collects errors,
