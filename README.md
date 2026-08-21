@@ -5,8 +5,11 @@ Agentic "dark factory" tools and skills that I use across my repos.
 ## `ELI10` output style
 
 A Claude Code output style for end-of-day brains: plain English, jargon defined once, every report
-structured as *what I did / did it work (with proof) / what you do next*. Decisions come as two
-options max with a recommendation. Paths, commands, and code stay exact.
+structured as *what I did / did it work (with proof) / what I need from you* — and that last part is
+skipped when nothing is left for you to do. Git commands never appear in the report; you get the
+branch, the short hash, and the file count in words instead. Technical detail stays: paths, error
+text, test counts, and versions are kept exact. Decisions come as two options max with a
+recommendation.
 
 ```text
 output-styles/ELI10.md
