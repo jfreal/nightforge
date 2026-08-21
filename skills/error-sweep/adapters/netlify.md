@@ -29,15 +29,20 @@ netlify logs --json --since <window> --level error --level fatal \
 - Each line is already `{source, name, timestamp, level, message}` — the adapter contract shape.
 - **Zero lines is the healthy result.** Exit 0 + empty file = success.
 
-**Sanity-check a zero-line result by re-running without `--level`.** A broken collector
-and a healthy site both produce an empty file. The unfiltered run proves the pipe works
-and lets you scan `info`/`warn` for error-shaped text that the level filter cannot see.
+**Sanity-check a zero-line result — but read §6 and §8 before you do.** A broken collector
+and a healthy site both produce an empty file, so an unfiltered re-run is what proves the
+pipe works. It only proves that if it avoids the two defects those sections document: the
+re-run must drop `--json` (§6) and pass a **single** `--source` (§8). Re-running the command
+above verbatim minus `--level` keeps both defects, comes back empty for its own reasons, and
+cheerfully confirms a dead collector. Compare filtered against unfiltered **per source**, and
+scan `info`/`warn` for error-shaped text the level filter cannot see.
 
-**The stream is capped at ~100 lines per function, newest first.** If any function comes
-back with exactly 100 lines, `--since` was not the binding constraint and the unfiltered
-view reaches back only a few hours, not the requested window. This does not invalidate a
-level-filtered run that returned *fewer* than 100 lines per function — that one saw the
-whole window. Say in the report which pass was truncated.
+**The stream is capped at ~100 lines per function.** If any function comes back with exactly
+100 lines, `--since` was not the binding constraint and that function's slice is truncated —
+and the lines you keep are the **oldest** in the window, not the newest (§9), so its newest
+timestamp is an artifact and proves nothing about liveness. A level-filtered run that
+returned *fewer* than 100 lines per function saw the whole window. Say in the report which
+pass was truncated.
 
 ## 3. Failed deploys
 
@@ -77,13 +82,13 @@ plain → 101 lines. Nothing on stderr. This is exactly the "green collector, br
 failure the pipeline warns about, and it survives the step-2 sanity check if you only
 re-run the unfiltered pass **also with `--json`**.
 
-So:
+Collect in plain text — and per source, one invocation each, per §8:
 
 ```bash
-# collect (plain text, NOT --json)
-netlify logs --since 26h --level error --level fatal \
-  --source functions --source edge-functions > err.txt
-netlify logs --since 26h --source functions > all.txt   # sanity/cross-check
+netlify logs --since 26h --level error --level fatal --source functions      > err-fn.txt
+netlify logs --since 26h --level error --level fatal --source edge-functions > err-edge.txt
+netlify logs --since 26h --source functions                                  > all-fn.txt
+netlify logs --since 26h --source edge-functions                             > all-edge.txt
 ```
 
 - `No logs found for the given time range.` (one line) is the healthy zero result.
@@ -92,6 +97,22 @@ netlify logs --since 26h --source functions > all.txt   # sanity/cross-check
   (`-P supports only unibyte and UTF-8 locales`) — use `sed`/`awk`/plain `grep -o`.
 - Re-test `--json` occasionally; when it starts returning lines again the contract-shaped
   output is nicer than parsing text.
+
+**Normalize to NDJSON before step 2 — the plain text is not the adapter contract.**
+`SKILL.md` requires one JSON object per line with `source`, `name`, `timestamp`, `level`,
+and `message`. Handing `err-fn.txt` straight downstream breaks that. Convert explicitly, in
+node, so the message is JSON-escaped and the banner lines (§10) are skipped:
+
+```bash
+node -e 'const fs=require("fs");
+ for (const l of fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/)) {
+   const m = l.match(/^\[\S+ (.+?)\] (\S+) (\w+) (.*)$/); if (!m) continue;
+   process.stdout.write(JSON.stringify({source:"netlify", name:m[1], timestamp:m[2],
+     level:m[3].toLowerCase(), message:m[4]})+"\n");
+ }' err-fn.txt > err-fn.ndjson
+```
+
+Lowercase the level: the contract wants `error|fatal|warning`, the CLI prints `ERROR`.
 
 ## 7. The unfiltered cross-check is near-useless when a cron function is chatty
 
@@ -135,7 +156,12 @@ So collect per source, one invocation each:
 netlify logs --since 26h --level error --level fatal --source functions      > err-fn.txt
 netlify logs --since 26h --level error --level fatal --source edge-functions > err-edge.txt
 netlify logs --since 26h --source functions                                  > all-fn.txt
+netlify logs --since 26h --source edge-functions                             > all-edge.txt
 ```
+
+Every error pass needs its own same-source unfiltered partner — that is why `all-edge.txt` is
+on the list. Without it an empty `err-edge.txt` has no comparator and gets written up as a
+healthy edge tier when it may be this very bug.
 
 **Cross-check any zero-line error pass against a same-source unfiltered pass.** If the
 unfiltered pass on that source is also near-empty while the site is plainly alive
@@ -158,7 +184,7 @@ compare like-for-like windows across runs.
 Confirmed 2026-08-19 on `netlify-cli/26.2.0`. Plain-text output now opens with a table
 header before any log lines:
 
-```
+```text
 Showing logs from functions for the last 26h:
 
   𝒇   Function
@@ -174,7 +200,9 @@ functions). Both are exit 0.
 Do not misread the header-only form as a hung interactive picker: `𝒇   Function` is a
 column heading, not a prompt. Count lines *after* the header when deciding whether a pass
 was empty, and remember `wc -l` on an "empty" run reads 4, not 0. Count only lines matching
-the log shape — `grep -c '^[' out.txt` — and treat the banner and the `No logs found`
+the log shape — `grep -c '^\[' out.txt`, escaped, because a bare `^[` opens a character
+class that is never closed and grep exits 2 with `Invalid regular expression` — and treat the
+banner and the `No logs found`
 one-liner as chrome.
 
 ## 11. Prove a scheduled function is alive with a NARROW window, always
@@ -197,6 +225,13 @@ is the actual proof. **The rule: if the function you are vouching for came back 
 100 lines, you have not proven anything about it — halve the window and run again.** Check
 the count per function, not just the timestamp.
 
+**Size the first window from the function's own cadence — 15m is not a universal floor.** A
+window narrower than the schedule interval proves nothing about an hourly or nightly
+function: it returns zero lines while the function is perfectly healthy, and reading that as
+a dead cron is a false positive. Open at roughly twice the configured interval, then halve
+only while the result is still capped at 100. A daily function cannot be vouched for by a
+narrow pass at all — compare its last run against its schedule instead.
+
 ## 12. `netlify api ... > file.json` on PowerShell writes a BOM, and PS 5.1 chokes on it
 
 `netlify api listSiteDeploys --data '...' > deploys.json` in PowerShell writes UTF-8
@@ -217,9 +252,12 @@ node -e 'const d=JSON.parse(require("fs").readFileSync("deploys.json","utf8").re
 §3 gives the PowerShell form. It **fails in Git Bash**, with the identical error, because Bash
 passes the backslashes through literally:
 
-```
-netlify api getDeploy --data {deploy_id:<id>}      # Git Bash -> SyntaxError
-netlify api getDeploy --data {deploy_id:<id>}        # Git Bash -> works
+```bash
+# the §3 PowerShell form, run in Git Bash -> SyntaxError:
+netlify api getDeploy --data '{\"deploy_id\":\"<id>\"}'
+
+# what Git Bash actually wants — plain double quotes:
+netlify api getDeploy --data '{"deploy_id":"<id>"}'
 ```
 
 So: **PowerShell needs `\"`, Git Bash needs plain `"`.** Because the failure message is the
@@ -232,7 +270,7 @@ Check which tool you are in before reaching for the escapes.
 `netlify api getDeploy` on a deploy whose `state == "error"` returns the `error_message` and
 nothing usable beyond it:
 
-```
+```text
 summary               {"status":"unavailable","messages":[]}
 log_access_attributes false
 ```
@@ -244,5 +282,10 @@ And `netlify logs:deploy` is **gone** in 26.2.0 — it now tells you to run
 So a stale `Build script returned non-zero exit code: 2` is triageable only from its
 `error_message`, its `commit_ref`, and the repo — or from the Netlify web UI, which a
 scheduled run cannot reach. Do not burn a run trying; record what the deploy list gives you,
-check whether a later deploy of the same branch went `ready` (that is your "did it recover"
-signal), and say in the report that the log itself was unavailable.
+and say in the report that the log itself was unavailable.
+
+For "did it recover", match on `commit_ref`, not on branch. A later `ready` deploy of the same
+branch is usually a *different* commit, so it says nothing about whether the failing tree was
+fixed — the build could still break on that commit. Only a `ready` deploy carrying the same
+`commit_ref` proves recovery. If no later deploy shares the ref, report recovery as unknown
+rather than assuming either way.

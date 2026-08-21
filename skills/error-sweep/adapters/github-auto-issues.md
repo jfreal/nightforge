@@ -34,15 +34,24 @@ If the state PR (`chore/triage-state` or similar) is sitting open and unmerged, 
 
 ## 5. Check the fix PRs, not just the issues
 
-An auto-filed issue that already has a fix PR looks handled from the issue list alone. It is not handled until the PR merges. List the open PRs and read each one's check rollup:
+An auto-filed issue that already has a fix PR looks handled from the issue list alone. It is not handled until the PR merges.
 
-```
-gh pr list --repo <slug> --state open --limit 30 --json number,title,headRefName,createdAt
+Resolve the PR **from the issue**, not from a repo-wide listing — `gh pr list` is not scoped to your issues, so it both misses linked PRs (any not in the first page) and drags in unrelated ones:
+
+```bash
+# per collected issue: the PRs that actually claim it
+gh issue view <issue> --repo <slug> --json number,title,closedByPullRequestsReferences
+gh pr list --repo <slug> --state open --search 'linked:issue <issue>'   --json number,title,headRefName,createdAt
+# then the rollup, per PR you resolved above
 gh pr view <n> --repo <slug> --json state,mergeable,mergeStateStatus,statusCheckRollup
 ```
 
+A repo-wide `gh pr list --state open` is still worth one look for orphans — a fix PR that never referenced its issue — but treat it as a separate sweep, not as the issue-to-PR mapping.
+
 A fix PR sitting open for days with one red job is a finding in its own right, and often a *shared* one: on one run two unrelated auto-fix PRs were both blocked by the same flaky test that had landed on the default branch days earlier. Neither PR had touched the code the test covers.
 
-**The trap that hides this: a job that only runs on pull requests.** A green deploy history proves nothing about it. Check which workflows actually run on pushes to the default branch — if `e2e` (or lint, or any gate) is PR-only, a break on the default branch is invisible until the next PR trips over it, and then it looks like that PR's fault. Confirm by pulling the same job's conclusion across several recent PRs: if some pass and some fail on the same test, it is a flake on the base branch, not a defect in any one PR.
+**The trap that hides this: a job that only runs on pull requests.** A green deploy history proves nothing about it. Check which workflows actually run on pushes to the default branch — if `e2e` (or lint, or any gate) is PR-only, a break on the default branch is invisible until the next PR trips over it, and then it looks like that PR's fault. 
+
+A pass/fail split across PRs is a *hint*, not a verdict — the same split is what a real defect in one PR looks like. Before blaming the base branch, check three things: the PRs sit on the same base commit, the failing PR changed nothing the test touches, and a re-run on the *identical* head commit flips the result. Nondeterminism on one commit is the only direct evidence of a flake; everything else is circumstantial.
 
 When you find one, read the failing job's log (`gh run view <id> --repo <slug> --log-failed`) and name the failing test before filing. "e2e is red" is not a finding; "this named test races a 2 s self-clearing UI flag" is.

@@ -8,7 +8,7 @@ A Claude Code output style for end-of-day brains: plain English, jargon defined 
 structured as *what I did / did it work (with proof) / what you do next*. Decisions come as two
 options max with a recommendation. Paths, commands, and code stay exact.
 
-```
+```text
 output-styles/ELI10.md
 ```
 
@@ -16,20 +16,30 @@ output-styles/ELI10.md
 
 Copy the file into your global output-styles folder and select it:
 
-```
+```bat
+mkdir "%USERPROFILE%\.claude\output-styles" 2>nul
 copy output-styles\ELI10.md "%USERPROFILE%\.claude\output-styles\ELI10.md"
 ```
 
-Then run `/output-style ELI10` for the session, or set `"outputStyle": "ELI10"` in
-`%USERPROFILE%\.claude\settings.json` to make it the default.
+`copy` does not create parent directories, so the `mkdir` matters on a fresh install. It is
+harmless when the folder already exists.
 
-No clone handy? Paste this into any Claude Code session and it installs itself:
+Then pick it in `/config`, or set `"outputStyle": "ELI10"` in
+`%USERPROFILE%\.claude\settings.json` to make it the default. The standalone
+`/output-style` command is gone — as of 2.1.237 it just redirects into `/config`. Either way
+the style is part of the system prompt, so it takes effect on a new session or after
+`/clear`, not mid-conversation.
+
+No clone handy? Paste this into any Claude Code session and it installs itself. An output
+style becomes part of your system prompt in every later session, so read the file it fetches
+before you let it be saved — that is what the "show me the file first" line is for:
 
 > Set my Output Style to the one at
 > https://raw.githubusercontent.com/jfreal/nightforge/main/output-styles/ELI10.md
-> Save it in my global output-styles folder as ELI10.md, set outputStyle to ELI10
-> in my global settings file without breaking the existing JSON, list the files
-> you changed, and tell me to restart Claude Code.
+> Show me the file first, and only if I say go: save it in my global
+> output-styles folder as ELI10.md, set outputStyle to ELI10 in my global
+> settings file without breaking the existing JSON, list the files you changed,
+> and tell me to restart Claude Code.
 
 ## `error-sweep`
 
@@ -38,7 +48,7 @@ normalizes them to stable signatures, dedupes against a ledger *and* the issue t
 survivor against the actual source, files an issue, and spawns a worktree-isolated fix agent that
 opens a PR. It runs overnight and reports one line when there is nothing new.
 
-```
+```text
 skills/error-sweep/
   SKILL.md                      the pipeline — steps 0-8, stack-agnostic
   adapters/netlify.md           functions, edge functions, failed deploys
@@ -57,7 +67,7 @@ pipeline fix is one edit every project inherits.
 Clone, then junction the skill into your Claude config so the live path and the repo are the same
 bytes — no sync script, no drift:
 
-```
+```bat
 cmd /c mklink /J "%USERPROFILE%\.claude\skills\error-sweep" "<clone>\skills\error-sweep"
 ```
 
