@@ -104,13 +104,23 @@ and `message`. Handing `err-fn.txt` straight downstream breaks that. Convert exp
 node, so the message is JSON-escaped and the banner lines (§10) are skipped:
 
 ```bash
-node -e 'const fs=require("fs");
- for (const l of fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/)) {
-   const m = l.match(/^\[\S+ (.+?)\] (\S+) (\w+) (.*)$/); if (!m) continue;
-   process.stdout.write(JSON.stringify({source:"netlify", name:m[1], timestamp:m[2],
-     level:m[3].toLowerCase(), message:m[4]})+"\n");
- }' err-fn.txt > err-fn.ndjson
+normalize() {                                    # normalize <in.txt> <out.ndjson>
+  node -e 'const fs=require("fs");
+   for (const l of fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/)) {
+     const m = l.match(/^\[\S+ (.+?)\] (\S+) (\w+) (.*)$/); if (!m) continue;
+     process.stdout.write(JSON.stringify({source:"netlify", name:m[1], timestamp:m[2],
+       level:m[3].toLowerCase(), message:m[4]})+"\n");
+   }' "$1" > "$2"
+}
+
+normalize err-fn.txt   err-fn.ndjson
+normalize err-edge.txt err-edge.ndjson
+cat err-fn.ndjson err-edge.ndjson > err.ndjson   # what step 2 reads
 ```
+
+Run it over **every** error file the collection produced, not just the functions one. An
+unconverted `err-edge.txt` either breaks the contract downstream or gets quietly dropped, and
+either way the edge tier vanishes from the sweep.
 
 Lowercase the level: the contract wants `error|fatal|warning`, the CLI prints `ERROR`.
 

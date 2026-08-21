@@ -27,11 +27,22 @@ copy output-styles\ELI10.md "%USERPROFILE%\.claude\output-styles\ELI10.md"
 `copy` does not create parent directories, so the `mkdir` matters on a fresh install. It is
 harmless when the folder already exists.
 
-Then pick it in `/config`, or set `"outputStyle": "ELI10"` in
-`%USERPROFILE%\.claude\settings.json` to make it the default. The standalone
-`/output-style` command is gone — as of 2.1.237 it just redirects into `/config`. Either way
-the style is part of the system prompt, so it takes effect on a new session or after
-`/clear`, not mid-conversation.
+Then set `"outputStyle": "ELI10"` in `%USERPROFILE%\.claude\settings.json` to make it your
+default everywhere. The standalone `/output-style` command is gone — as of 2.1.237 it just
+redirects into `/config`.
+
+`/config` works too, but mind the scope: it saves the choice to the **project-local**
+`.claude/settings.local.json`, so it applies to that one repo and does not follow you to the
+next. A global default means editing the global file.
+
+For one session, persisting nothing:
+
+```bat
+claude --settings "{\"outputStyle\":\"ELI10\"}"
+```
+
+However you set it, the style is part of the system prompt, so it takes effect on a new
+session or after `/clear`, never mid-conversation.
 
 No clone handy? Paste this into any Claude Code session and it installs itself. An output
 style becomes part of your system prompt in every later session, so read the file it fetches

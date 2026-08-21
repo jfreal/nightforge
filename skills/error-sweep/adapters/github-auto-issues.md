@@ -39,14 +39,15 @@ An auto-filed issue that already has a fix PR looks handled from the issue list 
 Resolve the PR **from the issue**, not from a repo-wide listing — `gh pr list` is not scoped to your issues, so it both misses linked PRs (any not in the first page) and drags in unrelated ones:
 
 ```bash
-# per collected issue: the PRs that actually claim it
-gh issue view <issue> --repo <slug> --json number,title,closedByPullRequestsReferences
-gh pr list --repo <slug> --state open --search 'linked:issue <issue>'   --json number,title,headRefName,createdAt
-# then the rollup, per PR you resolved above
-gh pr view <n> --repo <slug> --json state,mergeable,mergeStateStatus,statusCheckRollup
+# per collected issue: the PRs that actually claim it, by number
+for pr in $(gh issue view <issue> --repo <slug>               --json closedByPullRequestsReferences               --jq '.closedByPullRequestsReferences[].number'); do
+  gh pr view "$pr" --repo <slug>     --json number,title,state,mergeable,mergeStateStatus,statusCheckRollup
+done
 ```
 
-A repo-wide `gh pr list --state open` is still worth one look for orphans — a fix PR that never referenced its issue — but treat it as a separate sweep, not as the issue-to-PR mapping.
+**Do not reach for `--search 'linked:issue <n>'`.** `linked:issue` is a *boolean* qualifier meaning "this PR is linked to some issue". The number after it is parsed as a free-text term, not an issue filter, so the search returns PRs linked to unrelated issues that merely mention that number somewhere. On `cli/cli`, `linked:issue 10` comes back with PRs about keyring failures and SAML enforcement — none of them touching issue #10. It fails the way everything else in this adapter fails: plausible output, exit 0, wrong answer.
+
+A repo-wide `gh pr list --state open` is still worth one look for orphans — a fix PR that never referenced its issue — but treat it as a separate sweep, and confirm each candidate's actual relationship to the issue before acting on it.
 
 A fix PR sitting open for days with one red job is a finding in its own right, and often a *shared* one: on one run two unrelated auto-fix PRs were both blocked by the same flaky test that had landed on the default branch days earlier. Neither PR had touched the code the test covers.
 
