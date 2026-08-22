@@ -242,6 +242,14 @@ a dead cron is a false positive. Open at roughly twice the configured interval, 
 only while the result is still capped at 100. A daily function cannot be vouched for by a
 narrow pass at all — compare its last run against its schedule instead.
 
+**Enumerate the schedules before you call any function missing.** Read every
+`export const config` in `netlify/functions/*.ts` and note its `schedule` cron. A function
+whose interval is longer than the window is *supposed* to be absent from every pass:
+mergetel's `flush-batches-scheduled` runs `0 15 * * 1` (Mondays 15:00 UTC), so a 26h sweep
+sees five functions plus `___netlify-server-handler` and that is the correct, healthy
+result. Counting log-visible functions against the directory listing without reading the
+crons manufactures a dead-cron finding every run.
+
 ## 12. `netlify api ... > file.json` on PowerShell writes a BOM, and PS 5.1 chokes on it
 
 `netlify api listSiteDeploys --data '...' > deploys.json` in PowerShell writes UTF-8
@@ -299,3 +307,23 @@ branch is usually a *different* commit, so it says nothing about whether the fai
 fixed — the build could still break on that commit. Only a `ready` deploy carrying the same
 `commit_ref` proves recovery. If no later deploy shares the ref, report recovery as unknown
 rather than assuming either way.
+
+## 15. `curl -w '%{http_code}'` prints `000` and exits 43 on this box — do not read it as an outage
+
+Confirmed 2026-08-22 in Git Bash on `curl 8.8.0 (x86_64-w64-mingw32) ... Schannel`. Any
+`-w` format variable makes curl print `000` and exit **43** (`CURLE_BAD_FUNCTION_ARGUMENT`)
+even though the request itself succeeded — the body still downloads. It is not `-o
+/dev/null`; writing to a real file fails the same way:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}' https://merge.tel/updates   # -> 000, exit 43
+curl -s -o page.html -w '%{http_code}' https://merge.tel/updates   # -> 000, exit 43
+```
+
+This matters because confirming a finding against the live site is a standard triage step
+here (2026-08-21 confirmed issue #131 that way), and `000` reads exactly like "the site is
+down" — a false outage filed off a broken probe. Dump the headers instead; that path works:
+
+```bash
+curl -sS -D - -o /dev/null https://merge.tel/updates | head -1   # -> HTTP/1.1 200 OK
+```
