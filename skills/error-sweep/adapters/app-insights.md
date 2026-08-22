@@ -60,6 +60,28 @@ If every occurrence is in the first ~35 s of a fresh instance a few minutes afte
 - `traces`, `severityLevel >= 3` (and `== 2` for a second pass), 7d.
 - A recurring slow query at a stable rate on a small DTU tier is a **cost/tier fact, not a defect**. Note it so a future run does not rediscover it as new; do not file it.
 
+## 6b. Verifying a telemetry *suppression* — fire a synthetic probe with a control
+
+When a fix's job is to stop something reaching App Insights (a `TelemetryProcessor` that drops
+scanner 404s, a sampling rule, a filter), success looks exactly like "the traffic happened to stop".
+Waiting for the next natural occurrence can burn days — one project carried "suppression still
+unverified" for five runs because the scanner never re-probed the suppressed family.
+
+Do not wait. Issue the request yourself, alongside a **control** the filter is known *not* to match:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" -A "<sweep>-verify" "https://<host>/maps/site.css.map"   # suppressed?
+curl -s -o /dev/null -w "%{http_code}" -A "<sweep>-verify" "https://<host>/.DS_Store"           # control
+```
+
+Then query a narrow window (`--offset PT30M`) for both. The control is what makes the result
+readable: control present + target absent = the filter is live. Both absent means ingestion is
+lagging or broken and you have learned nothing yet — retry, do not conclude. Ingestion latency
+measured on Azure App Service is **under two minutes**.
+
+Pick a control that already exists in the ledger as known noise, so the test adds no new signature.
+Only ever probe paths that 404 by design — never a mutating route.
+
 ## 7. Deploy drift
 
 Compare `origin/<default branch>` head against the SHA of the last successful deploy workflow run. Prod running stale is a finding — it has silently happened for 3 days before.
