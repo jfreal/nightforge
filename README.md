@@ -71,8 +71,11 @@ skills/error-sweep/
   adapters/github-auto-issues.md  issues the app files about itself
 skills/docs-sweep/
   SKILL.md                      the weekly docs sweep — discover, audit, fix, draft PR
+skills/coderabbit-sweep/
+  SKILL.md                      the hourly CodeRabbit re-review sweep — find, gate, fire one
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
+docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
 docs/sync-docs.md               how this repo keeps its own docs from drifting
 .claude/skills/sync-docs/       the audit that enforces it (repo-local, not published)
 ```
@@ -160,6 +163,37 @@ cmd /c mklink /J "%USERPROFILE%\.claude\skills\docs-sweep" "<clone>\skills\docs-
 
 Then write the roster card into a weekly scheduled task (see
 [docs/docs-sweep-card-template.md](docs/docs-sweep-card-template.md)).
+
+## `coderabbit-sweep`
+
+CodeRabbit's review allowance is **per developer, across every repo you own** — at sustained
+activity it drops to one review per hour. PRs that open while it is spent get a *Review limit
+reached* comment instead of a review, and nothing ever retries them. This sweep is the retry: once
+an hour it lists every open PR the account owns, works out which ones have no finished review
+against their current head commit, and spends the one available review on the **single oldest**
+starved PR.
+
+One routine, one trigger per run, is the point. A trigger per repo is several jobs racing for one
+account-wide slot, none of them aware of the others — which is how you get a queue where the newest
+PR always wins and the oldest never gets reviewed at all. The sweep also refuses to fire inside a
+known throttle window, because a trigger sent while the allowance is spent is consumed and buys
+nothing.
+
+Completeness is judged on evidence, not on the bot's own wording: a PR counts as reviewed only when
+CodeRabbit has posted a review whose body starts with `**Actionable comments posted:` **at the PR's
+current head SHA** — or, when the pass found nothing, CodeRabbit posts no review object at all and
+the evidence is a *"Full review finished."* reply or a walkthrough naming that SHA. The rate-limit
+banner is not a live signal — it stays in the comment body after a later attempt succeeds — and
+empty-bodied "reviews" are just the bot replying in a thread.
+
+### Install
+
+```
+cmd /c mklink /J "%USERPROFILE%\.claude\skills\coderabbit-sweep" "<clone>\skills\coderabbit-sweep"
+```
+
+Then write the fleet card into an hourly scheduled task (see
+[docs/coderabbit-sweep-card-template.md](docs/coderabbit-sweep-card-template.md)).
 
 ## `sync-docs`
 

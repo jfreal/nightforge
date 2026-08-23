@@ -17,6 +17,13 @@
       "skills/docs-sweep/SKILL.md"
     ]
   },
+  "coderabbit-sweep-card": {
+    "doc": "docs/coderabbit-sweep-card-template.md",
+    "summary": "The fleet card: the only input coderabbit-sweep takes. One card per account rather than per repo (the review allowance is per developer), its fields (owner, excluded repos and PRs, drafts, trigger phrase, cooldown, ledger, report), and the rule for where a learned gotcha goes (card vs pipeline). Drifts whenever the pipeline changes what it reads off the card.",
+    "sources": [
+      "skills/coderabbit-sweep/SKILL.md"
+    ]
+  },
   "sync-docs": {
     "doc": "docs/sync-docs.md",
     "summary": "The doc-key mechanism itself: what a doc key is, how to tag a source, how to add and register a doc page, what the audit reports, and how to run it in audit vs fix scope.",
