@@ -83,10 +83,11 @@ from anyone, the client change never shipped, and *that* is the bug.
 its own 200 row, milliseconds before the GET it precedes. A naive "200 then 403 on the same query"
 reading invents a flapping privilege that was never there.
 
-## 7. `log_attributes` keys are PREFIXED, and a wrong key returns `''` instead of erroring
+## 7. The log-attribute keys are NAMESPACED — a flat key silently returns zero rows
 
-Confirmed 2026-08-23 on `auxf`. The obvious key names are all wrong, and ClickHouse's map access
-returns the **empty string** for a missing key rather than raising. So the natural first query —
+Confirmed 2026-08-23 on `auxf`, **lost, and re-confirmed 2026-08-24**. `log_attributes` is a
+ClickHouse `Map`, and a **missing key evaluates to `''` rather than raising**. So the natural first
+query —
 
 ```sql
 select log_attributes['error_severity'] as sev, count(*) from logs
@@ -94,39 +95,64 @@ where source='postgres_logs' and log_attributes['error_severity'] in ('ERROR','F
 group by sev
 ```
 
-— comes back with **zero rows**, exit 0, nothing on stderr. That reads as "no postgres errors" and
-is the same green-collector trap as the netlify adapter's §6/§8. On the run that found this, the
-true answer behind that empty result was 15 ERRORs and 15 403s.
+— comes back with **zero rows, exit 0, clean stderr**. That reads as "no postgres errors" and is the
+same green-collector trap as the netlify adapter's §6/§8. On the run that found it, the true answer
+behind that empty result was 15 postgres ERRORs and 15 HTTP 403s.
 
-The real keys are namespaced by their position in the source's payload:
+The 2026-08-23 run wrote the lesson up as "§7 of `adapters/supabase.md`" — and the section was never
+actually appended, so the 2026-08-24 run had to re-derive the whole thing. **Verify the file after
+editing it.**
 
-| Source | Wrong | Right |
+**Verified keys, per source** (`ivuwwlhsppeetfkijxbo`, 2026-08-24):
+
+| Source | Level / status key | Other useful keys |
 |---|---|---|
-| `postgres_logs` | `error_severity`, `sql_state_code` | `parsed.error_severity`, `parsed.sql_state_code`, `parsed.application_name`, `parsed.user_name`, `parsed.query`, `parsed.detail` |
-| `edge_logs` | `status_code` | `response.status_code`, `request.path`, `request.method`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip` |
-| `storage_logs` | `status` | `res.statusCode`, `level` |
-| `auth_logs` | — | `level`, `status`, `msg`, `path` (these ARE bare) |
-| `realtime_logs`, `supavisor_logs` | — | `level` (bare) |
-| `postgrest_logs`, `pgbouncer_logs` | `level` | **no `log_attributes['level']` key** — the map carries only `host`/`identifier`/`project`. Filter on `event_message` text, or on the `severity_text` base column where that is populated |
+| `postgres_logs` | `parsed.error_severity` | `parsed.sql_state_code`, `parsed.query`, `parsed.detail`, `parsed.user_name`, `parsed.command_tag`, `parsed.application_name` |
+| `edge_logs` | `response.status_code` (a **String** — wrap in `toInt32OrZero`) | `request.method`, `request.path`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip` |
+| `auth_logs` | `level` + `status` (these ARE bare) | `msg`, `path`, `component`, `remote_addr` |
+| `storage_logs` | `level` | `res.statusCode` seen 2026-08-23; absent from the 2026-08-24 pass |
+| `realtime_logs` | `level` | — |
+| `postgrest_logs` | **none** | `event_message` only; the map carries just `host`/`identifier`/`project` |
+| `pgbouncer_logs` | **none** | `event_message` only |
+| `supavisor_logs` | **none** on 2026-08-24; bare `level` seen 2026-08-23 | `event_message` |
+| `workflow_run_logs` | **none** | `event_message` only |
 
-Two consequences worth internalising:
+Flat `log_attributes['error_severity']` and `log_attributes['status_code']` exist on **no** source.
+The two rows above where the passes disagree are exactly the rows to re-derive before trusting —
+which the distribution query below does in one shot. Sources with no level field must be filtered on
+`event_message` text, or on the `severity_text` base column where that is populated, or you will
+examine nothing and call it clean.
 
-- **A per-source filter written for one tier silently no-ops on another.** One sweep filtered
-  seven sources on `log_attributes['level']`; `auth_logs` and `realtime_logs` honoured it while
-  `storage_logs` (needs `res.statusCode`), `postgrest_logs` and `pgbouncer_logs` (no `log_attributes['level']` key) were
-  never actually examined, and the combined result looked like a clean bill of health.
-- **Never trust a zero-row result until you have proven the key exists.** Discover the schema
-  first, per source, and only then write the filter:
+**A per-source filter written for one tier silently no-ops on another.** One sweep filtered seven
+sources on `log_attributes['level']`; `auth_logs` and `realtime_logs` honoured it while
+`storage_logs`, `postgrest_logs` and `pgbouncer_logs` were never actually examined, and the combined
+result looked like a clean bill of health.
 
-  ```sql
-  select source, arrayStringConcat(arraySort(mapKeys(log_attributes)), ', ') as keys, count(*) as n
-  from logs group by source, keys order by n desc
-  ```
+**Always run the unfiltered distribution first, then the filter.** One query proves the keys are
+real before any zero result is believed:
 
-  Cheap, and it is the only thing standing between a typo and a green report off a dead filter.
-  Note the key set varies *within* a source too (an `edge_logs` row with a JWT has ~20 more keys
-  than an anon one), so group by the key list rather than sampling one row.
+```sql
+select log_attributes['parsed.error_severity'] as sev, count(*) from logs
+ where source='postgres_logs' group by sev order by 2 desc
+select log_attributes['response.status_code'] as st, count(*) from logs
+ where source='edge_logs' group by st order by 2 desc
+```
 
-Sanity-check every zero: `select source, count(*) from logs group by source` proves the stream is
-alive, and a non-zero source with zero errors under your filter is the case that deserves a second
-look at the key name before you write "healthy" in the report.
+A healthy window looks like `{LOG: 164}` and `{200: 6766, 101: 25, 304: 3, 302: 2}` — every row
+accounted for. A **broken** key looks like a single `{'': 164}` bucket. Zero rows from the filter
+plus a populated distribution is the only zero result worth reporting. Sanity-check it further with
+`select source, count(*) from logs group by source`: that proves the stream is alive, and a non-zero
+source with zero errors under your filter is the case that deserves a second look at the key name
+before you write "healthy" in the report.
+
+**Discovering keys costs a lot of context — do it narrowly.** The full sweep works:
+
+```sql
+select source, arrayStringConcat(arraySort(mapKeys(log_attributes)), ', ') as keys, count(*) as n
+from logs group by source, keys order by n desc
+```
+
+but `edge_logs` alone has ~40 distinct key-sets of ~50 keys each and dumps tens of KB. Scope it to
+**one** source at a time with `limit 5`, and skip it entirely when the table above still matches.
+Group by the key list rather than sampling one row — the key set varies *within* a source too (an
+`edge_logs` row with a JWT has ~20 more keys than an anon one).

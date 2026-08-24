@@ -24,6 +24,17 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
 - **Keep KQL on one line.** A multi-line `--analytics-query` runs only line 1 on this Windows `az` and returns a plausible *wrong* table — the worst possible failure mode.
 - `az` returns column-oriented tables. Flatten to row objects before doing anything else.
 - If `az monitor app-insights query` returns zero rows where you expect data, the workspace-backed path is the fallback: `az monitor log-analytics query -w <workspace_id> --analytics-query "AppExceptions | ..."`. Note the table names differ (`AppExceptions`, not `exceptions`).
+- **A handled, logged error arrives in `exceptions`, not `traces`.** The App Insights `ILogger`
+  provider ships any `LogError`/`LogWarning` that *carries an exception object* as
+  `ExceptionTelemetry`. So a `catch (Exception ex) { _logger.LogError(ex, "Pass failed"); }` produces
+  an `exceptions` row and **no** matching `traces` row — searching `traces` for the log message finds
+  nothing and reads as "it never happened". Two consequences. First, never conclude a catch block did
+  not run because its message is missing from `traces`. Second, this is how you tell handled from
+  unhandled without reading the stack: `customDimensions.CategoryName` on an exception row is the
+  *logger category*, i.e. the class that caught and logged it. A framework category
+  (`Microsoft.EntityFrameworkCore.Query`, `Microsoft.AspNetCore.*`) means nothing of the app's caught
+  it; an application category means something did — go read that class's handler before classifying
+  it a bug.
 
 ## 3. Exceptions
 
@@ -63,6 +74,21 @@ If every occurrence is in the first ~35 s of a fresh instance a few minutes afte
 
 ## 6b. Verifying a telemetry *suppression* — fire a synthetic probe with a control
 
+**First check you actually need this section.** It is expensive — a control, a threshold check, a
+narrow-window query — and it is only needed when the fix's success condition is *absence from
+telemetry*. If the fix changed what the **HTTP response is** — a redirect, a new route, a status-code
+change — verify it at the HTTP layer instead and stop:
+
+```bash
+curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}\n" "https://<host>/apple-touch-icon-180x180.png"
+```
+
+A 301/200 answer is complete proof on its own, needs no control, and costs **no telemetry at all**
+because the request never reaches the 404 handler — so it cannot nudge a route over a filing
+threshold the way a suppression probe can. One run verified four redirect paths this way in a single
+command with zero side effects, the same week the suppression path had manufactured its own issue.
+Reach for the control-and-window machinery below only when there is no response to look at.
+
 When a fix's job is to stop something reaching App Insights (a `TelemetryProcessor` that drops
 scanner 404s, a sampling rule, a filter), success looks exactly like "the traffic happened to stop".
 Waiting for the next natural occurrence can burn days — one project carried "suppression still
@@ -82,6 +108,24 @@ measured on Azure App Service is **under two minutes**.
 
 Pick a control that already exists in the ledger as known noise, so the test adds no new signature.
 Only ever probe paths that 404 by design — never a mutating route.
+
+**Your probe is real telemetry, and a CI triage workflow will file an issue about it.** On one
+project the control (`GET /.DS_Store`) sat at 6 hits in the window — one short of the filing
+workflow's repeat threshold. The single verification probe made it 7. Two and a half hours later
+the daily triage workflow auto-filed an issue for the route, and a fix PR was opened to suppress
+it. The sweep manufactured its own finding, and nothing in the issue said so.
+
+So before firing a control, check where it stands against the *filing* threshold, not just against
+your ledger — a route already well above the threshold (already filed, already tracked) is safe,
+and one sitting just under it is not. Check the target's count too, but read it the other way round:
+if suppression works the target probe is never ingested, so it cannot advance the count at all. A
+target that *does* appear and crosses the threshold has not proved the suppression — it has proved
+the suppression failed, and the issue that gets filed is a real one.
+
+Then re-pick the control every time. Once a suppression PR lands, the control it used stops being
+a control — the filter now matches it, and the next verification reads "both absent" and concludes
+"ingestion is broken" when in fact the technique lost its reference. Confirm the processor still
+does not match your control before trusting the result.
 
 ## 7. Deploy drift
 

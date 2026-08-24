@@ -328,3 +328,22 @@ down" — a false outage filed off a broken probe. Dump the headers instead; tha
 ```bash
 curl -sS -D - -o /dev/null https://merge.tel/updates | head -1   # -> HTTP/1.1 200 OK
 ```
+
+## 16. A silent edge tier gives the same `No logs found` as a missing one — read the code, not the CLI
+
+§10 says the `No logs found for the given time range.` one-liner is what an *empty source* returns,
+and §8 says a near-empty `--source edge-functions` pass can be the repeated-`--source` CLI defect.
+There is a **third** cause, and on `auxf` it is the actual one: edge functions that never call
+`console.*` emit **nothing**, however often they run.
+
+`auxf`'s `netlify/edge-functions/route-meta.ts` declares `export const config = { path: '/*' }` —
+it runs on every single request to the site — and both its error pass and its unfiltered pass came
+back as the one-liner on 2026-08-23 and 2026-08-24. That is correct and healthy. Only a
+`console.error` inside the function would ever produce a line.
+
+So before writing up an empty edge tier as a broken collector, **read
+`netlify/edge-functions/*.ts`**: check whether any of them logs at all. If none do, the tier is
+structurally invisible to this adapter — say exactly that in the report's unseen-classes list, and
+do not re-diagnose it as the §8 defect every run. The distinguishing evidence is the *functions*
+source: `--source functions` returning hundreds of lines in the same invocation style proves the
+CLI is fine.
