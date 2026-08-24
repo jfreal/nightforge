@@ -83,6 +83,22 @@ measured on Azure App Service is **under two minutes**.
 Pick a control that already exists in the ledger as known noise, so the test adds no new signature.
 Only ever probe paths that 404 by design — never a mutating route.
 
+**Your probe is real telemetry, and a CI triage workflow will file an issue about it.** On one
+project the control (`GET /.DS_Store`) sat at 6 hits in the window — one short of the filing
+workflow's repeat threshold. The single verification probe made it 7. Two and a half hours later
+the daily triage workflow auto-filed an issue for the route, and a fix PR was opened to suppress
+it. The sweep manufactured its own finding, and nothing in the issue said so.
+
+So before firing a control, check where it stands against the *filing* threshold, not just against
+your ledger — a route already well above the threshold (already filed, already tracked) is safe,
+and one sitting just under it is not. And check the target the same way: a suppressed family that
+is still one hit from filing will file on the probe that proves the suppression works.
+
+Then re-pick the control every time. Once a suppression PR lands, the control it used stops being
+a control — the filter now matches it, and the next verification reads "both absent" and concludes
+"ingestion is broken" when in fact the technique lost its reference. Confirm the processor still
+does not match your control before trusting the result.
+
 ## 7. Deploy drift
 
 Compare `origin/<default branch>` head against the SHA of the last successful deploy workflow run. Prod running stale is a finding — it has silently happened for 3 days before.
