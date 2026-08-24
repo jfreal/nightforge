@@ -13,12 +13,13 @@ Retention is **24 hours**. A window wider than that silently returns 24h of data
 
 ## 2. Filters — these streams are extremely noisy
 
-Keep only — but read **§7 first** for the actual `log_attributes` key names. The field names in this
-table are the logical ones, not the literal keys, and a literal-looking guess returns `''` silently:
+Keep only — but read **§7 first** for the actual `log_attributes` key names. Where a row below names
+a field it is the *literal* map key, so write it out in full: `log_attributes['parsed.error_severity']`.
+The bare `log_attributes['error_severity']` returns `''` silently rather than erroring:
 
 | Service | Keep | Drop |
 |---|---|---|
-| `postgres` | `parsed.error_severity` in ERROR / FATAL / PANIC | **every `LOG` line.** Checkpoints, logical decoding, `could not receive data from client`, `unexpected EOF on standby connection` are all routine |
+| `postgres` | `log_attributes['parsed.error_severity']` in ERROR / FATAL / PANIC | **every `LOG` line.** Checkpoints, logical decoding, `could not receive data from client`, `unexpected EOF on standby connection` are all routine |
 | `api` | status >= 500 | 4xx — usually RLS doing its job. Flag a 4xx only if it is high-volume on a path the app itself calls |
 | `auth` | errors and stack traces | warnings |
 | `edge-function` | errors and stack traces | info/log |
@@ -106,13 +107,13 @@ The real keys are namespaced by their position in the source's payload:
 | `storage_logs` | `status` | `res.statusCode`, `level` |
 | `auth_logs` | — | `level`, `status`, `msg`, `path` (these ARE bare) |
 | `realtime_logs`, `supavisor_logs` | — | `level` (bare) |
-| `postgrest_logs`, `pgbouncer_logs` | `level` | **no level field at all** — only `host`/`identifier`/`project`. Filter on `event_message` text |
+| `postgrest_logs`, `pgbouncer_logs` | `level` | **no `log_attributes['level']` key** — the map carries only `host`/`identifier`/`project`. Filter on `event_message` text, or on the `severity_text` base column where that is populated |
 
 Two consequences worth internalising:
 
 - **A per-source filter written for one tier silently no-ops on another.** One sweep filtered
   seven sources on `log_attributes['level']`; `auth_logs` and `realtime_logs` honoured it while
-  `storage_logs` (needs `res.statusCode`), `postgrest_logs` and `pgbouncer_logs` (no `level`) were
+  `storage_logs` (needs `res.statusCode`), `postgrest_logs` and `pgbouncer_logs` (no `log_attributes['level']` key) were
   never actually examined, and the combined result looked like a clean bill of health.
 - **Never trust a zero-row result until you have proven the key exists.** Discover the schema
   first, per source, and only then write the filter:
