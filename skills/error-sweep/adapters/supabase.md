@@ -80,3 +80,51 @@ from anyone, the client change never shipped, and *that* is the bug.
 **Read `request.method` before you believe a 200.** Supabase logs the CORS **OPTIONS** preflight as
 its own 200 row, milliseconds before the GET it precedes. A naive "200 then 403 on the same query"
 reading invents a flapping privilege that was never there.
+
+## 7. The log-attribute keys are NAMESPACED — a flat key silently returns zero rows
+
+Confirmed 2026-08-23, **lost, and re-confirmed 2026-08-24**. `log_attributes` is a ClickHouse
+`Map`, and a **missing key evaluates to `''` rather than raising**. So a filter written against a
+key that does not exist returns **zero rows, exit 0, clean stderr** — the exact green-collector
+trap `SKILL.md` warns about, and it reads as a perfectly healthy project.
+
+The 2026-08-23 run hit this and reported 0 errors when the true answer was 15 postgres ERRORs and
+15 HTTP 403s. It wrote the lesson up as "§7 of `adapters/supabase.md`" — and the section was never
+actually appended, so the 2026-08-24 run had to re-derive it. Verify the file after editing it.
+
+**Verified keys, per source** (`ivuwwlhsppeetfkijxbo`, 2026-08-24):
+
+| Source | Level / status key | Other useful keys |
+|---|---|---|
+| `postgres_logs` | `parsed.error_severity` | `parsed.sql_state_code`, `parsed.query`, `parsed.detail`, `parsed.user_name`, `parsed.command_tag` |
+| `edge_logs` | `response.status_code` (a **String** — wrap in `toInt32OrZero`) | `request.method`, `request.path`, `request.search`, `request.headers.referer`, `request.sb.auth_user` |
+| `auth_logs` | `level` + `status` | `msg`, `path`, `component`, `remote_addr` |
+| `storage_logs` | `level` | — |
+| `realtime_logs` | `level` | — |
+| `postgrest_logs` | **none** | `event_message` only |
+| `pgbouncer_logs` | **none** | `event_message` only |
+| `supavisor_logs` | **none** | `event_message` only |
+| `workflow_run_logs` | **none** | `event_message` only |
+
+Flat `log_attributes['error_severity']` and `log_attributes['status_code']` exist on **no** source.
+`postgrest_logs`/`pgbouncer_logs`/`supavisor_logs`/`workflow_run_logs` have no level field at all —
+filter them on `event_message` text or you will examine nothing and call it clean.
+
+**Always run the unfiltered distribution first, then the filter.** One query proves the keys are
+real before any zero result is believed:
+
+```sql
+select log_attributes['parsed.error_severity'] as sev, count(*) from logs
+ where source='postgres_logs' group by sev order by 2 desc
+select log_attributes['response.status_code'] as st, count(*) from logs
+ where source='edge_logs' group by st order by 2 desc
+```
+
+A healthy window looks like `{LOG: 164}` and `{200: 6766, 101: 25, 304: 3, 302: 2}` — every row
+accounted for. A **broken** key looks like a single `{'': 164}` bucket. Zero rows from the filter
+plus a populated distribution is the only zero result worth reporting.
+
+**Discovering keys costs a lot of context — do it narrowly.** `select arrayStringConcat(arraySort(
+mapKeys(log_attributes)),', '), count(*) ... group by 1` works, but `edge_logs` alone has ~40
+distinct key-sets of ~50 keys each and dumps tens of KB. Scope it to **one** source at a time with
+`limit 5`, and skip it entirely when the table above still matches.
