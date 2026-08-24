@@ -13,11 +13,13 @@ Retention is **24 hours**. A window wider than that silently returns 24h of data
 
 ## 2. Filters — these streams are extremely noisy
 
-Keep only:
+Keep only — but read **§7 first** for the actual `log_attributes` key names. Where a row below names
+a field it is the *literal* map key, so write it out in full: `log_attributes['parsed.error_severity']`.
+The bare `log_attributes['error_severity']` returns `''` silently rather than erroring:
 
 | Service | Keep | Drop |
 |---|---|---|
-| `postgres` | `error_severity` in ERROR / FATAL / PANIC | **every `LOG` line.** Checkpoints, logical decoding, `could not receive data from client`, `unexpected EOF on standby connection` are all routine |
+| `postgres` | `log_attributes['parsed.error_severity']` in ERROR / FATAL / PANIC | **every `LOG` line.** Checkpoints, logical decoding, `could not receive data from client`, `unexpected EOF on standby connection` are all routine |
 | `api` | status >= 500 | 4xx — usually RLS doing its job. Flag a 4xx only if it is high-volume on a path the app itself calls |
 | `auth` | errors and stack traces | warnings |
 | `edge-function` | errors and stack traces | info/log |
@@ -80,3 +82,51 @@ from anyone, the client change never shipped, and *that* is the bug.
 **Read `request.method` before you believe a 200.** Supabase logs the CORS **OPTIONS** preflight as
 its own 200 row, milliseconds before the GET it precedes. A naive "200 then 403 on the same query"
 reading invents a flapping privilege that was never there.
+
+## 7. `log_attributes` keys are PREFIXED, and a wrong key returns `''` instead of erroring
+
+Confirmed 2026-08-23 on `auxf`. The obvious key names are all wrong, and ClickHouse's map access
+returns the **empty string** for a missing key rather than raising. So the natural first query —
+
+```sql
+select log_attributes['error_severity'] as sev, count(*) from logs
+where source='postgres_logs' and log_attributes['error_severity'] in ('ERROR','FATAL','PANIC')
+group by sev
+```
+
+— comes back with **zero rows**, exit 0, nothing on stderr. That reads as "no postgres errors" and
+is the same green-collector trap as the netlify adapter's §6/§8. On the run that found this, the
+true answer behind that empty result was 15 ERRORs and 15 403s.
+
+The real keys are namespaced by their position in the source's payload:
+
+| Source | Wrong | Right |
+|---|---|---|
+| `postgres_logs` | `error_severity`, `sql_state_code` | `parsed.error_severity`, `parsed.sql_state_code`, `parsed.application_name`, `parsed.user_name`, `parsed.query`, `parsed.detail` |
+| `edge_logs` | `status_code` | `response.status_code`, `request.path`, `request.method`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip` |
+| `storage_logs` | `status` | `res.statusCode`, `level` |
+| `auth_logs` | — | `level`, `status`, `msg`, `path` (these ARE bare) |
+| `realtime_logs`, `supavisor_logs` | — | `level` (bare) |
+| `postgrest_logs`, `pgbouncer_logs` | `level` | **no `log_attributes['level']` key** — the map carries only `host`/`identifier`/`project`. Filter on `event_message` text, or on the `severity_text` base column where that is populated |
+
+Two consequences worth internalising:
+
+- **A per-source filter written for one tier silently no-ops on another.** One sweep filtered
+  seven sources on `log_attributes['level']`; `auth_logs` and `realtime_logs` honoured it while
+  `storage_logs` (needs `res.statusCode`), `postgrest_logs` and `pgbouncer_logs` (no `log_attributes['level']` key) were
+  never actually examined, and the combined result looked like a clean bill of health.
+- **Never trust a zero-row result until you have proven the key exists.** Discover the schema
+  first, per source, and only then write the filter:
+
+  ```sql
+  select source, arrayStringConcat(arraySort(mapKeys(log_attributes)), ', ') as keys, count(*) as n
+  from logs group by source, keys order by n desc
+  ```
+
+  Cheap, and it is the only thing standing between a typo and a green report off a dead filter.
+  Note the key set varies *within* a source too (an `edge_logs` row with a JWT has ~20 more keys
+  than an anon one), so group by the key list rather than sampling one row.
+
+Sanity-check every zero: `select source, count(*) from logs group by source` proves the stream is
+alive, and a non-zero source with zero errors under your filter is the case that deserves a second
+look at the key name before you write "healthy" in the report.
