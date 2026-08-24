@@ -87,6 +87,25 @@ Drop:
 If the ledger's `throttledUntil` is in the future, **stop**. Report "throttled until `<time>`,
 nothing fired" and exit clean. This is not a failure; it is the run doing its job.
 
+**A live ledger window can also be too *short* — the gate is `max(ledger, newest block reset)`, not
+whichever you checked first.** Step 5 writes `throttledUntil` = fire + 60 minutes, but a *later*
+losing attempt inside that hour writes its own block, and that block's reset is later still. On a
+fleet with fix agents this is routine: the fired PR gets its review, the agent pushes over it, and
+the new head's automatic review loses and leaves a block. Observed 2026-08-24T17:11Z:
+`colchesterctbudget#61` fired 16:14:51Z (ledger window 17:14:51Z), head pushed twice past the
+reviewed SHA, and its new head drew a block at 16:25:07Z saying 50 minutes → **17:15:07Z**, 16
+seconds past the ledger's. Cheap to get right and it costs a burned slot to get wrong, so scan the
+blocks on every run — gated or not — and take the later of the two.
+
+**The ledger's window is a *floor*, not the truth — it is stamped before the comment is posted.**
+Step 5 reserves the entry at `now + 60min` and only then calls `gh pr comment`, so the recorded
+window ends earlier than the real one by however long the reservation-to-post gap was. Observed
+2026-08-24: the `auxf#258` entry reads `at: 18:12:40Z` (window `19:12:40Z`) while the trigger comment
+actually landed `18:14:10Z`, so the true hour ran to `19:14:10Z` — 90 seconds past what the ledger
+claimed. A run ticking inside that gap reads "expired" on a window that is still live. The entry's
+`note` usually records the real fire time; when it does, gate on that instead, and otherwise treat a
+ledger window that expired **within the last few minutes** as still closed.
+
 **An expired ledger window is not an open slot — always re-derive.** The allowance is account-wide,
 and *automatic* reviews on newly opened PRs compete for it against this sweep. On 2026-08-24 the
 `23:13:17Z` fire's hour ran out at `00:13Z` and an automatic review took the freed slot at ~`00:26Z`
@@ -155,6 +174,22 @@ Get the attempt time from the reviewed commit, not the review:
 gh api repos/<slug>/commits/<reviewed-sha> --jq '.commit.committer.date'
 ```
 
+**The step 1 search only sees *open* PRs, so a review that landed on a since-closed one is
+invisible to both scans above.** Step 3 walks the open fleet, and a PR that took the slot and then
+merged carries its review out of view with it — the derive reads the fleet as open and the run
+fires into a spent hour. Before firing on an expired window, sweep recently-touched PRs *including
+closed ones*:
+
+```
+gh search prs --owner <owner> --limit 30 --json repository,number,state,updatedAt --updated '><now minus ~90min>'
+```
+
+and check any PR not already classified for a CodeRabbit review. Observed 2026-08-24T14:11Z:
+`jfreal/pheidi#611` was created `13:32:38Z` and merged `13:32:41Z` — three seconds later — and had
+**no CodeRabbit comment or review object at all**, so it never touched the allowance and the fire
+went ahead. That is the cheap, common case; the expensive one is a PR that *was* reviewed and then
+merged, which this check is here to catch.
+
 **The hour runs from the attempt, not the completion.** Two rate-limit blocks on 2026-08-23
 (`nightforge#7` at 19:11:53Z saying 43 minutes, `colchesterctbudget#59` at 19:14:41Z saying 40) both
 resolve to ~19:54:5xZ — exactly 60 minutes after `colchesterctbudget#58` was *opened* at 18:54:59Z,
@@ -216,6 +251,17 @@ Both halves matter:
   A PR can carry six of them at head SHA and still have never been reviewed.
 - A review at an **older** SHA is a real review of code that has since moved. It is stale, and a
   legitimate candidate — but it ranks below never-reviewed PRs (step 4).
+- A review whose body opens with a **`> [!CAUTION]` / "Some comments are outside the diff and
+  can't be posted inline" block** is a real, substantive review pass that never contains the
+  `Actionable comments posted:` string at all — the findings all landed outside the diff, so
+  CodeRabbit posts them as one blockquote instead. A `startswith("**Actionable comments posted:")`
+  test rejects it and the PR reads as *stale* (or *never*) while its head was reviewed minutes ago,
+  so the sweep spends a slot re-reviewing finished work. Accept a bot review as a pass when its
+  body is non-empty **and** either starts with `**Actionable comments posted:` or contains
+  `Outside diff range comments`. Observed 2026-08-24T12:21:42Z on `jfreal/nightforge#6`
+  (`pullrequestreview-5007711786`, head `a4e0aaa1`, 2 outside-diff findings): the summary comment
+  carried **no `recent_review` block either**, so both usual completion tests missed it and the
+  13:11Z run had it queued as stale.
 
 **A clean review posts no review object at all.** When CodeRabbit finishes a pass and has nothing to
 say, it does *not* post an `Actionable comments posted: 0` review — `pulls/<n>/reviews` stays `[]`
@@ -359,6 +405,14 @@ either an `Actionable comments posted` review object whose `commit_id` is head, 
 block whose head SHA is head. Nothing else counts as completion here, exactly as in step 3: not a
 walkthrough, not a *"Full review finished."* reply. Those are corroboration for the report.
 
+**"Current" here means the head you *fired at*, not the head at poll time.** On a fleet with active
+fix agents the branch can move while the review is running, so a result naming the step 5 baseline
+SHA while the PR's head has advanced is a **delivered** review, not a failure — the slot was bought
+and spent. Judge the outcome against `baseline.head`; judge the *board* against live head. Observed
+2026-08-24: `colchesterctbudget#61` fired 16:14:51Z, head moved `5b18aa7e` → `510dd8be` at 16:16:55Z,
+review landed 16:21:04Z at `5b18aa7e`. Scoring that `pending` or `throttled` would re-fire a PR whose
+review already arrived and burn the next hour on it.
+
 Four outcomes, each written to the ledger's `fired` entry (which step 5 already created as
 `unknown`):
 
@@ -385,18 +439,126 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
 Do not extend the poll to cover a slow review. A `pending` outcome costs nothing — the next run
 sees the finished review and moves on.
 
-## Step 7 — Ledger and report
+**Record the link to the result, on every outcome.** Add `reviewUrl` to the ledger entry and put it
+in the report — the whole point of a fire is the review it bought, and a bare `outcome: "reviewed"`
+makes a human go hunting for it. Ask for `html_url` in the same call that classifies the outcome;
+both endpoints return it, so this costs nothing extra:
 
-Write the ledger back, then append one block to the card's report path (one file per day, one block
-per run — hourly runs make a per-run file worthless):
+```
+gh api --paginate repos/<slug>/pulls/<n>/reviews --jq '.[] | select((.user.login=="coderabbitai[bot]") and (.body|startswith("**Actionable comments posted:"))) | "\(.submitted_at) \(.commit_id) \(.html_url)"'
+gh api --paginate repos/<slug>/issues/<n>/comments  --jq '.[] | select((.user.login=="coderabbitai[bot]") and (.body|contains("summarize by coderabbit.ai"))) | "\(.updated_at) \(.html_url)"'
+```
 
-- the time, the throttle-gate decision, and why
-- the PR fired: slug, number, age, why it was starved, and the step 6 outcome
-- the candidates not fired, one line each: slug#number, age, and reason (never reviewed / stale /
-  cooling down)
-- anything that failed, loudly — a repo whose API calls errored is not a repo with no starved PRs
+Which URL depends on the outcome, and **a `reviewed` outcome does not always have a review object**
+— a clean pass posts none (step 3), so roughly a third of fires can only be linked through the
+summary comment holding the `recent_review` block. Record which kind it is alongside the URL, as
+`reviewUrlKind`, so a later reader knows whether an absent review object was a miss or a clean pass:
 
-Then summarize to chat in three lines or fewer. Hourly runs must not produce hourly walls of text.
+| Outcome | Link | `reviewUrlKind` |
+|---|---|---|
+| `reviewed`, review object at head | the review's `html_url` | `review-object` |
+| `reviewed`, clean pass (no review object) | the summary comment's `html_url` | `summary-comment` |
+| `throttled` / `skipped` | the summary comment carrying the fresh block | `summary-comment` |
+| `pending` | the summary comment (it holds the `review in progress` marker) | `summary-comment` |
+
+A `pending` entry's link should be **re-pointed at the review object** when the next run reconciles
+it — that is when the object finally exists.
+
+**Reconcile the previous run's entry before anything else — including on a gated run.** `pending`
+and `unknown` are poll artifacts, not verdicts: the review usually lands a minute or two after the
+poll gives up. Observed 2026-08-24: `nightforge#7` was written `pending` at a poll ending 11:18:41Z
+and its review object landed at 11:20:27Z, 1m46s later. Left uncorrected, the ledger accumulates
+`pending` entries that read as failed fires and make the routine look like it is buying nothing. Do
+this check even when step 2 gates the run — a gated run has spare budget and nothing else to do, and
+the correction is two API calls. Never change `throttledUntil` while reconciling: the hour runs from
+the attempt, so it is already right whatever the outcome turns out to be.
+
+## Step 7 — Ledger, board, report
+
+Write the ledger back. Then update the **board** — the run's real deliverable — and only then the
+text log.
+
+### The board
+
+The board is a published Artifact, republished in place every run, answering one question: *which
+unmerged PRs are there, and which of them has the sweep bought a review for?* It is the thing a
+human actually looks at; the daily markdown is an audit trail they will not read.
+
+**Scope it to unmerged PRs only.** A merged PR is finished work — carrying it on the board buries
+the live queue under history. Fires whose PR has since merged drop off into a collapsed footnote
+with a count, nothing more. Get merge state from the same call that gets the head SHA:
+
+```
+gh api repos/<slug>/pulls/<n> --jq '"\(.state) merged=\(.merged) \(.head.sha)"'
+```
+
+`state` alone is not enough — a closed PR may be merged or abandoned, and `merged` is the field
+that tells them apart.
+
+**One dense table, and nothing else.** The owner asked for this explicitly on 2026-08-24: no hero,
+no headline, no intro paragraph, no cards, no per-PR panels — a small grid that scans in one pass.
+The whole board is a header line, a table, and a footnote. It is an instrument readout, not a
+document, and a run that "improves" it back into sections and cards has broken it. Keep:
+
+- **A single one-line header bar** of counts and stamps — unmerged / cover head / stale / never
+  reviewed / swept, plus slot state and generated time. No `<h1>` above 12px; the page title element
+  carries the name.
+- **One row per unmerged PR**, ~13px type, mono for every datum, `tabular-nums` throughout, zebra
+  striping, sticky header. Columns: state, PR, title, age, diff, findings, head, swept, review link.
+- **State as a left border colour plus a one-word label** — `never` / `stale` / `current`. That is
+  the classification from step 3 against *current head*, never a bare "reviewed": a review at a
+  superseded SHA is this fleet's most common state (see the card), and a board that calls it
+  reviewed is telling a comfortable lie.
+- **Sort by attention, not by repo**: never reviewed first, then stale, then current; oldest first
+  within each. Grouping headings are unnecessary once the state column sorts — that is what
+  replaced the two-section layout.
+- **The `head` column shows the current SHA, and after an arrow the SHA actually reviewed** when the
+  two differ. One column, whole story.
+- **Two separate columns for the two different facts** — *re-reviewed* and *throttle notice*. They
+  are independent, and collapsing them into one "status" makes the board unreadable. A PR can be
+  both at once: `nightforge#7` on 2026-08-24 was re-reviewed at 11:13Z, pushed over at 11:24Z, and
+  its new head picked up a throttle block 13 seconds later. **Re-reviewed** says CodeRabbit answered,
+  tagged `sweep` (this routine bought the slot) or `auto` (CodeRabbit ran on its own) — never blank
+  when a review exists. **Throttle notice** says a *Review limit reached* block is sitting on the
+  PR's current head, so that code was never looked at.
+
+**A throttle notice counts only when its block names current head.** The block persists in the
+summary comment body after a later attempt succeeds (step 3), so presence of the marker proves
+nothing. Slice the rate-limited section, pull the head SHA out of the
+`Reviewing files that changed … between <base> and <head>` line *inside that section*, and show the
+notice only when it equals the PR's head. Anything older is a leftover from a superseded commit and
+must not be shown — it makes reviewed work look starved.
+
+Show **how long it has waited** (now minus the block's `updated_at`), not the vendor's countdown.
+The countdown is minutes-from-then and is almost always long expired by the time anyone reads the
+board — on 2026-08-24T12:55Z all seven blocks in the fleet had expired, the oldest 26 hours prior.
+Waited-time is the number that says which PR is starving; the countdown only says whether *that
+attempt* could have run. If a window genuinely is still open, say so instead.
+
+Drafts and swept-then-merged PRs go in one collapsed `<details>` line at the bottom, name and link
+only.
+
+**Republish to the same URL — never publish a second board.** The URL is the thing a human bookmarks;
+a new one every hour makes it useless. Store it in the ledger as `boardUrl` and pass it as the
+`url` argument on every republish, because an unattended run is a *different conversation* from the
+one that first published and would otherwise silently create a duplicate:
+
+```json
+{"boardUrl": "https://claude.ai/code/artifact/<id>", "throttledUntil": "...", "fired": [...]}
+```
+
+Missing `boardUrl`: publish a fresh board and write the URL back. Keep the title and favicon stable
+across republishes — the reader finds the tab by its icon.
+
+### The text log
+
+Append one block to the card's report path (one file per day, one block per run — hourly runs make
+a per-run file worthless): the time and the throttle-gate decision; the PR fired with its outcome
+and `reviewUrl`; the candidates not fired, one line each; and anything that failed, loudly — a repo
+whose API calls errored is not a repo with no starved PRs.
+
+Then summarize to chat in three lines or fewer, ending with the board link. Hourly runs must not
+produce hourly walls of text.
 
 ## When you learn something
 
