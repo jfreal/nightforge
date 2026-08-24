@@ -29,7 +29,7 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 
 | Field | Value |
 |---|---|
-| **Owner** | `<github login or org>` |
+| **Owner** | `<github login or org>` — one card may list several, comma-separated |
 | **Exclude repos** | `<repo>`, `<repo>` — <why, one clause each> |
 | **Exclude PRs** | `<slug>#<n>` — <why> |
 | **Include drafts** | **no** (default) / yes |
@@ -50,9 +50,11 @@ Add a row the run you learn one.
 ## Filling in the fields
 
 **Owner** — one `gh search prs --owner <owner>` covers every repo it owns, so this is the whole
-roster. Sweeping more than one owner means more than one line here and a merged candidate list; the
-one-trigger-per-run cap still applies across all of them, because the allowance is per developer,
-not per owner.
+roster. For several owners, list them all in the one Owner row: `--owner` is repeatable, so they
+become `--owner <a> --owner <b>` in a **single** search, not one card each and not one search per
+owner. The one-trigger-per-run cap spans every owner on the card, because the allowance is per
+developer, not per owner — and a second card would be a second runner fighting the first for the
+same slot, which is the problem this sweep was built to end.
 
 **Exclude repos** — repos where CodeRabbit is not installed. They cost an API round trip per run
 and can never produce a candidate. A repo with no CodeRabbit comment on any PR is the tell.

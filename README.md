@@ -181,10 +181,12 @@ nothing.
 
 Completeness is judged on evidence, not on the bot's own wording: a PR counts as reviewed only when
 CodeRabbit has posted a review whose body starts with `**Actionable comments posted:` **at the PR's
-current head SHA** — or, when the pass found nothing, CodeRabbit posts no review object at all and
-the evidence is a *"Full review finished."* reply or a walkthrough naming that SHA. The rate-limit
-banner is not a live signal — it stays in the comment body after a later attempt succeeds — and
-empty-bodied "reviews" are just the bot replying in a thread.
+current head SHA**, or — when the pass found nothing and so posted no review object at all — a
+`recent_review` block naming that SHA. Those two are the whole contract. A walkthrough is not one: it
+is a summary, and CodeRabbit posts one on PRs whose review was throttled. Neither is the
+*"Full review finished."* reply, which is vendor-worded prose. The rate-limit banner is not a live
+signal either — it stays in the comment body after a later attempt succeeds — and empty-bodied
+"reviews" are just the bot replying in a thread.
 
 ### Install
 

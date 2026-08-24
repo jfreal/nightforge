@@ -61,11 +61,22 @@ Missing or unparseable ledger: treat it as empty, say so in the report, carry on
 ## Step 1 — Enumerate the fleet's open PRs
 
 ```
-gh search prs --owner <owner> --state open --limit 100 --json repository,number,title,createdAt,isDraft,url
+gh search prs --owner <owner> --state open --limit 1000 --json repository,number,title,createdAt,isDraft,url
 ```
 
 One search covers every repo the owner has — no per-repo loop, no roster to maintain, and a new
-repo joins the sweep the day it gets its first PR. Drop:
+repo joins the sweep the day it gets its first PR.
+
+**`--owner` is repeatable**, so a card naming several owners becomes
+`--owner <a> --owner <b>` in one search, not one search per owner. The one-trigger cap still spans
+all of them: the allowance is per developer, not per owner.
+
+**Never cap the search below the fleet's real size.** `--limit` defaults to **30** — leave it at the
+default and a fleet with 31 open PRs silently loses the oldest starved one, and the run reports a
+healthy fleet it never saw. 1000 is the search API's ceiling. If the result count comes back *equal*
+to the limit, the list is truncated: say so in the report and do not claim the fleet is clean.
+
+Drop:
 
 - PRs in the card's excluded repos or excluded PR list,
 - draft PRs, unless the card says drafts count (see the draft trap in step 3),
@@ -76,15 +87,47 @@ repo joins the sweep the day it gets its first PR. Drop:
 If the ledger's `throttledUntil` is in the future, **stop**. Report "throttled until `<time>`,
 nothing fired" and exit clean. This is not a failure; it is the run doing its job.
 
-If the ledger has no usable window, derive one. Read the newest CodeRabbit summary comment in the
-fleet (step 3 collects them anyway) and look for the rate-limit block:
+**An expired ledger window is not an open slot — always re-derive.** The allowance is account-wide,
+and *automatic* reviews on newly opened PRs compete for it against this sweep. On 2026-08-24 the
+`23:13:17Z` fire's hour ran out at `00:13Z` and an automatic review took the freed slot at ~`00:26Z`
+(`colchesterctbudget#64`, review object at `268544fc`), so the `01:11Z` run found the fleet throttled
+until `01:54Z` despite a ledger window that had expired 58 minutes earlier. Treat an expired
+`throttledUntil` exactly like a missing one: derive from the fleet before firing.
+
+To derive: read the newest CodeRabbit summary comment in the fleet (step 3 collects them anyway) and
+look for the rate-limit block. **CodeRabbit has used two wordings; match both.**
 
 ```
-> **Next review available in:** **49 minutes**
+> **Next review available in:** **49 minutes**          <- older form, colon + bold minutes
+> **Next included review available in 44 minutes.**     <- current form, since ~2026-08-23T23:56Z
 ```
+
+A regex for only the older form silently finds nothing on a throttled fleet and reads it as open.
+That is a slot burned on a guaranteed *Review limit reached*. On 2026-08-24T01:11Z a pattern of
+`Next review available` missed six live blocks and the run was one step from firing. Match
+`[Nn]ext (included )?review available` — or anything looser — and treat **zero matches on a fleet
+full of `rate limited` markers as a bug in the pattern, not as an open slot.**
+
+**Bold markers sit *between* the words and the number in the older form — allow for them.** The
+older wording is literally `> **Next review available in:** **31 minutes**`, so the digits do not
+follow `in:` directly; `**` and a space come first. A pattern like
+`review available (in:?\s*)?\**\s*(\d+)` matches the current form fine and still misses the older
+one, which is the worst case: it finds *some* blocks, so the zero-match alarm above never trips, and
+one PR's live window goes unseen. Put a character class that accepts both spaces and asterisks
+between every token — `[Nn]ext[\s*]+(?:included[\s*]+)?review available[\s*:in]*?[\s*]*(\d+)[\s*]*minutes?`
+— and **assert one match per PR carrying the `rate limited` marker**; a count mismatch is a parse
+bug. Observed 2026-08-24T06:12Z: 8 markers fleet-wide, the narrow pattern found 7, and the missed
+one was `colchesterctbudget#57` — the very PR the run went on to fire.
 
 Its reset moment is that comment's `updated_at` plus those minutes. If the newest such block is
-still in the future, stop as above and write the window to the ledger.
+still in the future, stop as above and write the window to the ledger. Blocks across the fleet
+should agree to within a few seconds — six on 2026-08-24 all resolved to ~`01:54:1xZ`. One block
+disagreeing with the rest is a parse error; take the latest.
+
+The block now also carries two lines worth reporting: the allowance is stated as *included* reviews
+(`Your 92 included PR review attempts over the past 7 days set your current allowance at 1 review
+per hour`), and `Your organization has reached its usage spending cap` — paid overflow is off, so
+the included rate is a hard ceiling, not a soft one.
 
 **A bought slot leaves no rate-limit block anywhere.** A trigger that *succeeds* spends the
 allowance for the next hour, but nothing in the fleet records that — the PR ends up with a
@@ -94,6 +137,23 @@ trigger on a slot that is not there. So: whenever a run fires, write `throttledU
 + 60 minutes** on every outcome, and let a `throttled` outcome overwrite it with the vendor's own
 number. Observed 2026-08-23: `jfreal/ordo#41` was fired at 20:13:34Z and reviewed at 20:24:24Z,
 while the newest rate-limit block in the fleet had already expired at 19:54:53Z.
+
+**That cuts both ways: a winning *automatic* review leaves no block either — so derive from the
+newest completed review as well.** Rate-limit blocks only record attempts that *lost*. The attempt
+that wins writes an ordinary review and nothing else, so on a fleet whose every block has expired
+the slot may still have been taken seconds ago. Alongside the block scan, take the newest
+CodeRabbit review across the fleet whose body starts with `**Actionable comments posted:`, and
+treat **its head commit's push time + 60 minutes** as a throttle window. Observed 2026-08-24T02:11Z:
+all seven blocks in the fleet resolved to `01:54:1xZ` or earlier and the ledger window had expired
+17 minutes prior, yet `jfreal/pheidi#606` was pushed at `02:07:03Z` and auto-reviewed at `02:12:32Z`
+— the run was one step from firing into a spent hour. Gate on `max(newest block reset, newest
+review's attempt + 60min)`.
+
+Get the attempt time from the reviewed commit, not the review:
+
+```
+gh api repos/<slug>/commits/<reviewed-sha> --jq '.commit.committer.date'
+```
 
 **The hour runs from the attempt, not the completion.** Two rate-limit blocks on 2026-08-23
 (`nightforge#7` at 19:11:53Z saying 43 minutes, `colchesterctbudget#59` at 19:14:41Z saying 40) both
@@ -106,9 +166,23 @@ For each surviving PR, pull three things:
 
 ```
 gh api repos/<slug>/pulls/<n> --jq '.head.sha'
-gh api repos/<slug>/pulls/<n>/reviews --jq '.[] | select(.user.login|test("coderabbit";"i")) | {commit_id, submitted_at, body: .body[0:200]}'
-gh api repos/<slug>/issues/<n>/comments --jq '.[] | select(.user.login|test("coderabbit";"i")) | {updated_at, body}'
+gh api repos/<slug>/pulls/<n>/reviews --jq '.[] | select(.user.login=="coderabbitai[bot]") | {commit_id, submitted_at, body: .body[0:200]}'
+gh api repos/<slug>/issues/<n>/comments --jq '.[] | select(.user.login=="coderabbitai[bot]") | {updated_at, body}'
 ```
+
+**Match the bot's login exactly — `== "coderabbitai[bot]"`, never a substring test.** A
+`test("coderabbit";"i")` filter also matches any human or app whose login merely contains the word,
+so anyone who comments on a PR from such an account can make it read as reviewed (or as throttled)
+and steer which PR the fleet's one trigger goes to. If a fleet ever runs a differently-named
+CodeRabbit installation, put that login in the card rather than loosening the test here.
+
+**These list endpoints paginate at 30 by default.** A PR with a long comment history returns only
+its first page, and the summary comment — the one carrying every marker step 3 reads — is usually
+the *oldest* comment on the PR, so the truncation drops exactly the evidence needed and the PR reads
+as never reviewed. Pass `--paginate` on every reviews and comments call. Note that
+`--paginate --jq` applies the filter **per page**, which is fine for the `select … | .field` filters
+above but silently wrong for anything that slices or counts the whole array (`.[-3:]`, `length`) —
+those must aggregate the pages first.
 
 **`gh api --jq` takes exactly one argument and has no `--arg`.** Passing one fails with
 `accepts 1 arg(s), received 4` — and in a `while read` loop that error goes to stderr while the
@@ -118,11 +192,21 @@ against the head SHA in the shell instead: print the commit IDs, then match.
 
 ```
 head=$(gh api "repos/<slug>/pulls/<n>" --jq '.head.sha')
-revs=$(gh api "repos/<slug>/pulls/<n>/reviews" --jq '.[] | select((.user.login|test("coderabbit";"i")) and (.body|startswith("**Actionable comments posted:"))) | .commit_id')
+revs=$(gh api "repos/<slug>/pulls/<n>/reviews" --jq '.[] | select((.user.login=="coderabbitai[bot]") and (.body|startswith("**Actionable comments posted:"))) | .commit_id')
 # empty revs -> never reviewed; revs without $head -> stale; revs with $head -> complete
 ```
 
-Whatever shape the check takes, **an empty or errored API result is an unknown, never a pass.**
+Whatever shape the check takes, **an empty or errored API result is an unknown, never a pass.** Two
+ways that goes wrong on Windows, both silent: a PR list generated by a Python/PowerShell helper
+carries `
+`, so every URL built from it ends in a stray `
+` and `gh` rejects all of them with
+`net/url: invalid control character` (`tr -d '
+'` the list); and Python opens files as `cp1252`,
+so CodeRabbit comment bodies fail to decode on byte `0x8d` and its emoji fail to print. Pass
+`encoding='utf-8'` on every `open()` and set `PYTHONIOENCODING=utf-8`. Both were hit on
+2026-08-24T02:11Z; the first returned empty bodies for all 14 PRs, which reads as a clean fleet.
+Print a byte count per fetch and treat a zero as a hard stop.
 
 **Complete** means: a review by the CodeRabbit bot whose body starts with
 `**Actionable comments posted:` **and** whose `commit_id` equals the PR's current head SHA.
@@ -209,8 +293,15 @@ next slot on work already queued — and minus any PR marked `giveUp`.
 
 Rank, and take the first:
 
-1. **Never reviewed** (no `Actionable comments posted` review at any SHA), oldest `createdAt` first.
-2. **Stale** (reviewed, but at an older SHA), oldest `createdAt` first.
+1. **Never reviewed** — no completion evidence of *any* kind at *any* SHA: no
+   `Actionable comments posted` review object, **and** no `recent_review` block. Oldest
+   `createdAt` first.
+2. **Stale** — completion evidence exists, but only at an older SHA. Either kind counts, and a
+   clean pass leaves only the `recent_review` block. Oldest `createdAt` first.
+
+Both tiers weigh the two kinds of evidence equally. Ranking on review objects alone puts every
+cleanly-reviewed PR in tier 1 forever — it has no review object and never will — so it outranks PRs
+that genuinely have never been looked at.
 
 Oldest-first is deliberate: a starved PR that keeps getting pushed to would otherwise keep losing
 its place to whatever landed most recently, which is exactly how PRs rot unreviewed for weeks.
@@ -229,22 +320,51 @@ The phrase is card-owned — `@coderabbitai full review` re-reviews the whole PR
 `@coderabbitai review` is incremental and cheaper. Post the phrase alone, on its own; CodeRabbit
 parses the comment as a command, and prose wrapped around it can change what it does.
 
+**Reserve the slot in the ledger *before* posting, not after.** The comment is an external write;
+everything that records it — the poll, the outcome, step 7 — happens after. A run killed in that gap
+(the app closed, the machine slept, the poll threw) leaves the trigger posted and the ledger silent,
+and the next run, seeing no `fired` entry, fires a second trigger at a different PR inside an hour
+that is already spent. So write the entry first:
+
+```json
+{"repo": "<slug>", "pr": <n>, "at": "<now>", "outcome": "unknown"}
+```
+
+and set `throttledUntil` to now + 60 minutes at the same time. Then post the comment, then reconcile
+`outcome` in step 6. An `unknown` entry that survives to the next run is read as **fired** — the
+cooldown applies and the window holds. Erring toward "a slot was spent" costs at most one idle hour;
+erring the other way double-fires.
+
+No lock is needed as long as one scheduled task owns the ledger, which is the design. If a second
+runner is ever added, it needs one — but the real fix is not to add one.
+
+**Capture the pre-trigger baseline in the same breath**, because step 6 has to prove the result is
+*new*: the PR's head SHA, the newest CodeRabbit comment's `updated_at`, the newest review object's
+`submitted_at`, and the `recent_review` block's head SHA if there is one. Without a baseline, a poll
+that finds an old review at head SHA reads as a fresh success.
+
 ## Step 6 — Confirm the slot was actually bought
 
 The trigger is worthless if the throttle swallowed it, and the ledger needs to know which happened.
 Poll the PR for up to about 5 minutes:
 
 ```
-gh api repos/<slug>/issues/<n>/comments --jq '.[-3:] | .[] | select(.user.login|test("coderabbit";"i")) | .updated_at'
-gh api repos/<slug>/pulls/<n>/reviews --jq '[.[] | select((.user.login|test("coderabbit";"i")) and (.body|startswith("**Actionable comments posted:")))] | length'
+gh api --paginate repos/<slug>/issues/<n>/comments --jq '.[] | select(.user.login=="coderabbitai[bot]") | {updated_at, body}'
+gh api --paginate repos/<slug>/pulls/<n>/reviews --jq '.[] | select((.user.login=="coderabbitai[bot]") and (.body|startswith("**Actionable comments posted:"))) | {commit_id, submitted_at}'
 ```
 
-Three outcomes, each written to the ledger's `fired` entry:
+**Judge every outcome against the step 5 baseline, on the same contract step 3 uses.** The result
+must be *new* (later than the baseline timestamp) **and** *current* (naming the PR's head SHA) —
+either an `Actionable comments posted` review object whose `commit_id` is head, or a `recent_review`
+block whose head SHA is head. Nothing else counts as completion here, exactly as in step 3: not a
+walkthrough, not a *"Full review finished."* reply. Those are corroboration for the report.
 
-- **`reviewed`** — a new `Actionable comments posted` review at head SHA, **or** the zero-findings
-  signal from step 3: a fresh *"Full review finished."* reply, or the skip/rate-limit comment
-  replaced by a walkthrough naming the head SHA. Set `throttledUntil` to the fire time + 60 minutes
-  (see step 2) — do **not** clear it; the successful review just spent the next hour.
+Four outcomes, each written to the ledger's `fired` entry (which step 5 already created as
+`unknown`):
+
+- **`reviewed`** — new-and-current completion evidence by the contract above. Leave `throttledUntil`
+  at the fire time + 60 minutes that step 5 wrote — do **not** clear it; the successful review is
+  what spent the hour.
 - **`throttled`** — the summary comment updated with a fresh rate-limit block. Parse its
   **Next review available in** minutes, add them to that comment's `updated_at`, and write
   `throttledUntil`. The slot was not available; the next run retries this same PR after the window.
@@ -252,8 +372,11 @@ Three outcomes, each written to the ledger's `fired` entry:
   review. The manual trigger did not override whatever suppressed it. Set `"giveUp": true` on the
   entry (step 3) and clear nothing; the slot may or may not have been spent, so do not fire again
   this run.
-- **`pending`** — nothing yet within the poll. Normal for a large PR; the review lands later. Leave
-  `throttledUntil` alone. The cooldown keeps the next run off this PR.
+- **`pending`** — nothing new yet within the poll. Normal for a large PR; the review lands later.
+  Keep step 5's `throttledUntil` — a pending trigger is an *accepted* one, so the hour is spent even
+  though the review has not landed. Clearing it here would let the next run fire a second PR inside
+  the same allowance, which is the exact failure this sweep exists to prevent. The cooldown keeps
+  the next run off this PR.
   **A `review in progress by coderabbit.ai` marker plus a fresh “Full review triggered.” reply is a
   *bought* pending, not a lost one** — the rate-limit block is gone from the summary comment and the
   pass is running. Say so in the report; do not re-fire, and do not read the missing review object as
