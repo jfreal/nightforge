@@ -158,6 +158,21 @@ a note listing three open `reportError.ts` defects was repeated across two runs 
 fixed all three had already merged. Before any item reaches the report's carry-forward section, open
 the file it names and confirm the state still holds. Then correct the ledger entry in the same run.
 
+**But a file can only settle a claim about code.** Carry-forwards come in two kinds and they verify
+differently:
+
+- **Code claims** — "this defect is still present", "this PR has not landed". Answerable by reading
+  the source, the branch, or the tracker. Re-verify these yourself, every run.
+- **Human-action items** — "the user must rotate this secret", "awaiting the user's decision",
+  "someone has to apply this migration". **No file confirms these.** A clean-looking source file does
+  not mean the person acted, and it does not mean they decided. Carry these forward **unchanged**
+  unless something independently attests the action — an issue closed by the owner, a comment, a
+  merged PR, a changed configuration — and name that evidence in the ledger note when you clear one.
+
+The two often ride in one entry: "defect X, fixed, awaiting the user's decision on Y" is a code claim
+bolted to a human one. Verify each half separately. Clearing the whole entry because the code half
+resolved is how a real pending decision disappears.
+
 **If nothing new appeared, say exactly that in one line.** File nothing, spawn nothing, do not pad the report.
 
 ## When you learn something about the tooling

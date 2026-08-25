@@ -124,6 +124,22 @@ instead of `select source, count(*) from logs group by source` skips whatever is
 still reports a clean bill of health. Its rows are `login` / `token_refreshed` / `token_revoked` /
 `user_signedup` at `level='info'` — normal traffic, but the *next* new source may not be.
 
+**Enumerating a source is not examining it — a source with no row in the table above has no filter,
+and skipping it is the same clean-bill-of-health failure as a wrong key.** So for every source the
+live listing returns that this file does not already cover, do all three, in order:
+
+1. Run the key-set query scoped to that one source (`limit 5`, per the discovery note below) to find
+   out whether it carries a level field at all.
+2. If it has one, run the unfiltered distribution over it and check the buckets sum to the source's
+   row count, exactly as for `postgres_logs` and `edge_logs`.
+3. If it has **none**, fall back to `event_message` text, or to the `severity_text` base column where
+   that is populated — the same treatment `postgrest_logs`, `pgbouncer_logs` and `workflow_run_logs`
+   already get.
+
+If none of the three yields a usable filter, **report that source as unclassified in the run's
+unseen-classes list**. An unclassified source is an honest gap; a silently skipped one reads as
+health the sweep never observed. Then add its row here so the next run starts from step 2.
+
 Flat `log_attributes['error_severity']` and `log_attributes['status_code']` exist on **no** source.
 The two rows above where the passes disagree are exactly the rows to re-derive before trusting —
 which the distribution query below does in one shot. Sources with no level field must be filtered on
