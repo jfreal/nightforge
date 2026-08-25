@@ -233,6 +233,15 @@ and check any PR not already classified for a CodeRabbit review. Observed 2026-0
 went ahead. That is the cheap, common case; the expensive one is a PR that *was* reviewed and then
 merged, which this check is here to catch.
 
+**Collect that sweep's *rate-limit blocks* too, not only its reviews.** A merged PR carries its
+whole comment history out of the open-fleet scan, and a block sitting on it is a live window like
+any other. Observed 2026-08-25T11:12Z: `jfreal/ww#37` merged at ~11:10Z holding a block from
+`10:36:33Z` saying 38 minutes → **11:14:33Z**, which tied the ledger window for latest and beat
+every block in the open fleet by 44 seconds. It agreed that hour, so nothing was lost — but a
+merge landing a few minutes later in its window would have hidden the fleet's true gate entirely.
+Parse the blocks on every PR the recently-updated sweep returns, open or closed, and feed them into
+the same `max`.
+
 **The hour runs from the attempt, not the completion.** Two rate-limit blocks on 2026-08-23
 (`nightforge#7` at 19:11:53Z saying 43 minutes, `colchesterctbudget#59` at 19:14:41Z saying 40) both
 resolve to ~19:54:5xZ — exactly 60 minutes after `colchesterctbudget#58` was *opened* at 18:54:59Z,
@@ -244,9 +253,25 @@ For each surviving PR, pull three things:
 
 ```
 gh api repos/<slug>/pulls/<n> --jq '.head.sha'
-gh api repos/<slug>/pulls/<n>/reviews --jq '.[] | select(.user.login=="coderabbitai[bot]") | {commit_id, submitted_at, body: .body[0:200]}'
-gh api repos/<slug>/issues/<n>/comments --jq '.[] | select(.user.login=="coderabbitai[bot]") | {updated_at, body}'
+gh api --paginate repos/<slug>/pulls/<n>/reviews --jq '.[] | select(.user.login=="coderabbitai[bot]") | {commit_id, submitted_at, body: .body[0:200]}'
+gh api --paginate repos/<slug>/issues/<n>/comments --jq '.[] | {created_at, updated_at, author: .user.login, body}'
 ```
+
+**The comments call is deliberately NOT filtered to the bot, and it returns `created_at` as well as
+`updated_at`.** Both are load-bearing for the live-review gate below:
+
+- The `@coderabbitai full review` **trigger** is written by a human or an agent, so a
+  `select(.user.login=="coderabbitai[bot]")` filter discards the one comment whose timestamp starts
+  the window. Filtering to the bot here makes the in-progress rule unexecutable.
+- The `review in progress` marker is a **body swap on the existing summary comment**, so that
+  comment's `created_at` is when the PR was first summarised, often months earlier. Only
+  `updated_at` says when the marker appeared.
+
+**Which event starts the 60-minute window:** the trigger comment's `created_at`. That is the moment
+the attempt was accepted and the account-wide slot spent. Fall back to the summary comment's
+`updated_at` only when no trigger comment is visible — a review started by a push rather than a
+comment leaves a marker with no trigger — and say in the report which of the two you used, because
+they differ by a minute or two and the gate is a hard stop.
 
 **Match the bot's login exactly — `== "coderabbitai[bot]"`, never a substring test.** A
 `test("coderabbit";"i")` filter also matches any human or app whose login merely contains the word,
