@@ -151,6 +151,13 @@ Write the full write-up to the card's dated report file, then a short summary to
 - what failed, and which failure classes this run could not see
 - any carry-forward: something a human must do, or a finding that is not yet actionable
 
+**Re-verify every carry-forward against the code before repeating it.** A ledger note saying "fixed,
+awaiting the user's decision" was true on the day it was written and is a claim about the past, not
+the present. Carrying one forward unchecked hands the user a decision they already made — on `auxf`,
+a note listing three open `reportError.ts` defects was repeated across two runs after the PR that
+fixed all three had already merged. Before any item reaches the report's carry-forward section, open
+the file it names and confirm the state still holds. Then correct the ledger entry in the same run.
+
 **If nothing new appeared, say exactly that in one line.** File nothing, spawn nothing, do not pad the report.
 
 ## When you learn something about the tooling

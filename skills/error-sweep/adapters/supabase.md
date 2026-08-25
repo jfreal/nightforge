@@ -114,8 +114,15 @@ editing it.**
 | `realtime_logs` | `level` | — |
 | `postgrest_logs` | **none** | `event_message` only; the map carries just `host`/`identifier`/`project` |
 | `pgbouncer_logs` | **none** | `event_message` only |
-| `supavisor_logs` | **none** on 2026-08-24; bare `level` seen 2026-08-23 | `event_message` |
-| `workflow_run_logs` | **none** | `event_message` only |
+| `supavisor_logs` | bare `level` (`info`) on 2026-08-25; **none** on 2026-08-24; bare `level` on 2026-08-23 | `event_message`, `context.*`, `db_name`, `peer_ip` |
+| `workflow_run_logs` | **none** | `event_message` only; plus `branch`/`workflow_run`/`container_name` |
+| `auth_audit_logs` | bare `level` | `msg` (the whole event as JSON), `auth_audit_event.action`, `auth_audit_event.actor_id`, `auth_audit_event.actor_name`, `auth_audit_event.user_agent` |
+
+**The source list itself is not fixed — enumerate it every run.** `auth_audit_logs` appeared on
+2026-08-25 and is absent from every earlier pass on this project. A sweep that walks the table above
+instead of `select source, count(*) from logs group by source` skips whatever is new that day and
+still reports a clean bill of health. Its rows are `login` / `token_refreshed` / `token_revoked` /
+`user_signedup` at `level='info'` — normal traffic, but the *next* new source may not be.
 
 Flat `log_attributes['error_severity']` and `log_attributes['status_code']` exist on **no** source.
 The two rows above where the passes disagree are exactly the rows to re-derive before trusting —
