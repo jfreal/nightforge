@@ -82,6 +82,16 @@ Drop:
 - draft PRs, unless the card says drafts count (see the draft trap in step 3),
 - PRs whose head repo is a fork the account cannot comment on.
 
+**A draft that gets marked ready joins the fleet as a tier-1 candidate the same minute, so never
+carry last run's draft list forward.** CodeRabbit fires an *automatic* review on the
+`ready_for_review` event, and on a throttled fleet that attempt loses immediately and leaves a
+rate-limit block on the new head — a PR with no review of any kind, which is the top of the
+oldest-first queue. Observed 2026-08-25: `jfreal/pheidi#613` was un-drafted at **10:02:19Z** and its
+automatic attempt was blocked **10 seconds later** at 10:02:29Z; the 10:12Z run found it as the
+fleet's only never-reviewed PR and bought it its first review in 4m11s. The previous run had it in
+the board's draft footnote, correctly. The step 1 search re-reads `isDraft` every run, which is what
+makes this work — the failure mode is a run that trusts a cached roster instead.
+
 ## Step 2 — The throttle gate
 
 If the ledger's `throttledUntil` is in the future, **stop**. Report "throttled until `<time>`,
@@ -167,6 +177,39 @@ all seven blocks in the fleet resolved to `01:54:1xZ` or earlier and the ledger 
 17 minutes prior, yet `jfreal/pheidi#606` was pushed at `02:07:03Z` and auto-reviewed at `02:12:32Z`
 — the run was one step from firing into a spent hour. Gate on `max(newest block reset, newest
 review's attempt + 60min)`.
+
+**And a third source: a review that is *running right now* leaves neither a block nor a review
+object yet — only a `review in progress by coderabbit.ai` marker.** Anyone can spend the fleet's
+allowance by hand: a person or agent commenting `@coderabbitai full review` on any PR takes the
+same account-wide slot this sweep is waiting for, and CodeRabbit answers with a *Full review
+triggered.* reply and swaps the summary comment's body to the in-progress marker. Nothing about
+that looks like a throttle. Observed 2026-08-25T01:11Z: the ledger window had expired 56 minutes
+earlier and both surviving rate-limit blocks in the fleet were long stale, but `jfreal/pheidi#609`
+carried a live in-progress marker from a manual trigger at **00:37:48Z** — the run was one step
+from firing into a spent hour. So scan step 3's comments for the marker too, and treat **the
+triggering comment's timestamp + 60 minutes** as a throttle window.
+
+**Cap that window at 60 minutes — an in-progress marker can stall and never resolve.** The marker is
+not a promise that a review is coming, only that an attempt was accepted. Observed
+2026-08-25T02:11Z: `jfreal/pheidi#609` still read *"Currently processing new changes in this PR"*
+(run `b138337a`, base `83fd2222` → head `f58da318`) **1h41m** after its 00:37:48Z manual trigger,
+with the summary comment untouched since 00:39:12Z and no review object or `recent_review` block
+ever appearing — against a fleet record fire-to-review of 8m33s. Treating a live marker as "wait
+until it finishes" would have parked the sweep indefinitely. Trigger + 60min is the whole window;
+a marker older than that is a dropped run, and the PR is simply an ordinary starved candidate again.
+Confirmed on the next run: at 2026-08-25T03:11Z that same marker was **2h34m** old, still unresolved,
+still no review object. A stalled marker does not clear itself — never wait on one.
+
+**A fresh trigger *does* clear it, and the PR stays an ordinary candidate while it sits there.** Same
+marker, 2026-08-25T05:14:08Z: the sweep fired `@coderabbitai full review` at `pheidi#609` with its
+00:37:48Z marker **4h37m** stale, and CodeRabbit answered with a *Full review triggered.* reply 6
+seconds later and **replaced** the stalled marker with a fresh `review in progress` naming a new run
+at 05:14:30Z. So a stale marker neither blocks a fire on that PR nor survives one — it is dead state,
+and the 60-minute cap is the right way to read it. Never skip a PR because it carries one.
+
+The full gate is therefore `max` of four things: the ledger's window, the newest rate-limit block's
+reset, the newest completed review's attempt + 60min, and the newest live `review in progress`
+marker's trigger + 60min. Three of the four leave no rate-limit block at all.
 
 Get the attempt time from the reviewed commit, not the review:
 
@@ -426,7 +469,9 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
   review. The manual trigger did not override whatever suppressed it. Set `"giveUp": true` on the
   entry (step 3) and clear nothing; the slot may or may not have been spent, so do not fire again
   this run.
-- **`pending`** — nothing new yet within the poll. Normal for a large PR; the review lands later.
+- **`pending`** — nothing new yet within the poll. Normal, and not only on large PRs — the fleet's
+  **longest** fire-to-review, 9m33s (`mergetel#136`, 2026-08-25T04:13:38Z → 04:23:11Z), was its
+  *smallest* diff at 2 files / +205. Queue latency sets the floor, not file count; the review lands later.
   Keep step 5's `throttledUntil` — a pending trigger is an *accepted* one, so the hour is spent even
   though the review has not landed. Clearing it here would let the next run fire a second PR inside
   the same allowance, which is the exact failure this sweep exists to prevent. The cooldown keeps
