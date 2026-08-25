@@ -186,6 +186,15 @@ functions, and their newest line was **2026-08-11/12** — the *start* of the wi
 days stale. The same functions' current logs appeared fine under `--since 26h`.
 
 So the ~100-line cap is not "newest first" (§7 hedges this; this is the confirmation).
+
+**Refinement, 2026-08-25: the retained slice is not reliably the oldest end either — it is an
+arbitrary CONTIGUOUS block.** A 26h `--source functions` pass covering 08-24T08:09 → 08-25T10:09
+returned exactly 100 lines for each of two minute-cadence drains, and every one of them fell in
+`19:10–20:53 on 08-24` — 11h after the window opened and 13h before it closed. Neither end of the
+window is in the result. The safe rule is the operational one: **a function that comes back with
+exactly 100 lines tells you nothing about any timestamp**, earliest or latest. Only an uncapped pass
+does.
+
 Widening the window to reach further back actively *hides* recent data. Never diagnose a
 "function stopped running" from a wide-window pass — narrow the window instead, and
 compare like-for-like windows across runs.
