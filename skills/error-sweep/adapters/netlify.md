@@ -41,9 +41,10 @@ scan `info`/`warn` for error-shaped text the level filter cannot see.
 **The stream is capped at ~100 lines per function.** If any function comes back with exactly
 100 lines, `--since` was not the binding constraint and that function's slice is truncated —
 and the lines you keep are the **oldest** in the window, not the newest (§9), so its newest
-timestamp is an artifact and proves nothing about liveness. A level-filtered run that
-returned *fewer* than 100 lines per function saw the whole window. Say in the report which
-pass was truncated.
+timestamp is an artifact and proves nothing about liveness. **A level-filtered run that returned fewer than 100 lines has NOT necessarily seen the whole
+window** — see the 2026-08-27 refinement in §9, where a 10-line error pass silently dropped both
+of the window's real error bursts. Collect errors as a LADDER of overlapping windows and union the
+result; a single pass is not a collection. Say in the report which passes were truncated.
 
 ## 3. Failed deploys
 
@@ -195,9 +196,56 @@ window is in the result. The safe rule is the operational one: **a function that
 exactly 100 lines tells you nothing about any timestamp**, earliest or latest. Only an uncapped pass
 does.
 
+**Refinement, 2026-08-26: a count BELOW 100 is not proof the slice covered the window either.**
+A 26h `--source functions` pass returned 43 lines for `generate-background` — well under the cap,
+so by the rule above it should have been complete. It was not: every line fell between
+`08-25T13:19` and `08-25T20:02`, and the pass contained **zero** lines dated `08-26` at all. A 15m
+pass taken minutes later on the same source showed that function invoked at `10:15`, `10:20` and
+`10:25` on `08-26`. So the truncation is applied to the stream as a whole, not just per function at
+100, and an uncapped-looking function can still be handed an arbitrary contiguous block. Use the
+26h pass to find *what* is failing; use a narrow pass to establish *when* anything last happened.
+Never read "no lines today" off a wide pass as "it did not run today."
+
 Widening the window to reach further back actively *hides* recent data. Never diagnose a
 "function stopped running" from a wide-window pass — narrow the window instead, and
 compare like-for-like windows across runs.
+
+**Refinement, 2026-08-27: the LEVEL-FILTERED pass is truncated the same way, at counts nowhere
+near 100 — and that is how a live error hides from a sweep entirely.** On mergetel, thirteen
+overlapping `--level error --level fatal --source functions` passes taken minutes apart returned
+mutually inconsistent subsets of the same window:
+
+| `--since` | error log lines | Contains the `17:54` burst? | Contains the `09:30` burst? |
+|---|---|---|---|
+| 26h | 10 | no | no |
+| 24h | 20 | yes | no |
+| 22h / 20h / 18h | 22 | yes | no |
+| 16h / 14h | 11 / 3 | no | no |
+| 12h | 2 | no | **no** — though 09:30 is inside it |
+| 10h / 8h / 6h / 4h / 2h | 4 / 2 / 2 / 2 / 2 | no | yes |
+
+Twelve ERROR lines at `08-26T17:54` are visible only at 18h–24h. Two at `08-27T09:30` are visible
+only at 2h–10h. **No single window shows both**, and the nominal 26h window the card asks for shows
+neither — it returned 10 lines and looked like a clean, uncapped, complete result. A third finding
+(one line at `21:45`) appeared in exactly one window of the thirteen.
+
+So the §9 rule generalises past liveness checks: **a wide pass tells you an error class exists, never
+that one does not.** Zero error lines in a 26h pass is not evidence of a quiet site, and neither is
+ten.
+
+The working recipe — run a ladder and union it:
+
+```bash
+for w in 2h 4h 6h 8h 10h 12h 14h 16h 18h 20h 22h 24h 26h; do
+  netlify logs --since $w --level error --level fatal --source functions > "err-$w.txt"
+done
+cat err-*h.txt | grep '^\[' | sort -u        # escaped ^\[ per §10
+```
+
+Thirteen invocations cost a couple of minutes and no build credits. Dedupe on
+`<timestamp> <function> <message>`; the same line appears in several windows. Report the count from
+the union, not from any one pass, and say in the report that the union is what you used — a future
+run comparing "10 lines" against "23 lines" would otherwise read a collection artifact as a trend.
 
 ## 10. A zero-result pass looks like TWO different things — learn both
 
@@ -356,3 +404,64 @@ structurally invisible to this adapter — say exactly that in the report's unse
 do not re-diagnose it as the §8 defect every run. The distinguishing evidence is the *functions*
 source: `--source functions` returning hundreds of lines in the same invocation style proves the
 CLI is fine.
+
+## 17. A scheduled function that RETURNS a non-2xx logs absolutely nothing
+
+Confirmed 2026-08-27 on `auxf`. `netlify/functions/quest-narrative-drain.mts` returned
+`new Response(..., { status: 502 })` at `2026-08-26T12:30:35Z` after its Supabase RPC came back
+401. The function log recorded **no error line, no warn line, nothing** — proven with two
+overlapping passes that both contain that instant and were both uncapped:
+
+```bash
+netlify logs --since 22h --level error --level fatal --level warn --source functions   # 0 lines
+netlify logs --since 24h --level error --level fatal --level warn --source functions   # 0 lines
+```
+
+A **thrown** error does produce a line. A **returned** non-2xx `Response` does not: to Netlify it is
+a normal return value. So the whole error-level pass is blind to any failure the app handles by
+returning a status instead of throwing — and on a *scheduled* function nobody reads that status
+either, because there is no caller.
+
+This is a real hole in what this adapter can see, and it must go in every run's unseen-classes list
+for any project whose functions return non-2xx on failure. Grep the function tree for
+`status: 4` / `status: 5` against `console.error` before writing "0 function errors" as health:
+
+```bash
+grep -rn 'status: *[45][0-9][0-9]' netlify/functions/ | wc -l
+grep -rn 'console\.\(error\|warn\)' netlify/functions/ netlify/shared/ | wc -l
+```
+
+A large first number with a near-zero second one means the error pass is decorative for that
+project. On `auxf` it was 40 against 1.
+
+**Two overlapping uncapped windows are the proof technique.** A single window cannot distinguish
+"nothing was logged" from "the truncation of §9 dropped the block containing it". Two windows of
+different widths that both contain the instant, both returning 0 lines, cannot both have truncated
+away the same moment.
+
+## 18. EVERY file under `netlify/functions/` is a function — a test file there fails the whole build
+
+Confirmed 2026-08-27 on `auxf`. A fix agent added `netlify/functions/narrative-drains.test.mts` next
+to the two drains it was testing. Local `npm run typecheck`, `npm test`, `npm run db:check` and
+`npm run build` all passed. The deploy preview did not:
+
+```
+Incorrect function names. Name should consist of only alphanumeric characters, hyphen & underscores
+```
+
+Netlify derives each function's NAME from its filename and treats every file in the functions
+directory as deployable. `narrative-drains.test` contains a `.`, which is outside the allowed set,
+and **one bad name rejects the entire build** — not just that file.
+
+Two things follow.
+
+**Put it in every fix brief for a Netlify project:** a test for a function does not go next to the
+function. Move it to a directory the deploy does not scan, and then confirm the test runner still
+collects it — a test that silently stops running passes the suite and guards nothing, which is
+strictly worse than the build break it replaced.
+
+**And the general rule this is a case of: a green local build is not a green deploy.** The whole
+class of host-side packaging checks — function naming, bundle size, config validation, redirect and
+header parsing — runs only on the host. After a fix agent pushes, read the deploy the push created
+(match on `commit_ref`, per §14) before recording the PR as healthy. On this run the PR was reported
+"done, all checks pass" while `netlify api listSiteDeploys` showed its head commit `error`.
