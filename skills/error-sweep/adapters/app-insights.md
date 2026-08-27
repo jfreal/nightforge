@@ -56,6 +56,47 @@ requests | where success == 'False' | summarize cnt=count(), firstSeen=min(times
 - **Normalize the route first.** `name` embeds path parameters (`GET /api/calendar/<32 hex>`), so a raw key files a fresh issue per subscriber.
 - Threshold: **5xx files on the first occurrence; 4xx only at ≥5** on the same normalized route.
 
+**`success` is app-writable, so the failure pass is not the whole 4xx picture.** An
+`ITelemetryProcessor` in the app can set `RequestTelemetry.Success = true` on a request that really
+answered 4xx; the row keeps its true `resultCode` and vanishes from `where success == 'False'`. This
+is a legitimate thing for an app to do — it stops an expected, self-correcting 4xx from competing
+with real failures — but it silently blinds a sweep that only ever runs the failure pass, which then
+reports "those errors stopped" when they merely turned green.
+
+So for any route you are actively watching, **query it by URL and result code, never by `success`**:
+
+```
+requests | where name has '/<route>' | summarize cnt=count(), firstSeen=min(timestamp), lastSeen=max(timestamp) by name, resultCode, success, tostring(customDimensions.<Marker>) | order by lastSeen desc
+```
+
+And when such a rule stamps a *reason* dimension, read what the code actually tests before trusting
+the name. One of these labelled every sessionless 400 `session-restart-renegotiation` on the strength
+of three facts — status 400, path prefix, header absent — and never checked whether a 200 followed.
+The pathological case and the benign case therefore carry the identical reassuring label. **A
+dimension asserting a recovery is not evidence of one**; get that from the raw per-request timeline.
+
+And the label was not merely uninformative — it pointed at the wrong *cause*. Three runs derived the
+mechanism behind those 400s from the repo's own handshake tests ("no session header AND not an
+initialize") and were confident about it. When a diagnostics middleware finally logged the SDK's own
+error body, the real reason was something no test covered: `The MCP-Protocol-Version header value
+'2026-07-28' is not supported`. **When the status code is produced inside a third-party SDK rather
+than by your own code, a mechanism inferred from your tests is a hypothesis, not a finding** — your
+tests only pin the cases someone thought of. Get the SDK's own error text into a log and read it
+before writing a root cause down. Until then, the honest report says "reason not observable", which
+is what makes shipping the logging the correct next step rather than a detour.
+
+That episode has a second, portable half. The rejected value was a *protocol version*, and the reason
+the server could not speak it was a floating package reference floored at a major: `Version="1.*"`
+resolves to the newest 1.x forever, so a peer that moves to a newer protocol revision can never be
+met. **On any version-negotiation failure, compare the supported set compiled into the resolved
+package against the newest published package** — for .NET that is a two-minute check with no build:
+
+```bash
+curl -s "https://api.nuget.org/v3-flatcontainer/<package>/index.json" | python -c "import json,sys; print(json.load(sys.stdin)['versions'][-10:])"
+# then read the version strings out of each DLL (they are UTF-16 in the metadata heap):
+python -c "import re;b=open('<pkg>.dll','rb').read();print(sorted(set(re.findall(r'20\d{2}-\d{2}-\d{2}',b.decode('utf-16-le','ignore')))))"
+```
+
 ## 5. Cold-instance join — the trick that cracks transients
 
 For any transient that resists explanation, join it against instance first-request time:
@@ -65,6 +106,15 @@ requests | summarize firstSeen=min(timestamp) by cloud_RoleInstance
 ```
 
 If every occurrence is in the first ~35 s of a fresh instance a few minutes after a deploy, it is a warm-up/pool problem, not randomness. This turned a three-run shrug into a root cause.
+
+**The same join is what separates ordinary boot cost from a real latency regression.** Slow *successful*
+requests are worth a pass of their own (`requests | where duration > 5000`), because a 200 that took
+30 s is still a defect and no failure pass will ever show it. But most of what that pass returns is
+the app booting. Project the instance and compare each row against that instance's `firstSeen`: rows
+where the two are equal are the first request on a cold instance and are the known cost of a restart.
+Only rows on an instance that has been up for hours are a finding. On one run, 18 of 19 slow rows
+were boot cost and the single warm one — 10.6 s with every SQL dependency under 10 ms, so not the
+database — was the only thing worth writing down.
 
 ## 6. Dependencies and traces
 
@@ -140,6 +190,15 @@ gh run list --repo <slug> --workflow deploy.yml --limit 15 \
   --json databaseId,headSha,createdAt,status,conclusion,displayTitle
 ```
 
-Then read the newest row whose `conclusion` is `success`. Do the same to spot **failed** deploys: a failure that a later push silently corrected still matters, because any fix that shipped in the failed run was not actually live until that later push — which can invalidate a "this is now suppressed/fixed" claim made by an earlier sweep. Check the deploy time of a fix against the last occurrence of the thing it fixes before calling it verified.
+Then read the newest row whose `conclusion` is `success`. **Also read the `status` field on every row, not
+just `conclusion`.** Two silent-staleness shapes never appear as a failed deploy: a run that ends
+`conclusion: startup_failure` with **zero jobs** (the workflow never started, so nothing is red to
+look at), and a run left in `status: queued` indefinitely. On one project a push to the default
+branch produced both — one `startup_failure` and one run still `queued` 44 hours later — and prod
+sat one commit stale for 9.5 hours until an *unrelated* later push carried the change out. Nothing
+in the deploy history said "failed"; the newest `success` row simply predated the merge. Confirm the
+newest successful deploy's SHA actually **contains** the newest merge (`gh api
+repos/<slug>/compare/<merged-sha>...<deployed-sha>` → `status: ahead`, `behind_by: 0`), and flag any
+non-completed run as a finding a human must clear. Do the same to spot **failed** deploys: a failure that a later push silently corrected still matters, because any fix that shipped in the failed run was not actually live until that later push — which can invalidate a "this is now suppressed/fixed" claim made by an earlier sweep. Check the deploy time of a fix against the last occurrence of the thing it fixes before calling it verified.
 
 Also note `gh run list --json ... --template` chokes on `{{"\n"}}`; pipe the JSON to a parser instead.
