@@ -179,3 +179,42 @@ but `edge_logs` alone has ~40 distinct key-sets of ~50 keys each and dumps tens 
 **one** source at a time with `limit 5`, and skip it entirely when the table above still matches.
 Group by the key list rather than sampling one row — the key set varies *within* a source too (an
 `edge_logs` row with a JWT has ~20 more keys than an anon one).
+
+## 8. `user_agent='node'` splits the app's OWN server calls out of `edge_logs` — and it changes the 4xx rule
+
+Confirmed 2026-08-27 on `auxf`. `edge_logs` mixes browser traffic with the calls the project's own
+server-side code makes (Netlify functions, cron jobs, build scripts). The server ones carry
+`log_attributes['request.headers.user_agent'] = 'node'` and no `request.headers.referer`:
+
+```sql
+select log_attributes['request.path'] as p, log_attributes['response.status_code'] as st,
+       count(*) as n, min(timestamp) as t0, max(timestamp) as t1
+from logs where source='edge_logs' and log_attributes['request.headers.user_agent']='node'
+group by p, st order by n desc
+```
+
+Two reasons this is worth a query of its own every run.
+
+**It gives each scheduled job an exact invocation count.** `auxf`'s two minute-cadence drains showed
+1441 and 1440 `200`s over 24h against a theoretical 1440 — better liveness evidence than the netlify
+adapter's narrow-window trick (`netlify.md` §11), and immune to its truncation problems.
+
+**The pipeline's "a lone 4xx is almost always a probe" rule does NOT apply to these rows.** A probe
+is an outsider. A 4xx with UA `node` is the project's own server failing to authenticate to its own
+database, and it deserves triage however few there are. Read it against the same path's success
+count in the same window: `1` failure against `1441` successes on one static service key is a
+transient gateway blip (**external**) — but confirm the recovery in the log rather than assuming it,
+by finding the next call on that path from that caller and checking it returned 200.
+
+A *sustained* run of them on the same path is the opposite finding and a serious one: a revoked or
+rotated key that no deploy has picked up, which silently stops every scheduled job. Distinguish the
+two by duration, never by count alone.
+
+## 9. The 24h window SLIDES between queries — bucket sums drift by a few rows
+
+`select source, count(*) from logs group by source` and a follow-up per-source distribution are
+taken seconds apart against a rolling 24h window, so the second one legitimately disagrees with the
+first by a handful of rows in both directions (6611 vs 6607 on 2026-08-27). §7 tells you to check
+that the buckets sum to the source's row count — that check is for catching a **wrong key**, whose
+signature is a single `{'': n}` bucket holding everything, not a drift of single digits. Do not
+re-run queries chasing a difference of four.
