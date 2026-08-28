@@ -32,7 +32,14 @@ A Windows scheduled task named **`CodeRabbit Sweep`** runs it every 15 minutes.
 C:\Python314\pythonw.exe "<stateDir>\sweep.py" --config "<stateDir>\config.json"
 ```
 
-`pythonw.exe` means no console window ever flashes. Settings that matter:
+`pythonw.exe` means no console window ever flashes. Because it has no console of its own, every
+`gh.exe` child would otherwise allocate one — `sweep.py` passes `CREATE_NO_WINDOW` to stop that.
+
+Only one live sweep runs at a time. The task setting below prevents it overlapping itself, and a
+`sweep.lock` file in `stateDir` prevents an on-demand run colliding with a tick that is mid-poll.
+A second live run logs who holds the lock and exits without firing. Dry runs do not take it.
+
+Settings that matter:
 
 - **`MultipleInstances: IgnoreNew`** — a slow run can never overlap the next tick. This is what
   keeps "exactly one trigger per run" true when a run takes longer than the interval.
@@ -121,7 +128,8 @@ Each of these is a rule from the SKILL, implemented rather than remembered:
 - **Reserve the ledger entry before posting**, so a run killed mid-fire cannot cause a second
   trigger inside a spent hour.
 - **Reconcile last run's `pending` / `unknown` entries first**, and only when a baseline was
-  recorded — without one there is nothing to judge "new" against.
+  recorded — without one there is nothing to judge "new" against — and never an entry young
+  enough to still belong to a sweep that is running right now.
 
 ## What it deliberately does not do
 
