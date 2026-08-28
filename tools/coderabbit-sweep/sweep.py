@@ -90,6 +90,33 @@ def log(msg: str) -> None:
         LOG_FH.flush()
 
 
+LOCK_STALE = timedelta(minutes=25)
+
+
+def acquire_lock(state_dir: Path):
+    """Refuse to start while another live sweep holds the lock.
+
+    The scheduled task sets MultipleInstances=IgnoreNew, so it cannot overlap itself,
+    but an on-demand run started while a tick is mid-poll can. Two live sweeps would
+    each derive a gate from a ledger the other has not written yet and could each fire,
+    breaking the one-trigger-per-run guarantee.
+    """
+    path = state_dir / "sweep.lock"
+    if path.exists():
+        try:
+            held = parse_ts(json.loads(path.read_text(encoding="utf-8")).get("at"))
+        except (json.JSONDecodeError, OSError):
+            held = None
+        if held and (now_utc() - held) < LOCK_STALE:
+            return None, held
+        vlog("clearing a stale lock")
+    path.write_text(json.dumps({"pid": os.getpid(), "at": iso(now_utc())}), encoding="utf-8")
+
+    import atexit
+    atexit.register(lambda: path.unlink(missing_ok=True))
+    return path, None
+
+
 def open_log(state_dir: Path):
     """Append this run to stateDir/sweep.log, rotating once it gets fat."""
     global LOG_FH
@@ -122,6 +149,11 @@ class GhError(RuntimeError):
 TRANSIENT = ("dial tcp", "connection reset", "timeout", "TLS handshake",
              "502 Bad Gateway", "503", "EOF", "temporary failure")
 
+# Under pythonw.exe the parent has no console, so every gh.exe child would allocate
+# its own visible window — ~20 of them per run. CREATE_NO_WINDOW stops that at the
+# source. It does not exist off Windows, hence the getattr.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 def gh_raw(args, check=True, attempts=3) -> str:
     """Run gh and return stdout as text. SKILL step 3: a zero-byte body is a hard stop.
@@ -134,6 +166,7 @@ def gh_raw(args, check=True, attempts=3) -> str:
         proc = subprocess.run(
             ["gh", *args],
             capture_output=True,
+            creationflags=NO_WINDOW,
             env={**os.environ, "PYTHONIOENCODING": "utf-8", "GH_PAGER": "cat", "NO_COLOR": "1"},
         )
         out = proc.stdout.decode("utf-8", errors="replace")
@@ -996,6 +1029,14 @@ def main():
     cfg = load_config(Path(args.config))
     open_log(Path(cfg["stateDir"]))
     log(f"--- run start (dry-run={args.dry_run}) ---")
+
+    if not args.dry_run:
+        _lock, held_since = acquire_lock(Path(cfg["stateDir"]))
+        if _lock is None:
+            log(f"another sweep has been running since {iso(held_since)} — exiting without firing")
+            print("skipped: another sweep is already running")
+            return 0
+
     now = now_utc()
     cooldown = timedelta(minutes=cfg["cooldownMinutes"])
     trigger = cfg["triggerPhrase"]
@@ -1043,8 +1084,15 @@ def main():
                         f"{n_parsed} countdowns + {n_refusals} refusals parsed — treat as a parse bug")
 
     # ---- step 6 (deferred): reconcile the previous run's entries ---------- #
+    # An entry younger than a full poll may belong to a sweep that is still running.
+    # Scoring that "lost" turns a healthy in-flight fire into a fake failure.
+    settle = timedelta(seconds=max(600, cfg["pollRounds"] * cfg["pollInterval"] + 300))
     for entry in ledger.get("fired", []):
         if entry.get("outcome") not in ("pending", "unknown"):
+            continue
+        at = parse_ts(entry.get("at"))
+        if at and (now - at) < settle:
+            vlog(f"skipping reconcile of {entry.get('repo')}#{entry.get('pr')} — may still be in flight")
             continue
         key = f"{entry.get('repo')}#{entry.get('pr')}"
         base = entry.get("baseline")
