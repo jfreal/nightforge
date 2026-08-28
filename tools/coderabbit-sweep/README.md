@@ -7,6 +7,21 @@ CodeRabbit enforces one review per hour, account-wide. PRs that land while the a
 get a *Review limit reached* comment and nothing ever retries them. This is that retry: it finds
 the starved PRs, picks the single oldest one, and spends the one available review on it.
 
+## Set it up
+
+Only `config.example.json` is tracked; `config.json` is gitignored because it holds
+machine-specific paths. On a fresh checkout, make your own copy first — both entry points
+fail without it:
+
+```bash
+cp config.example.json config.json
+```
+
+Then edit `config.json`: set `owners` to the GitHub account(s) to sweep, and `stateDir` to
+where the ledger, board, and reports should live. `stateDir` defaults to `"."`, which puts
+them next to the config file — fine to start with. It also needs `board-template.html` present
+in `stateDir`, or `boardTemplate` pointed at wherever you keep it.
+
 ## Run it
 
 ```bash
@@ -29,8 +44,11 @@ Exit is always 0; problems are printed, written into the report, and shown on th
 A Windows scheduled task named **`CodeRabbit Sweep`** runs it every 15 minutes.
 
 ```
-C:\Python314\pythonw.exe "<stateDir>\sweep.py" --config "<stateDir>\config.json"
+<your-python>\pythonw.exe "<stateDir>\sweep.py" --config "<stateDir>\config.json"
 ```
+
+Find your interpreter with `(Get-Command python).Source` and swap `python.exe` for
+`pythonw.exe` in the same folder.
 
 `pythonw.exe` means no console window ever flashes. Because it has no console of its own, every
 `gh.exe` child would otherwise allocate one — `sweep.py` passes `CREATE_NO_WINDOW` to stop that.
@@ -61,11 +79,14 @@ leaving it idle for up to an hour. To go back to hourly, change the task's repet
 
 The scheduled task points at a **copy** in `stateDir`, not at this repo, because this repo is often
 checked out in a transient git worktree. This directory is the source of truth; after changing
-`sweep.py` here, push the copy:
+`sweep.py` here, push the copy to whatever `stateDir` your `config.json` names:
 
 ```bash
-cp sweep.py config.json README.md "C:/Users/John/.claude/scheduled-tasks/coderabbit-sweep/"
+cp sweep.py README.md "<your-stateDir>/"
 ```
+
+`config.json` is deliberately not in that list — the installed copy is the one the task reads,
+and yours may differ from the one you develop against.
 
 ## Output
 

@@ -1,6 +1,10 @@
 {
-  "owners": ["jfreal"],
-  "excludeRepos": ["archive"],
+  "owners": [
+    "jfreal"
+  ],
+  "excludeRepos": [
+    "archive"
+  ],
   "excludePRs": [],
   "includeDrafts": false,
   "triggerPhrase": "@coderabbitai full review",
@@ -10,7 +14,7 @@
   "oversizeFiles": 300,
   "pollRounds": 11,
   "pollInterval": 30,
-  "stateDir": "C:/Users/John/.claude/scheduled-tasks/coderabbit-sweep",
+  "stateDir": ".",
   "ledger": "ledger.json",
   "boardTemplate": "board-template.html",
   "board": "board.html",
