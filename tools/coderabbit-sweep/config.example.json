@@ -1,0 +1,20 @@
+{
+  "owners": ["jfreal"],
+  "excludeRepos": ["archive"],
+  "excludePRs": [],
+  "includeDrafts": false,
+  "triggerPhrase": "@coderabbitai full review",
+  "cooldownMinutes": 90,
+  "searchLimit": 1000,
+  "retention": 12,
+  "oversizeFiles": 300,
+  "pollRounds": 11,
+  "pollInterval": 30,
+  "stateDir": "C:/Users/John/.claude/scheduled-tasks/coderabbit-sweep",
+  "ledger": "ledger.json",
+  "boardTemplate": "board-template.html",
+  "board": "board.html",
+  "runLog": "runs.html",
+  "runsData": "runs.json",
+  "reportsDir": "reports"
+}
