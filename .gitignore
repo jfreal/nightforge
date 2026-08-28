@@ -1,2 +1,9 @@
 # Claude Code scratch — agent worktrees are transient, never versioned.
 .claude/worktrees/
+
+# local, machine-specific sweep config (config.example.json is the tracked copy)
+tools/coderabbit-sweep/config.json
+
+# Python bytecode
+__pycache__/
+*.pyc
