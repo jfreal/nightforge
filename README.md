@@ -73,6 +73,7 @@ skills/docs-sweep/
   SKILL.md                      the weekly docs sweep — discover, audit, fix, draft PR
 skills/coderabbit-sweep/
   SKILL.md                      the hourly CodeRabbit re-review sweep — find, gate, fire one
+  EVIDENCE.md                   dated case law behind each rule — grepped, never read whole
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
