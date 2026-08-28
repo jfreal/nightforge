@@ -102,19 +102,41 @@ def acquire_lock(state_dir: Path):
     breaking the one-trigger-per-run guarantee.
     """
     path = state_dir / "sweep.lock"
-    if path.exists():
-        try:
-            held = parse_ts(json.loads(path.read_text(encoding="utf-8")).get("at"))
-        except (json.JSONDecodeError, OSError):
-            held = None
-        if held and (now_utc() - held) < LOCK_STALE:
-            return None, held
-        vlog("clearing a stale lock")
-    path.write_text(json.dumps({"pid": os.getpid(), "at": iso(now_utc())}), encoding="utf-8")
-
     import atexit
-    atexit.register(lambda: path.unlink(missing_ok=True))
-    return path, None
+
+    payload = json.dumps({"pid": os.getpid(), "at": iso(now_utc())})
+    for attempt in (0, 1):
+        try:
+            # O_EXCL makes create-if-absent one atomic step. exists()-then-write is a
+            # race two simultaneous runs can both win, which is the thing being prevented.
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            held = None
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):          # a non-dict would break .get()
+                    held = parse_ts(data.get("at"))
+            except (json.JSONDecodeError, OSError, ValueError):
+                held = None
+            if held and (now_utc() - held) < LOCK_STALE:
+                return None, held
+            if attempt == 0:
+                # Stale, or unreadable and therefore untrustworthy. Clear it and retry once.
+                vlog("clearing a stale or unreadable lock")
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+            return None, held
+        except OSError:
+            return None, None                        # cannot lock: do not fire
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            atexit.register(lambda: path.unlink(missing_ok=True))
+            return path, None
+    return None, None
 
 
 def open_log(state_dir: Path):
@@ -149,6 +171,11 @@ class GhError(RuntimeError):
 TRANSIENT = ("dial tcp", "connection reset", "timeout", "TLS handshake",
              "502 Bad Gateway", "503", "EOF", "temporary failure")
 
+# GitHub answers a secondary rate limit with 403 or 429. These are retryable, but
+# only after a real pause — retrying one immediately just spends the next allowance.
+THROTTLED = ("secondary rate limit", "rate limit exceeded", "429",
+             "abuse detection", "You have exceeded")
+
 # Under pythonw.exe the parent has no console, so every gh.exe child would allocate
 # its own visible window — ~20 of them per run. CREATE_NO_WINDOW stops that at the
 # source. It does not exist off Windows, hence the getattr.
@@ -181,10 +208,17 @@ def gh_raw(args, check=True, attempts=3) -> str:
             last = f"gh {' '.join(args)} -> exit {proc.returncode}: {err[:400]}"
             if not check:
                 return ""
-        if attempt < attempts - 1 and any(t.lower() in last.lower() for t in TRANSIENT):
-            vlog(f"transient gh failure, retrying: {last[:120]}")
-            time.sleep(2 * (attempt + 1))
-            continue
+        if attempt < attempts - 1:
+            low = last.lower()
+            if any(t.lower() in low for t in THROTTLED):
+                pause = 20 * (attempt + 1)
+                vlog(f"gh hit a GitHub rate limit, waiting {pause}s: {last[:120]}")
+                time.sleep(pause)
+                continue
+            if any(t.lower() in low for t in TRANSIENT):
+                vlog(f"transient gh failure, retrying: {last[:120]}")
+                time.sleep(2 * (attempt + 1))
+                continue
         break
     raise GhError(last)
 
@@ -584,13 +618,16 @@ def search_open(cfg):
     return rows, truncated
 
 
-def search_recent(cfg, since: datetime):
-    args = ["search", "prs", "--limit", "60",
+def search_recent(cfg, since: datetime, limit: int = 60):
+    args = ["search", "prs", "--limit", str(limit),
             "--json", "repository,number,state,updatedAt",
             "--updated", ">" + since.strftime("%Y-%m-%dT%H:%M:%S+00:00")]
     for owner in cfg["owners"]:
         args += ["--owner", owner]
-    return json.loads(gh_raw(args))
+    rows = json.loads(gh_raw(args))
+    # Silent truncation here hides a spend on a since-merged PR, which is the exact
+    # blind spot this sweep exists to cover.
+    return rows, len(rows) >= limit
 
 
 def eligible(cfg, row):
@@ -645,6 +682,26 @@ def in_cooldown(ledger, pr: PR, cooldown: timedelta, now):
 def gave_up(ledger, pr: PR):
     return any(e.get("repo") == pr.slug and e.get("pr") == pr.number and e.get("giveUp")
                for e in ledger.get("fired", []))
+
+
+def mark_refusal(ledger, entry):
+    """SKILL step 3: give up on a PR that refuses *twice*, not once.
+
+    One refusal is often situational — a draft, a bot-authored PR CodeRabbit wants
+    a manual trigger for. Retiring the PR after a single skip drops it permanently,
+    including across later pushes that might well review fine.
+    """
+    prior = sum(
+        1 for e in ledger.get("fired", [])
+        if e is not entry
+        and e.get("repo") == entry.get("repo")
+        and e.get("pr") == entry.get("pr")
+        and e.get("outcome") == "skipped"
+    )
+    entry["refusals"] = prior + 1
+    if entry["refusals"] >= 2:
+        entry["giveUp"] = True
+    return entry["refusals"]
 
 
 def baseline_of(pr: PR):
@@ -1049,9 +1106,15 @@ def main():
 
     # ---- step 1: enumerate ------------------------------------------------ #
     log(f"enumerating open PRs for {', '.join(cfg['owners'])}")
+    # Firing needs a COMPLETE picture of the fleet. Anything that leaves the picture
+    # partial goes in here, and the run refuses to fire. Erring toward "a slot was
+    # spent" costs one idle tick; erring the other way burns the trigger.
+    fail_closed = []
+
     rows, truncated = search_open(cfg)
     if truncated:
         problems.append(f"search hit the {cfg['searchLimit']} limit — the fleet list is truncated")
+        fail_closed.append("open-PR search truncated")
     log(f"{len(rows)} open PRs found")
 
     drafts, dropped = [], []
@@ -1076,12 +1139,16 @@ def main():
             problems.extend(f"{pr.key}: {e}" for e in pr.errors)
         except (GhError, json.JSONDecodeError) as exc:
             problems.append(f"{slug}#{number}: classification failed — {exc}")
+            # An unclassified PR contributes no rate-limit block, no in-progress marker
+            # and no pass to derive_gate, so the gate silently reads earlier than it is.
+            fail_closed.append(f"{slug}#{number} did not classify")
             log(f"ERROR {slug}#{number}: {exc}")
 
     n_markers, n_parsed, n_refusals = countdown_assertion(prs)
     if n_markers and n_parsed + n_refusals < n_markers:
         problems.append(f"countdown assertion: {n_markers} rate-limit markers, only "
                         f"{n_parsed} countdowns + {n_refusals} refusals parsed — treat as a parse bug")
+        fail_closed.append("countdown assertion failed")
 
     # ---- step 6 (deferred): reconcile the previous run's entries ---------- #
     # An entry younger than a full poll may belong to a sweep that is still running.
@@ -1116,7 +1183,8 @@ def main():
                 if findings is not None:
                     entry["findings"] = findings
                 if outcome == "skipped":
-                    entry["giveUp"] = True
+                    n = mark_refusal(ledger, entry)
+                    log(f"{key}: refusal {n}" + (" — giving up on it" if n >= 2 else ""))
                 # The note was written by the poll and still says what the poll saw.
                 entry["note"] = f"{entry.get('note', '')} Reconciled {iso(now)}: {was} -> {outcome}.".strip()
             log(f"reconciled {key}: {entry.get('outcome')} / {entry.get('reconciledOutcome', '-')}")
@@ -1133,7 +1201,10 @@ def main():
         # PRs including closed ones — a spend on a since-merged PR is otherwise invisible.
         log("open-fleet gate expired — running the closed-PR sweep")
         try:
-            recent = search_recent(cfg, now - timedelta(minutes=90))
+            recent, recent_truncated = search_recent(cfg, now - timedelta(minutes=90))
+            if recent_truncated:
+                problems.append("closed-PR search truncated — a hidden spend may be unseen")
+                fail_closed.append("closed-PR search truncated")
             known = {p.key for p in prs}
             for row in recent:
                 slug = row["repository"]["nameWithOwner"]
@@ -1146,12 +1217,17 @@ def main():
                     vlog(f"closed sweep {extra.key}: {extra.tier} merged={extra.merged}")
                 except (GhError, json.JSONDecodeError) as exc:
                     problems.append(f"closed sweep {key} failed — {exc}")
+                    fail_closed.append(f"{key} did not classify in the closed sweep")
         except (GhError, json.JSONDecodeError) as exc:
             problems.append(f"closed-PR search failed — {exc}")
+            fail_closed.append("closed-PR search failed")
         gate = derive_gate(prs + closed_checked, ledger, now)
         gate_value = gate.value
 
     gated = gate_value is not None and now_utc() < gate_value + FIRE_MARGIN
+    if fail_closed:
+        gated = True
+        log("FAIL-CLOSED, not firing: " + "; ".join(fail_closed[:4]))
     log(f"gate {iso(gate_value) or 'none'} — {'GATED' if gated else 'open'}")
     for line in gate.describe()[:6]:
         vlog(line)
@@ -1180,9 +1256,15 @@ def main():
     fired_entry = None
 
     if gated:
-        decision["reason"] = f"gated until {iso(gate_value)}"
-        decision["note"] = f"Gated; {len(candidates)} candidate(s) waiting."
-        log(f"throttled until {iso(gate_value)}, nothing fired")
+        if fail_closed:
+            # Say which it was. "gated until <blank>" would read as a clean throttle.
+            decision["reason"] = "fail-closed: " + "; ".join(fail_closed[:3])
+            decision["note"] = (f"Incomplete fleet picture, nothing fired; "
+                                f"{len(candidates)} candidate(s) waiting.")
+        else:
+            decision["reason"] = f"gated until {iso(gate_value)}"
+            decision["note"] = f"Gated; {len(candidates)} candidate(s) waiting."
+        log(f"nothing fired — {decision['reason']}")
     elif not candidates:
         if incomplete:
             decision["reason"] = "every candidate is in cooldown or gave up"
@@ -1214,8 +1296,14 @@ def main():
                 gate_value = gate.value
         except (GhError, json.JSONDecodeError) as exc:
             problems.append(f"pre-fire re-scan failed — {exc}")
+            fail_closed.append("pre-fire re-scan failed")
 
-        if gate_value is not None and now_utc() < gate_value + FIRE_MARGIN:
+        if fail_closed:
+            gated = True
+            decision["reason"] = "fail-closed: " + "; ".join(fail_closed[:3])
+            decision["note"] = "Incomplete fleet picture; nothing fired."
+            log(decision["reason"])
+        elif gate_value is not None and now_utc() < gate_value + FIRE_MARGIN:
             gated = True
             decision["reason"] = f"re-scan moved the gate to {iso(gate_value)}"
             decision["note"] = "Gate arrived during the run; nothing fired."
@@ -1269,7 +1357,8 @@ def main():
                 if findings is not None:
                     fired_entry["findings"] = findings
                 if outcome == "skipped":
-                    fired_entry["giveUp"] = True
+                    n = mark_refusal(ledger, fired_entry)
+                    log(f"{target.key}: refusal {n}" + (" — giving up on it" if n >= 2 else ""))
                 if outcome == "throttled" and target.rate_block_reset:
                     # SKILL step 6: let the vendor's number overwrite our window.
                     ledger["throttledUntil"] = iso(target.rate_block_reset)
