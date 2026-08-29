@@ -81,16 +81,22 @@ transient. Distinguish it from a real failure by the neighbours: deploys of the 
 minutes either side cloned and built fine. So do not file it on first sight, and do not read it as
 "the repo was deleted". **Do** record it — but not as an ordinary signature. Step 3 skips every signature already in
 `seen.json`, so filing this one normally guarantees the next run skips it and the consecutive
-repeat can never be observed. Record it under a distinct pending key that carries a run count and
-that the skip rule does not consume. Store the run that last saw it alongside the count, and
-**increment once per sweep, only when this sweep immediately follows the recorded one** — several
-matching deploys in a single sweep are one sighting, not several, and a count that survives a clean
-sweep in between is not a consecutive repeat. Reset the count when a sweep goes by without it. At the second consecutive sighting, file the issue **and consume the pending
-record** — convert it into the ordinary `seen.json` entry carrying its issue number and status, so
-step 3's skip rule takes over from there. Leaving the key pending after filing re-files the same
-failure on every later sweep, because the exemption that keeps it visible is exactly what stops the
-skip rule suppressing a duplicate. A single sighting stays unfiled and still visible to the next
-run; that is the whole point of treating this class differently.
+repeat can never be observed.
+
+Record it under a distinct pending key that carries a run count and that the skip rule does not
+consume. Store the run that last saw it alongside the count, and **increment once per sweep, only
+when this sweep immediately follows the recorded one** — several matching deploys in a single sweep
+are one sighting, not several, and a count that survives a clean sweep in between is not a
+consecutive repeat. Reset the count when a sweep goes by without it. A single sighting stays unfiled
+and still visible to the next run; that is the whole point of treating this class differently.
+
+At the second consecutive sighting, file the issue — then **consume the pending key, but only once
+filing returns a confirmed issue number**. Convert it to the ordinary `seen.json` entry carrying
+that number and its status, so step 3's skip rule takes over. Both halves matter: an unconsumed key
+re-files the same failure on every later sweep, because the exemption that keeps it visible is
+exactly what would otherwise suppress a duplicate; and a key consumed after a *failed* filing loses
+the finding outright, which is why step 7 requires a signature whose issue creation failed to stay
+unrecorded so the next run retries it.
 
 Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
 never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
