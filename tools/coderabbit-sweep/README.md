@@ -19,8 +19,9 @@ cp config.example.json config.json
 
 Then edit `config.json`: set `owners` to the GitHub account(s) to sweep, and `stateDir` to
 where the ledger, board, and reports should live. `stateDir` defaults to `"."`, which puts
-them next to the config file — fine to start with. It also needs `board-template.html` present
-in `stateDir`, or `boardTemplate` pointed at wherever you keep it.
+them next to the config file — fine to start with, and it means `board-template.html` in this
+directory is found without any further setup. Point `boardTemplate` elsewhere if you keep the
+template somewhere else.
 
 ## Run it
 
@@ -85,8 +86,12 @@ checked out in a transient git worktree. This directory is the source of truth; 
 `sweep.py` here, push the copy to whatever `stateDir` your `config.json` names:
 
 ```bash
-cp sweep.py README.md "<your-stateDir>/"
+cp sweep.py board-template.html README.md "<your-stateDir>/"
 ```
+
+`board-template.html` is in that list because `boardTemplate` resolves under `stateDir` by
+default. Without it the board — the run's actual deliverable — fails to render on every run,
+and only a line in the report says so.
 
 **`stateDir` needs its own `config.json`.** The scheduled command reads
 `"<stateDir>\config.json"`, and that copy — not the one in this repo — is authoritative for the
