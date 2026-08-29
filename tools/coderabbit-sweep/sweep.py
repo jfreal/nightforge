@@ -1079,6 +1079,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="classify and render, never fire, never write the ledger")
     ap.add_argument("--no-poll", action="store_true", help="fire but skip the 5-minute confirmation poll")
     ap.add_argument("--open", dest="open_board", action="store_true", help="open the board when done")
+    ap.add_argument("--only", metavar="OWNER/REPO#N",
+                    help="fire at this PR instead of the ranked pick. Every other guard still "
+                         "applies: the throttle gate, fail-closed, cooldown and give-up.")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     VERBOSE = args.verbose
@@ -1244,6 +1247,26 @@ def main():
             blocked.append((pr, f"in cooldown until {iso(cd + cooldown)}"))
             continue
         candidates.append(pr)
+
+    # --only narrows the queue to one PR. It overrides the RANKING, never a guard —
+    # the gate, fail-closed, cooldown and give-up all still decide whether it fires.
+    if args.only:
+        want = args.only.strip()
+        picked = [p for p in candidates if p.key == want]
+        if not picked:
+            why = "not a candidate"
+            named = next((p for p in prs if p.key == want), None)
+            if named is None:
+                why = "not in the open fleet this run"
+            elif named.is_complete:
+                why = "already covers its head"
+            elif gave_up(ledger, named):
+                why = "carries the give-up flag"
+            elif in_cooldown(ledger, named, cooldown, now):
+                why = "inside its cooldown"
+            problems.append(f"--only {want}: {why} — nothing fired")
+            log(f"--only {want}: {why}")
+        candidates = picked
 
     tier_rank = {"never": 0, "stale": 1}
     candidates.sort(key=lambda p: (
