@@ -82,9 +82,11 @@ minutes either side cloned and built fine. So do not file it on first sight, and
 "the repo was deleted". **Do** record it in the ledger, because a repeat across consecutive runs is
 a genuine Netlify-side finding worth raising with the host.
 
-Note this failure mode defeats §14's `commit_ref` recovery test in a benign way: the failing commit
-usually never gets a ready deploy of its own, because the branch simply moved on. Check whether the
-branch's later merge deployed clean before reporting the commit as unrecovered.
+Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
+never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
+recovery key.** A later clean deploy of the same *branch* is not that commit and does not prove it
+recovered — use it only to decide whether the clone failure was transient. With no ready deploy at
+the same `commit_ref`, recovery is `unknown`, not recovered; say so rather than closing the row.
 
 ## 4. The whitelist gotcha, and why it matters to a fix agent
 
@@ -275,8 +277,11 @@ the warn tier load-bearing on this project (that is where a real config gap surf
 warn pass has the same blind spot the single error pass does.
 
 The rule generalises: **ladder every level-filtered pass you intend to draw a conclusion from.**
-A seven-window ladder is enough for warn; keep thirteen for error, where a missed line is a missed
-bug. Both are free.
+Use the same thirteen windows for warn as for error. The seven-window run above proves it recovered
+five lines the single pass missed; it does not prove the union was complete, and §9 is explicit that
+a level-filtered call can return an arbitrary contiguous subset even well under 100 lines. Seven
+windows is a heuristic — if you ladder only seven, a narrow follow-up over the gaps is required
+before declaring the warn tier quiet. Thirteen costs nothing, so prefer it.
 
 ## 10. A zero-result pass looks like TWO different things — learn both
 
