@@ -70,11 +70,12 @@ be behind by days, and "this defect is still live" is a claim about running code
 
 ```bash
 set -o pipefail
-git fetch origin --quiet
+# pipefail governs pipelines only, so the fetch needs its own guard: a stale
+# origin/<default branch> would silently make the comparison below wrong.
+git fetch origin --quiet || { echo "cannot refresh origin; comparison unavailable"; exit 1; }
 # The deployed SHA, from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
 src=$(git show "<deployed-sha>:<path>") || { echo "cannot read <path> at <deployed-sha>"; exit 1; }
-printf '%s
-' "$src" | sed -n '<start>,<end>p'
+printf '%s\n' "$src" | sed -n '<start>,<end>p'
 ```
 
 **`origin/<default branch>` is the comparison, not the source of truth.** It can sit ahead of the
