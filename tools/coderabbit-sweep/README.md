@@ -35,6 +35,7 @@ Or double-click `run.cmd`.
 | `--dry-run` | Classify, derive the gate, render the board. Never comments, never writes the ledger. Board goes to `board-dryrun.html`. |
 | `--no-poll` | Fire, then skip the 5-minute confirmation poll. The next run reconciles. |
 | `--open` | Open the board in a browser when the run ends. |
+| `--only OWNER/REPO#N` | Fire at this PR instead of the ranked pick. Overrides the *ranking* only — the throttle gate, fail-closed, cooldown and give-up all still apply, and an ineligible target refuses rather than falling back. |
 | `--verbose` | Per-PR classification and every gate source. |
 
 Exit is always 0; problems are printed, written into the report, and shown on the board.
