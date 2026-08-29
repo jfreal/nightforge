@@ -82,9 +82,12 @@ minutes either side cloned and built fine. So do not file it on first sight, and
 "the repo was deleted". **Do** record it — but not as an ordinary signature. Step 3 skips every signature already in
 `seen.json`, so filing this one normally guarantees the next run skips it and the consecutive
 repeat can never be observed. Record it under a distinct pending key that carries a run count and
-that the skip rule does not consume — increment on each sighting, and file only when the count
-reaches two. A single sighting stays unfiled and still visible to the next run; that is the whole
-point of treating this class differently.
+that the skip rule does not consume. Store the run that last saw it alongside the count, and
+**increment once per sweep, only when this sweep immediately follows the recorded one** — several
+matching deploys in a single sweep are one sighting, not several, and a count that survives a clean
+sweep in between is not a consecutive repeat. Reset the count when a sweep goes by without it. File
+at two consecutive sightings. A single sighting stays unfiled and still visible to the next run;
+that is the whole point of treating this class differently.
 
 Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
 never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
