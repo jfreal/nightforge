@@ -70,7 +70,13 @@ checkout may be behind by days, and "this defect is still live" is a claim about
 
 ```bash
 # The checkout only tells you what to look for. Find it again in the deployed tree.
-git grep -n "<message text>" "<deployed-sha>" -- '<likely path glob>'
+# -F: the message is literal text. Without it a message containing . ( ) [ ] * is
+# a regex and can resolve to the wrong source.
+matches=$(git grep -n -F -e "<message text>" "<deployed-sha>" -- '<likely path glob>') || {
+  echo "source message not found in the deployed commit"; exit 1; }
+[ "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ] || {
+  echo "source message is ambiguous in the deployed commit:"; printf '%s\n' "$matches"; exit 1; }
+printf '%s\n' "$matches"
 ```
 
 A path taken from the checkout can be missing in the deployed commit, which reads as a false
@@ -80,16 +86,21 @@ silently. Derive `<path>` and `<start>,<end>` from the deployed commit, then:
 
 ```bash
 set -o pipefail
-# pipefail governs pipelines only, so the fetch needs its own guard: a stale
-# origin/<default branch> would silently make the comparison below wrong.
-git fetch origin --quiet || { echo "cannot refresh origin; comparison unavailable"; exit 1; }
-# The deployed SHA, from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
+# Read the deployed commit FIRST. The fetch below serves only the origin comparison,
+# so a network blip must not block classification when the deployed source is right here.
+# The deployed SHA comes from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
 src=$(git show "<deployed-sha>:<path>") || { echo "cannot read <path> at <deployed-sha>"; exit 1; }
 # git show succeeds on an empty file, and a range can select nothing: either would
 # otherwise reach classification looking like "no evidence of the defect".
 [ -n "$src" ] || { echo "deployed source is empty"; exit 1; }
 range=$(printf '%s\n' "$src" | sed -n '<start>,<end>p')
 [ -n "$range" ] || { echo "requested source range is empty"; exit 1; }
+# Only now, and only for the comparison: pipefail governs pipelines, so the fetch
+# needs its own check, or a stale origin ref makes the comparison silently wrong.
+if git fetch origin --quiet; then compare=yes; else
+  compare=no
+  echo "cannot refresh origin: classify on the deployed source and record that the comparison was unavailable"
+fi
 printf '%s\n' "$range"
 ```
 
