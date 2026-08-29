@@ -64,7 +64,21 @@ A hit, **open or closed**, means it is already tracked or already fixed. Record 
 
 ## Step 4 — Triage: read the code before judging anything
 
-Search the repo for the message text to find its source. Trace it to a file and line. Then classify:
+Search the repo for the message text to find its source. Trace it to a file and line. **Read that
+file from `origin/<default branch>`, not from the working checkout** — the checkout may be behind by
+days, and "this defect is still live" is a claim about the deployed branch, not about whatever is on
+disk:
+
+```bash
+git fetch origin --quiet && git show origin/<default branch>:<path> | sed -n '<start>,<end>p'
+```
+
+On one run the checkout's copy of a handler had been restructured on the branch hours earlier. The
+defect was still real, but through two narrower paths than the one described, and the brief sent to
+the fix agent named line numbers for a handler that no longer existed. The agent had to re-derive the
+cause before it could fix it. Grep the checkout to *find* code; read the branch to *judge* it.
+
+Then classify:
 
 - **bug** — genuine defect worth fixing. Gets an issue and a fix session.
 - **noise** — the healthy path logged at the wrong level. Gets an issue (it buries real errors) but **no fix session**: the right logging level is a judgement call for the user.
