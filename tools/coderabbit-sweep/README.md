@@ -38,7 +38,9 @@ Or double-click `run.cmd`.
 | `--only OWNER/REPO#N` | Fire at this PR instead of the ranked pick. Overrides the *ranking* only — the throttle gate, fail-closed, cooldown and give-up all still apply, and an ineligible target refuses rather than falling back. |
 | `--verbose` | Per-PR classification and every gate source. |
 
-Exit is always 0; problems are printed, written into the report, and shown on the board.
+A sweep that completes exits 0 — including a gated, fail-closed, or nothing-to-do run; problems
+are printed, written into the report, and shown on the board rather than raised. Startup can
+still exit non-zero: an unreadable or invalid config, bad CLI arguments, or a crash.
 
 ## Scheduled
 
@@ -86,13 +88,23 @@ checked out in a transient git worktree. This directory is the source of truth; 
 cp sweep.py README.md "<your-stateDir>/"
 ```
 
-`config.json` is deliberately not in that list — the installed copy is the one the task reads,
-and yours may differ from the one you develop against.
+**`stateDir` needs its own `config.json`.** The scheduled command reads
+`"<stateDir>\config.json"`, and that copy — not the one in this repo — is authoritative for the
+task. Create it once, when you first deploy:
+
+```bash
+cp config.example.json "<your-stateDir>/config.json"
+```
+
+then edit it there. It is left out of the routine sync above on purpose: the installed config
+names real paths and may differ from the one you develop against, so re-copying it every time
+would overwrite your deployment settings.
 
 ## Output
 
-Everything lands in `stateDir` (by default the existing scheduled-task folder, so the script
-inherits the ledger the skill was already keeping):
+Each output path is configurable and resolved independently; an absolute value is honoured as
+given. By default they all land in `stateDir` — which points at the existing scheduled-task
+folder, so the script inherits the ledger the skill was already keeping:
 
 | File | What |
 |---|---|
@@ -100,7 +112,7 @@ inherits the ledger the skill was already keeping):
 | `runs.html` | Run log — one row per run, newest first, linked from the board footnote. |
 | `runs.json` | Data behind the run log. Last 500 runs. |
 | `ledger.json` | Memory between runs: `throttledUntil`, the last 12 fires, `lastRun`. |
-| `reports/<YYYY-MM-DD>.md` | Text audit trail, one block appended per run. |
+| `<reportsDir>/<YYYY-MM-DD>.md` | Text audit trail, one block appended per run. `reportsDir` defaults to `reports`. |
 
 The board and run log are plain self-contained HTML files. They are not published anywhere — link
 to them on disk, or point a static file server at `stateDir`.
