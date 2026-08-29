@@ -79,8 +79,12 @@ fatal: repository 'https://github.com/<owner>/<repo>/' not found
 The build never reached the tree — Netlify could not **clone** at all, a host-side git/GitHub-token
 transient. Distinguish it from a real failure by the neighbours: deploys of the *same branch* twenty
 minutes either side cloned and built fine. So do not file it on first sight, and do not read it as
-"the repo was deleted". **Do** record it in the ledger, because a repeat across consecutive runs is
-a genuine Netlify-side finding worth raising with the host.
+"the repo was deleted". **Do** record it — but not as an ordinary signature. Step 3 skips every signature already in
+`seen.json`, so filing this one normally guarantees the next run skips it and the consecutive
+repeat can never be observed. Record it under a distinct pending key that carries a run count and
+that the skip rule does not consume — increment on each sighting, and file only when the count
+reaches two. A single sighting stays unfiled and still visible to the next run; that is the whole
+point of treating this class differently.
 
 Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
 never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
