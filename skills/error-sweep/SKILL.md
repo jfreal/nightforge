@@ -64,9 +64,19 @@ A hit, **open or closed**, means it is already tracked or already fixed. Record 
 
 ## Step 4 — Triage: read the code before judging anything
 
-Search the repo for the message text to find its source. Trace it to a file and line. **Read that
-file from the commit that is actually deployed, not from the working checkout** — the checkout may
-be behind by days, and "this defect is still live" is a claim about running code:
+Search the repo for the message text to find its source. Trace it to a file and line. **Then
+re-resolve both the path and the line range inside the deployed commit before reading them** — the
+checkout may be behind by days, and "this defect is still live" is a claim about running code:
+
+```bash
+# The checkout only tells you what to look for. Find it again in the deployed tree.
+git grep -n "<message text>" "<deployed-sha>" -- '<likely path glob>'
+```
+
+A path taken from the checkout can be missing in the deployed commit, which reads as a false
+"source unavailable" stop; and a line range taken from the checkout can select unrelated code that
+still passes the non-empty check below, which is worse — it classifies against the wrong lines
+silently. Derive `<path>` and `<start>,<end>` from the deployed commit, then:
 
 ```bash
 set -o pipefail
