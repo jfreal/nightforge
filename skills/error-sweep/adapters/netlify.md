@@ -67,6 +67,25 @@ Parse each deploy's `state` and `error_message`. `state == "error"` is a finding
 | `Canceled build due to no content change` | `netlify.toml`'s `[build] ignore` whitelist working as designed |
 | `Skipped due to account credit usage exceeded` | Billing condition. Mention in the report; file nothing |
 
+There is a **third** shape that is neither of those and is not a code defect either. Seen
+2026-08-27 on mergetel:
+
+```text
+Failed during stage 'preparing repo': ... remote: Repository not found.
+fatal: repository 'https://github.com/<owner>/<repo>/' not found
+: exit status 128
+```
+
+The build never reached the tree — Netlify could not **clone** at all, a host-side git/GitHub-token
+transient. Distinguish it from a real failure by the neighbours: deploys of the *same branch* twenty
+minutes either side cloned and built fine. So do not file it on first sight, and do not read it as
+"the repo was deleted". **Do** record it in the ledger, because a repeat across consecutive runs is
+a genuine Netlify-side finding worth raising with the host.
+
+Note this failure mode defeats §14's `commit_ref` recovery test in a benign way: the failing commit
+usually never gets a ready deploy of its own, because the branch simply moved on. Check whether the
+branch's later merge deployed clean before reporting the commit as unrecovered.
+
 ## 4. The whitelist gotcha, and why it matters to a fix agent
 
 `netlify.toml`'s `ignore` command is a **whitelist** of build inputs. If a fix adds a new input — a new top-level folder the build reads, a new config file, a script that starts consuming a JSON file — that path **must** be added to the `ignore` command in the same PR, or edits to it will silently never deploy. Put this in every fix brief for a Netlify project.
@@ -246,6 +265,18 @@ Thirteen invocations cost a couple of minutes and no build credits. Dedupe on
 `<timestamp> <function> <message>`; the same line appears in several windows. Report the count from
 the union, not from any one pass, and say in the report that the union is what you used — a future
 run comparing "10 lines" against "23 lines" would otherwise read a collection artifact as a trend.
+
+**Refinement, 2026-08-28: ladder the WARN pass too — the truncation is not specific to `--level
+error`.** On mergetel a single `--since 26h --level warn --source functions` pass returned 11 log
+lines. A seven-window warn ladder (`2h 6h 10h 14h 18h 22h 26h`) on the same site minutes later
+returned **16** deduped, including five `___netlify-server-handler` lines the 26h pass could not
+see at all — four `.marketing.yml` 404s and a `CHANGELOG_FEED_URL is not set` at `06:08`. §7 makes
+the warn tier load-bearing on this project (that is where a real config gap surfaced), so a single
+warn pass has the same blind spot the single error pass does.
+
+The rule generalises: **ladder every level-filtered pass you intend to draw a conclusion from.**
+A seven-window ladder is enough for warn; keep thirteen for error, where a missed line is a missed
+bug. Both are free.
 
 ## 10. A zero-result pass looks like TWO different things — learn both
 
