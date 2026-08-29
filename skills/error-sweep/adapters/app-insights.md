@@ -84,15 +84,28 @@ So for any hand-off flow, **count the legs against each other** rather than look
 ```kusto
 requests
 | where name in ('<start>', '<provider return>', '<your callback>')   // exact names, not has_any
-| summarize cnt=count() by name, resultCode
-| order by name asc
+| extend leg = case(name == '<start>', 'start',
+                    name == '<provider return>', 'return',
+                    'callback')
+| summarize legs = make_set(leg), resultCodes = make_set(resultCode) by operation_Id
+| summarize flows = count() by tostring(legs)
+| order by flows desc
 ```
 
-**Take the ratio over the whole window, not per day.** `bin(timestamp, 1d)` cuts the flow at
-midnight, so a start at 23:58 and its return at 00:02 land in different buckets and the day reads
-as a completion collapse that never happened. Count the legs across the window and divide. If you
-do want a trend, bucket by something that cannot split one flow — correlate on `operation_Id` and
-bin the *start* time — rather than binning each leg independently.
+**Correlate the legs before calling anything a completion ratio.** Counting each leg on its own
+cannot show that a return belongs to a start: a window can hold 88 starts and 4 returns from
+entirely different visitors and still read as a 4.5% completion rate. Group by `operation_Id` first,
+as above, so each row is one flow and the shape of `legs` says where it stopped.
+
+**Where no key survives the redirect, say so and stop at counts.** Some providers drop the
+correlation id across the hand-off. Then the aggregate leg counts are all you have — report them as
+counts, label the funnel unconfirmed, and require manual confirmation before treating the drop as a
+defect. Do not present an uncorrelated ratio as a completion rate.
+
+**Never bin the legs by day.** `bin(timestamp, 1d)` cuts a flow at midnight, so a start at 23:58
+and its return at 00:02 land in different buckets and the day reads as a completion collapse that
+never happened. Correlating by `operation_Id` as above already avoids this. If you want a trend,
+bin the flow's *start* time after the correlation — never each leg independently.
 
 **Match the legs exactly.** `has_any` tests indexed *terms*, not whole `name` values, so an
 unrelated route sharing a term joins the funnel and quietly distorts the very ratio being measured.

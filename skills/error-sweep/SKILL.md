@@ -69,6 +69,13 @@ re-resolve both the path and the line range inside the deployed commit before re
 checkout may be behind by days, and "this defect is still live" is a claim about running code:
 
 ```bash
+# The deployed commit must be in the local object store first. A shallow or stale
+# clone otherwise turns "the commit is missing" into "the message is not there",
+# which reads as "the defect is fixed" and silently drops a live finding.
+git cat-file -e "<deployed-sha>^{commit}" 2>/dev/null ||
+  git fetch origin --quiet "<deployed-sha>" 2>/dev/null ||
+  { echo "deployed commit unavailable"; exit 1; }
+
 # The checkout only tells you what to look for. Find it again in the deployed tree.
 # -F: the message is literal text. Without it a message containing . ( ) [ ] * is
 # a regex and can resolve to the wrong source.
