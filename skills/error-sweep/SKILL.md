@@ -75,7 +75,12 @@ set -o pipefail
 git fetch origin --quiet || { echo "cannot refresh origin; comparison unavailable"; exit 1; }
 # The deployed SHA, from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
 src=$(git show "<deployed-sha>:<path>") || { echo "cannot read <path> at <deployed-sha>"; exit 1; }
-printf '%s\n' "$src" | sed -n '<start>,<end>p'
+# git show succeeds on an empty file, and a range can select nothing: either would
+# otherwise reach classification looking like "no evidence of the defect".
+[ -n "$src" ] || { echo "deployed source is empty"; exit 1; }
+range=$(printf '%s\n' "$src" | sed -n '<start>,<end>p')
+[ -n "$range" ] || { echo "requested source range is empty"; exit 1; }
+printf '%s\n' "$range"
 ```
 
 **`origin/<default branch>` is the comparison, not the source of truth.** It can sit ahead of the

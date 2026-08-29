@@ -85,9 +85,12 @@ repeat can never be observed. Record it under a distinct pending key that carrie
 that the skip rule does not consume. Store the run that last saw it alongside the count, and
 **increment once per sweep, only when this sweep immediately follows the recorded one** — several
 matching deploys in a single sweep are one sighting, not several, and a count that survives a clean
-sweep in between is not a consecutive repeat. Reset the count when a sweep goes by without it. File
-at two consecutive sightings. A single sighting stays unfiled and still visible to the next run;
-that is the whole point of treating this class differently.
+sweep in between is not a consecutive repeat. Reset the count when a sweep goes by without it. At the second consecutive sighting, file the issue **and consume the pending
+record** — convert it into the ordinary `seen.json` entry carrying its issue number and status, so
+step 3's skip rule takes over from there. Leaving the key pending after filing re-files the same
+failure on every later sweep, because the exemption that keeps it visible is exactly what stops the
+skip rule suppressing a duplicate. A single sighting stays unfiled and still visible to the next
+run; that is the whole point of treating this class differently.
 
 Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
 never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
