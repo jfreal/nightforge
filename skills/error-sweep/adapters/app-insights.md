@@ -146,7 +146,8 @@ requests are worth a pass of their own (`requests | where duration > 5000`), bec
 30 s is still a defect and no failure pass will ever show it. But most of what that pass returns is
 the app booting. Project the instance and compare each row against that instance's `firstSeen`: rows
 where the two are equal are the first request on a cold instance and are the known cost of a restart.
-Only rows on an instance that has been up for hours are a finding. On one run, 18 of 19 slow rows
+Rows past the age threshold below are the findings; hours-old instances are simply the clearest
+of them. On one run, 18 of 19 slow rows
 were boot cost and the single warm one — 10.6 s with every SQL dependency under 10 ms, so not the
 database — was the only thing worth writing down.
 
@@ -173,8 +174,10 @@ summary above, so a bare `| extend instanceAgeSec = ...` fragment has no input t
 `firstSeen` in scope. `leftouter` keeps a row whose instance never summarised rather than dropping
 it silently — such a row has a null `instanceAgeSec` and fails the filter, so inspect it by hand.
 
-Sixty seconds is generous on purpose — a warm-instance regression that only shows up in the first
-minute of a boot is still boot cost, and the whole point of the pass is to find the row that is not.
+**Sixty seconds is the threshold for the whole section** — do not pair this filter with a looser
+"up for hours" rule in prose, or a row 61 seconds past `firstSeen` gets two contradictory verdicts.
+It is generous on purpose: a slow request in a boot's first minute is still boot cost, and the pass
+exists to find the row that is not. Raise it if a project boots slowly, but raise it in both places.
 
 ## 6. Dependencies and traces
 

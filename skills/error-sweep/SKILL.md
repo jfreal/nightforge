@@ -65,13 +65,29 @@ A hit, **open or closed**, means it is already tracked or already fixed. Record 
 ## Step 4 — Triage: read the code before judging anything
 
 Search the repo for the message text to find its source. Trace it to a file and line. **Read that
-file from `origin/<default branch>`, not from the working checkout** — the checkout may be behind by
-days, and "this defect is still live" is a claim about the deployed branch, not about whatever is on
-disk:
+file from the commit that is actually deployed, not from the working checkout** — the checkout may
+be behind by days, and "this defect is still live" is a claim about running code:
 
 ```bash
-git fetch origin --quiet && git show origin/<default branch>:<path> | sed -n '<start>,<end>p'
+set -o pipefail
+git fetch origin --quiet
+# The deployed SHA, from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
+src=$(git show "<deployed-sha>:<path>") || { echo "cannot read <path> at <deployed-sha>"; exit 1; }
+printf '%s
+' "$src" | sed -n '<start>,<end>p'
 ```
+
+**`origin/<default branch>` is the comparison, not the source of truth.** It can sit ahead of the
+last successful deploy — §7 treats exactly that drift as normal — so a fix that is merged but not
+yet deployed reads as "already fixed" while production keeps emitting the error, and a real finding
+is suppressed. Read the deployed commit to judge whether the defect is live; diff it against
+`origin/<default branch>` to see whether a fix is already waiting to ship. Where the adapter cannot
+name a deployed SHA, say so in the report and treat the branch read as provisional.
+
+**Fail closed when the source cannot be read.** `git show ... | sed ...` exits 0 on `sed`'s status,
+so an unresolvable path or ref prints nothing and classification proceeds on no evidence at all.
+Capture `git show` separately as above (or set `pipefail`), and if the range comes back empty, stop
+and report it rather than classifying.
 
 On one run the checkout's copy of a handler had been restructured on the branch hours earlier. The
 defect was still real, but through two narrower paths than the one described, and the brief sent to
