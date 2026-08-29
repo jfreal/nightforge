@@ -63,6 +63,32 @@ is a legitimate thing for an app to do — it stops an expected, self-correcting
 with real failures — but it silently blinds a sweep that only ever runs the failure pass, which then
 reports "those errors stopped" when they merely turned green.
 
+**A multi-leg flow that dies between the legs produces no error row at all.** Every pass in this
+adapter keys off a status code, and the start of a redirect flow answers `302` whether or not
+anything ever comes back. An OAuth sign-in, a payment hand-off, an email-confirmation bounce — all
+of them can be 100% broken while `exceptions`, `requests | where success == 'False'` and every trace
+category stay perfectly clean, because the failure happens on the far side of a redirect the server
+never sees.
+
+So for any hand-off flow, **count the legs against each other** rather than looking for a bad status:
+
+```
+requests | where name has_any ('<start>','<provider return>','<your callback>') | summarize cnt=count() by bin(timestamp, 1d), name, resultCode | order by timestamp asc
+```
+
+A start-to-callback ratio that collapses is the finding. On one run this turned a lone 4-hit `429`
+— under the filing threshold, and correct behaviour by the limiter that emitted it — into a 30-day
+funnel of 88 sign-in starts, 4 returns and 2 completions, with a raw timeline showing one user
+pressing the button eleven times and then signing in with the other provider on the first try. The
+`429` was the only thing any error pass could see, and it was the least interesting part of it.
+
+Two guardrails when you find one. First, **prove the request you emit is well-formed before blaming
+the provider** — one `curl` on the start route reads the `Location` header, and a second on that URL
+shows whether the provider rejected the parameters or merely asked the visitor to log in. Second,
+**say that the cause is not observable** when it isn't: what happens between your redirect and the
+provider's answer leaves no server-side trace, so the honest classification is `noise` with a
+measured funnel, not a guessed root cause.
+
 So for any route you are actively watching, **query it by URL and result code, never by `success`**:
 
 ```
@@ -115,6 +141,20 @@ where the two are equal are the first request on a cold instance and are the kno
 Only rows on an instance that has been up for hours are a finding. On one run, 18 of 19 slow rows
 were boot cost and the single warm one — 10.6 s with every SQL dependency under 10 ms, so not the
 database — was the only thing worth writing down.
+
+**Do not use `timestamp == firstSeen` as the cold test — it is far too strict.** Equality catches
+only the literal first request on an instance; a boot serves several requests inside its first few
+seconds, and every one after the first is then labelled *warm*. On one run that split returned 22
+"warm" rows out of 46, and about seventeen of them were 8–30 s into an instance's life — a
+`/_blazor/negotiate` 13 s after boot, four `GET /` inside the same 16 s window, a `/plan` 24 s in.
+Only five rows were genuinely warm. Compare the **age**, not the timestamps:
+
+```
+| extend instanceAgeSec = datetime_diff('second', timestamp, firstSeen) | where instanceAgeSec > 60
+```
+
+Sixty seconds is generous on purpose — a warm-instance regression that only shows up in the first
+minute of a boot is still boot cost, and the whole point of the pass is to find the row that is not.
 
 ## 6. Dependencies and traces
 
