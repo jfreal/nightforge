@@ -71,8 +71,9 @@ is a legitimate thing for an app to do — it stops an expected, self-correcting
 with real failures — but it silently blinds a sweep that only ever runs the failure pass, which then
 reports "those errors stopped" when they merely turned green.
 
-**A multi-leg flow that dies between the legs produces no error row at all.** Every pass in this
-adapter keys off a status code, and the start of a redirect flow answers `302` whether or not
+**A multi-leg flow that dies between the legs produces no error row at all.** The `requests` passes
+in this adapter key off a status code — the `exceptions` and `traces` passes do not, and neither
+sees this either — and the start of a redirect flow answers `302` whether
 anything ever comes back. An OAuth sign-in, a payment hand-off, an email-confirmation bounce — all
 of them can be 100% broken while `exceptions`, `requests | where success == 'False'` and every trace
 category stay perfectly clean, because the failure happens on the far side of a redirect the server
@@ -81,8 +82,16 @@ never sees.
 So for any hand-off flow, **count the legs against each other** rather than looking for a bad status:
 
 ```kusto
-requests | where name has_any ('<start>','<provider return>','<your callback>') | summarize cnt=count() by bin(timestamp, 1d), name, resultCode | order by timestamp asc
+requests
+| where name in ('<start>', '<provider return>', '<your callback>')   // exact names, not has_any
+| summarize cnt=count() by bin(timestamp, 1d), name, resultCode
+| order by timestamp asc
 ```
+
+**Match the legs exactly.** `has_any` tests indexed *terms*, not whole `name` values, so an
+unrelated route sharing a term joins the funnel and quietly distorts the very ratio being measured.
+Use `in (...)` with exact names where they are stable; where they carry ids, normalize the route
+first and group on the normalized value.
 
 A start-to-callback ratio that collapses is the finding. On one run this turned a lone 4-hit `429`
 — under the filing threshold, and correct behaviour by the limiter that emitted it — into a 30-day
@@ -94,8 +103,11 @@ Two guardrails when you find one. First, **prove the request you emit is well-fo
 the provider** — one `curl` on the start route reads the `Location` header, and a second on that URL
 shows whether the provider rejected the parameters or merely asked the visitor to log in. Second,
 **say that the cause is not observable** when it isn't: what happens between your redirect and the
-provider's answer leaves no server-side trace, so the honest classification is `noise` with a
-measured funnel, not a guessed root cause.
+provider's answer leaves no server-side trace. Record that as *unobservable* alongside the measured
+funnel — do not reach for a classification the evidence does not support. `noise` means a healthy
+path logged at the wrong level and `external` means a provider or network failure; an outcome you
+cannot see is neither until something outside this telemetry says which. Report the funnel, name
+what could not be seen, and classify only when there is evidence for it.
 
 So for any route you are actively watching, **query it by URL and result code, never by `success`**:
 
@@ -160,14 +172,21 @@ Only five rows were genuinely warm. Compare the **age**, not the timestamps:
 
 ```kusto
 requests
-| where duration > 5000
+| where duration > 5000 and success == 'True'   // success is a string here, not a bool
 | join kind=leftouter (
-    requests | summarize firstSeen=min(timestamp) by cloud_RoleInstance
-  ) on cloud_RoleInstance
+    requests | summarize firstSeen=min(timestamp) by cloud_RoleName, cloud_RoleInstance
+  ) on cloud_RoleName, cloud_RoleInstance
 | extend instanceAgeSec = datetime_diff('second', timestamp, firstSeen)
 | where instanceAgeSec > 60
 | order by duration desc
 ```
+
+**`firstSeen` is a heuristic for process start, not a measurement of it.** `cloud_RoleInstance`
+names a host or container, so two roles on one host collide unless `cloud_RoleName` is in the key —
+hence both above. Even then the value can outlive a process restart, which makes `firstSeen`
+*earlier* than the process actually running and lets a genuine cold-start row clear the 60-second
+filter. Where the app emits a process-start marker, key on that instead; where it does not, treat a
+surviving row as a candidate and confirm it before filing.
 
 The join is the whole point and has to be written out: `firstSeen` comes from the per-instance
 summary above, so a bare `| extend instanceAgeSec = ...` fragment has no input table and no
