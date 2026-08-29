@@ -67,6 +67,43 @@ Parse each deploy's `state` and `error_message`. `state == "error"` is a finding
 | `Canceled build due to no content change` | `netlify.toml`'s `[build] ignore` whitelist working as designed |
 | `Skipped due to account credit usage exceeded` | Billing condition. Mention in the report; file nothing |
 
+There is a **third** shape that is neither of those and is not a code defect either. Seen
+2026-08-27 on mergetel:
+
+```text
+Failed during stage 'preparing repo': ... remote: Repository not found.
+fatal: repository 'https://github.com/<owner>/<repo>/' not found
+: exit status 128
+```
+
+The build never reached the tree — Netlify could not **clone** at all, a host-side git/GitHub-token
+transient. Distinguish it from a real failure by the neighbours: deploys of the *same branch* twenty
+minutes either side cloned and built fine. So do not file it on first sight, and do not read it as
+"the repo was deleted". **Do** record it — but not as an ordinary signature. Step 3 skips every signature already in
+`seen.json`, so filing this one normally guarantees the next run skips it and the consecutive
+repeat can never be observed.
+
+Record it under a distinct pending key that carries a run count and that the skip rule does not
+consume. Store the run that last saw it alongside the count, and **increment once per sweep, only
+when this sweep immediately follows the recorded one** — several matching deploys in a single sweep
+are one sighting, not several, and a count that survives a clean sweep in between is not a
+consecutive repeat. Reset the count when a sweep goes by without it. A single sighting stays unfiled
+and still visible to the next run; that is the whole point of treating this class differently.
+
+At the second consecutive sighting, file the issue — then **consume the pending key, but only once
+filing returns a confirmed issue number**. Convert it to the ordinary `seen.json` entry carrying
+that number and its status, so step 3's skip rule takes over. Both halves matter: an unconsumed key
+re-files the same failure on every later sweep, because the exemption that keeps it visible is
+exactly what would otherwise suppress a duplicate; and a key consumed after a *failed* filing loses
+the finding outright, which is why step 7 requires a signature whose issue creation failed to stay
+unrecorded so the next run retries it.
+
+Note this failure mode interacts with §14's `commit_ref` recovery test: the failing commit usually
+never gets a ready deploy of its own, because the branch simply moved on. **`commit_ref` stays the
+recovery key.** A later clean deploy of the same *branch* is not that commit and does not prove it
+recovered — use it only to decide whether the clone failure was transient. With no ready deploy at
+the same `commit_ref`, recovery is `unknown`, not recovered; say so rather than closing the row.
+
 ## 4. The whitelist gotcha, and why it matters to a fix agent
 
 `netlify.toml`'s `ignore` command is a **whitelist** of build inputs. If a fix adds a new input — a new top-level folder the build reads, a new config file, a script that starts consuming a JSON file — that path **must** be added to the `ignore` command in the same PR, or edits to it will silently never deploy. Put this in every fix brief for a Netlify project.
@@ -246,6 +283,21 @@ Thirteen invocations cost a couple of minutes and no build credits. Dedupe on
 `<timestamp> <function> <message>`; the same line appears in several windows. Report the count from
 the union, not from any one pass, and say in the report that the union is what you used — a future
 run comparing "10 lines" against "23 lines" would otherwise read a collection artifact as a trend.
+
+**Refinement, 2026-08-28: ladder the WARN pass too — the truncation is not specific to `--level
+error`.** On mergetel a single `--since 26h --level warn --source functions` pass returned 11 log
+lines. A seven-window warn ladder (`2h 6h 10h 14h 18h 22h 26h`) on the same site minutes later
+returned **16** deduped, including five `___netlify-server-handler` lines the 26h pass could not
+see at all — four `.marketing.yml` 404s and a `CHANGELOG_FEED_URL is not set` at `06:08`. §7 makes
+the warn tier load-bearing on this project (that is where a real config gap surfaced), so a single
+warn pass has the same blind spot the single error pass does.
+
+The rule generalises: **ladder every level-filtered pass you intend to draw a conclusion from.**
+Use the same thirteen windows for warn as for error. The seven-window run above proves it recovered
+five lines the single pass missed; it does not prove the union was complete, and §9 is explicit that
+a level-filtered call can return an arbitrary contiguous subset even well under 100 lines. Seven
+windows is a heuristic — if you ladder only seven, a narrow follow-up over the gaps is required
+before declaring the warn tier quiet. Thirteen costs nothing, so prefer it.
 
 ## 10. A zero-result pass looks like TWO different things — learn both
 

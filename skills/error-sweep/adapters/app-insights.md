@@ -56,12 +56,77 @@ requests | where success == 'False' | summarize cnt=count(), firstSeen=min(times
 - **Normalize the route first.** `name` embeds path parameters (`GET /api/calendar/<32 hex>`), so a raw key files a fresh issue per subscriber.
 - Threshold: **5xx files on the first occurrence; 4xx only at ≥5** on the same normalized route.
 
+**Query the route's successes in the same breath as its failures.** Dropping `where success == 'False'`
+and summarizing by `name, resultCode` costs one extra query and often hands you the mechanism for free,
+because the ordering of the good and bad answers is the finding. On one run `POST /api/injuries`
+showed a single `201` six seconds before a run of eight `500`s from the same user: the create path
+worked and every *subsequent* save of that same record failed, which pointed straight at what the
+client echoes back on a repeat write rather than at the handler's happy path. The failure pass alone
+shows eight 500s and no shape at all.
+
 **`success` is app-writable, so the failure pass is not the whole 4xx picture.** An
 `ITelemetryProcessor` in the app can set `RequestTelemetry.Success = true` on a request that really
 answered 4xx; the row keeps its true `resultCode` and vanishes from `where success == 'False'`. This
 is a legitimate thing for an app to do — it stops an expected, self-correcting 4xx from competing
 with real failures — but it silently blinds a sweep that only ever runs the failure pass, which then
 reports "those errors stopped" when they merely turned green.
+
+**A multi-leg flow that dies between the legs produces no error row at all.** The `requests` passes
+in this adapter key off a status code — the `exceptions` and `traces` passes do not, and neither
+sees this either — and the start of a redirect flow answers `302` whether
+anything ever comes back. An OAuth sign-in, a payment hand-off, an email-confirmation bounce — all
+of them can be 100% broken while `exceptions`, `requests | where success == 'False'` and every trace
+category stay perfectly clean, because the failure happens on the far side of a redirect the server
+never sees.
+
+So for any hand-off flow, **count the legs against each other** rather than looking for a bad status:
+
+```kusto
+requests
+| where name in ('<start>', '<provider return>', '<your callback>')   // exact names, not has_any
+| extend leg = case(name == '<start>', 'start',
+                    name == '<provider return>', 'return',
+                    'callback')
+| summarize legs = make_set(leg), resultCodes = make_set(resultCode) by operation_Id
+| summarize flows = count() by tostring(legs)
+| order by flows desc
+```
+
+**Correlate the legs before calling anything a completion ratio.** Counting each leg on its own
+cannot show that a return belongs to a start: a window can hold 88 starts and 4 returns from
+entirely different visitors and still read as a 4.5% completion rate. Group by `operation_Id` first,
+as above, so each row is one flow and the shape of `legs` says where it stopped.
+
+**Where no key survives the redirect, say so and stop at counts.** Some providers drop the
+correlation id across the hand-off. Then the aggregate leg counts are all you have — report them as
+counts, label the funnel unconfirmed, and require manual confirmation before treating the drop as a
+defect. Do not present an uncorrelated ratio as a completion rate.
+
+**Never bin the legs by day.** `bin(timestamp, 1d)` cuts a flow at midnight, so a start at 23:58
+and its return at 00:02 land in different buckets and the day reads as a completion collapse that
+never happened. Correlating by `operation_Id` as above already avoids this. If you want a trend,
+bin the flow's *start* time after the correlation — never each leg independently.
+
+**Match the legs exactly.** `has_any` tests indexed *terms*, not whole `name` values, so an
+unrelated route sharing a term joins the funnel and quietly distorts the very ratio being measured.
+Use `in (...)` with exact names where they are stable; where they carry ids, normalize the route
+first and group on the normalized value.
+
+A start-to-callback ratio that collapses is the finding. On one run this turned a lone 4-hit `429`
+— under the filing threshold, and correct behaviour by the limiter that emitted it — into a 30-day
+funnel of 88 sign-in starts, 4 returns and 2 completions, with a raw timeline showing one user
+pressing the button eleven times and then signing in with the other provider on the first try. The
+`429` was the only thing any error pass could see, and it was the least interesting part of it.
+
+Two guardrails when you find one. First, **prove the request you emit is well-formed before blaming
+the provider** — one `curl` on the start route reads the `Location` header, and a second on that URL
+shows whether the provider rejected the parameters or merely asked the visitor to log in. Second,
+**say that the cause is not observable** when it isn't: what happens between your redirect and the
+provider's answer leaves no server-side trace. Record that as *unobservable* alongside the measured
+funnel — do not reach for a classification the evidence does not support. `noise` means a healthy
+path logged at the wrong level and `external` means a provider or network failure; an outcome you
+cannot see is neither until something outside this telemetry says which. Report the funnel, name
+what could not be seen, and classify only when there is evidence for it.
 
 So for any route you are actively watching, **query it by URL and result code, never by `success`**:
 
@@ -112,9 +177,45 @@ requests are worth a pass of their own (`requests | where duration > 5000`), bec
 30 s is still a defect and no failure pass will ever show it. But most of what that pass returns is
 the app booting. Project the instance and compare each row against that instance's `firstSeen`: rows
 where the two are equal are the first request on a cold instance and are the known cost of a restart.
-Only rows on an instance that has been up for hours are a finding. On one run, 18 of 19 slow rows
+Rows past the age threshold below are the findings; hours-old instances are simply the clearest
+of them. On one run, 18 of 19 slow rows
 were boot cost and the single warm one — 10.6 s with every SQL dependency under 10 ms, so not the
 database — was the only thing worth writing down.
+
+**Do not use `timestamp == firstSeen` as the cold test — it is far too strict.** Equality catches
+only the literal first request on an instance; a boot serves several requests inside its first few
+seconds, and every one after the first is then labelled *warm*. On one run that split returned 22
+"warm" rows out of 46, and about seventeen of them were 8–30 s into an instance's life — a
+`/_blazor/negotiate` 13 s after boot, four `GET /` inside the same 16 s window, a `/plan` 24 s in.
+Only five rows were genuinely warm. Compare the **age**, not the timestamps:
+
+```kusto
+requests
+| where duration > 5000 and success == 'True'   // success is a string here, not a bool
+| join kind=leftouter (
+    requests | summarize firstSeen=min(timestamp) by cloud_RoleName, cloud_RoleInstance
+  ) on cloud_RoleName, cloud_RoleInstance
+| extend instanceAgeSec = datetime_diff('second', timestamp, firstSeen)
+| where instanceAgeSec > 60
+| order by duration desc
+```
+
+**`firstSeen` is a heuristic for process start, not a measurement of it.** `cloud_RoleInstance`
+names a host or container, so two roles on one host collide unless `cloud_RoleName` is in the key —
+hence both above. Even then the value can outlive a process restart, which makes `firstSeen`
+*earlier* than the process actually running and lets a genuine cold-start row clear the 60-second
+filter. Where the app emits a process-start marker, key on that instead; where it does not, treat a
+surviving row as a candidate and confirm it before filing.
+
+The join is the whole point and has to be written out: `firstSeen` comes from the per-instance
+summary above, so a bare `| extend instanceAgeSec = ...` fragment has no input table and no
+`firstSeen` in scope. `leftouter` keeps a row whose instance never summarized rather than dropping
+it silently — such a row has a null `instanceAgeSec` and fails the filter, so inspect it by hand.
+
+**Sixty seconds is the threshold for the whole section** — do not pair this filter with a looser
+"up for hours" rule in prose, or a row 61 seconds past `firstSeen` gets two contradictory verdicts.
+It is generous on purpose: a slow request in a boot's first minute is still boot cost, and the pass
+exists to find the row that is not. Raise it if a project boots slowly, but raise it in both places.
 
 ## 6. Dependencies and traces
 

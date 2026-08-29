@@ -64,7 +64,71 @@ A hit, **open or closed**, means it is already tracked or already fixed. Record 
 
 ## Step 4 — Triage: read the code before judging anything
 
-Search the repo for the message text to find its source. Trace it to a file and line. Then classify:
+Search the repo for the message text to find its source. Trace it to a file and line. **Then
+re-resolve both the path and the line range inside the deployed commit before reading them** — the
+checkout may be behind by days, and "this defect is still live" is a claim about running code:
+
+```bash
+# The deployed commit must be in the local object store first. A shallow or stale
+# clone otherwise turns "the commit is missing" into "the message is not there",
+# which reads as "the defect is fixed" and silently drops a live finding.
+git cat-file -e "<deployed-sha>^{commit}" 2>/dev/null ||
+  git fetch origin --quiet "<deployed-sha>" 2>/dev/null ||
+  { echo "deployed commit unavailable"; exit 1; }
+
+# The checkout only tells you what to look for. Find it again in the deployed tree.
+# -F: the message is literal text. Without it a message containing . ( ) [ ] * is
+# a regex and can resolve to the wrong source.
+matches=$(git grep -n -F -e "<message text>" "<deployed-sha>" -- '<likely path glob>') || {
+  echo "source message not found in the deployed commit"; exit 1; }
+[ "$(printf '%s\n' "$matches" | wc -l)" -eq 1 ] || {
+  echo "source message is ambiguous in the deployed commit:"; printf '%s\n' "$matches"; exit 1; }
+printf '%s\n' "$matches"
+```
+
+A path taken from the checkout can be missing in the deployed commit, which reads as a false
+"source unavailable" stop; and a line range taken from the checkout can select unrelated code that
+still passes the non-empty check below, which is worse — it classifies against the wrong lines
+silently. Derive `<path>` and `<start>,<end>` from the deployed commit, then:
+
+```bash
+set -o pipefail
+# Read the deployed commit FIRST. The fetch below serves only the origin comparison,
+# so a network blip must not block classification when the deployed source is right here.
+# The deployed SHA comes from the adapter's own deploy data (Netlify commit_ref, release tag, etc).
+src=$(git show "<deployed-sha>:<path>") || { echo "cannot read <path> at <deployed-sha>"; exit 1; }
+# git show succeeds on an empty file, and a range can select nothing: either would
+# otherwise reach classification looking like "no evidence of the defect".
+[ -n "$src" ] || { echo "deployed source is empty"; exit 1; }
+range=$(printf '%s\n' "$src" | sed -n '<start>,<end>p')
+[ -n "$range" ] || { echo "requested source range is empty"; exit 1; }
+# Only now, and only for the comparison: pipefail governs pipelines, so the fetch
+# needs its own check, or a stale origin ref makes the comparison silently wrong.
+if git fetch origin --quiet; then compare=yes; else
+  compare=no
+  echo "cannot refresh origin: classify on the deployed source and record that the comparison was unavailable"
+fi
+printf '%s\n' "$range"
+```
+
+**`origin/<default branch>` is the comparison, not the source of truth.** It can sit ahead of the
+last successful deploy — §7 treats exactly that drift as normal — so a fix that is merged but not
+yet deployed reads as "already fixed" while production keeps emitting the error, and a real finding
+is suppressed. Read the deployed commit to judge whether the defect is live; diff it against
+`origin/<default branch>` to see whether a fix is already waiting to ship. Where the adapter cannot
+name a deployed SHA, say so in the report and treat the branch read as provisional.
+
+**Fail closed when the source cannot be read.** `git show ... | sed ...` exits 0 on `sed`'s status,
+so an unresolvable path or ref prints nothing and classification proceeds on no evidence at all.
+Capture `git show` separately as above (or set `pipefail`), and if the range comes back empty, stop
+and report it rather than classifying.
+
+On one run the checkout's copy of a handler had been restructured on the branch hours earlier. The
+defect was still real, but through two narrower paths than the one described, and the brief sent to
+the fix agent named line numbers for a handler that no longer existed. The agent had to re-derive the
+cause before it could fix it. Grep the checkout to *find* code; read the branch to *judge* it.
+
+Then classify:
 
 - **bug** — genuine defect worth fixing. Gets an issue and a fix session.
 - **noise** — the healthy path logged at the wrong level. Gets an issue (it buries real errors) but **no fix session**: the right logging level is a judgement call for the user.
