@@ -1,0 +1,344 @@
+<title>CodeRabbit Sweep Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground:   #F6F8F6;
+    --surface:  #FFFFFF;
+    --zebra:    #FAFCFA;
+    --ink:      #14201C;
+    --muted:    #5B6B64;
+    --faint:    #8A9A92;
+    --line:     #DCE4DF;
+    --line-firm:#C3CFC8;
+    --accent:   #0C6B5B;
+    --ok:       #1E7A4C;
+    --warn:     #96600C;
+    --crit:     #9E3444;
+    --hold:     #2A5C7C;
+    --hold-bg:  #E4EEF5;
+    --done-bg:  #E4F0EC;
+    --crit-bg:  #F7E6E8;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #0D1311;
+      --surface:  #121A17;
+      --zebra:    #151E1B;
+      --ink:      #E7EDEA;
+      --muted:    #94A49C;
+      --faint:    #6F7F78;
+      --line:     #24302C;
+      --line-firm:#3A4A44;
+      --accent:   #52D3B6;
+      --ok:       #55C08A;
+      --warn:     #D7A445;
+      --crit:     #E4808C;
+      --hold:     #7FB6D8;
+      --hold-bg:  #12252F;
+      --done-bg:  #14302A;
+      --crit-bg:  #2E1A1E;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:   #0D1311;
+    --surface:  #121A17;
+    --zebra:    #151E1B;
+    --ink:      #E7EDEA;
+    --muted:    #94A49C;
+    --faint:    #6F7F78;
+    --line:     #24302C;
+    --line-firm:#3A4A44;
+    --accent:   #52D3B6;
+    --ok:       #55C08A;
+    --warn:     #D7A445;
+    --crit:     #E4808C;
+    --hold:     #7FB6D8;
+    --hold-bg:  #12252F;
+    --done-bg:  #14302A;
+    --crit-bg:  #2E1A1E;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 18px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 16px;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--line-firm);
+  }
+  .bar h1 {
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+  .bar b { font-weight: 600; color: var(--ink); }
+  .bar .ok   b { color: var(--ok); }
+  .bar .warn b { color: var(--warn); }
+  .bar .crit b { color: var(--crit); }
+  .bar .hold b { color: var(--hold); }
+
+  .scroll { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    font-variant-numeric: tabular-nums;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--ground);
+    text-align: left;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line-firm);
+    white-space: nowrap;
+  }
+  thead th.grp {
+    color: var(--hold);
+    border-left: 1px solid var(--line-firm);
+  }
+  thead th.grp2 {
+    color: var(--ok);
+    border-left: 1px solid var(--line-firm);
+  }
+
+  tbody tr { border-bottom: 1px solid var(--line); }
+  tbody tr:nth-child(even) { background: var(--zebra); }
+  tbody tr:hover { background: var(--ground); }
+
+  td {
+    padding: 5px 10px;
+    vertical-align: baseline;
+    white-space: nowrap;
+  }
+  td.sep { border-left: 1px solid var(--line); }
+
+  .st {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+    padding-left: 8px;
+  }
+  .st.c-ok   { color: var(--ok);   border-left-color: var(--ok); }
+  .st.c-warn { color: var(--warn); border-left-color: var(--warn); }
+  .st.c-crit { color: var(--crit); border-left-color: var(--crit); }
+
+  .pr {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .pr:hover, .pr:focus-visible { text-decoration: underline; }
+
+  .ttl {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 1px;
+    width: 34%;
+    color: var(--ink);
+  }
+
+  .num, .sha { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); }
+  .sha { color: var(--faint); }
+  .sha .was { color: var(--muted); }
+  .dim { color: var(--faint); font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; }
+  td.rt { text-align: right; }
+
+  .tag {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: var(--done-bg);
+    color: var(--ok);
+  }
+  .tag.auto { background: transparent; color: var(--faint); padding-left: 0; }
+  .rev {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line-firm);
+    margin-left: 7px;
+  }
+  .rev:hover, .rev:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .hold {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    font-weight: 500;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: var(--hold-bg);
+    color: var(--hold);
+  }
+  .hold::before {
+    content: "";
+    width: 4px; height: 4px;
+    background: currentColor;
+    flex: none;
+  }
+  .run { background: var(--done-bg); color: var(--ok); }
+  .since { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 10.5px; color: var(--faint); margin-left: 6px; }
+
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  details { font-size: 12px; color: var(--muted); }
+  summary {
+    cursor: pointer; list-style: none;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; color: var(--faint);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "+ "; }
+  details[open] summary::before { content: "\2212 "; }
+  .fn {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 3px 14px;
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .fn .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--ink); }
+  .fn a { color: var(--accent); text-decoration: none; }
+  .fn a:hover { text-decoration: underline; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 22px;
+    font-size: 11.5px;
+    color: var(--faint);
+    max-width: 96ch;
+    margin: 0;
+  }
+  .legend span { display: block; }
+  .legend b { font-weight: 500; color: var(--muted); }
+  .legend em { font-style: normal; color: var(--hold); }
+  .legend i { font-style: normal; color: var(--ok); }
+  .legend .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--ink); }
+
+  @media (max-width: 760px) {
+    .wrap { padding: 14px 12px 32px; }
+    .ttl { width: auto; max-width: 240px; }
+  }
+</style>
+<div class="wrap">
+
+  <!-- BAR: one line of counts and stamps. Keep the span order; swap the numbers. -->
+  <div class="bar">
+    <h1>CodeRabbit sweep</h1>
+    <span>{{OWNER}}</span>
+    <span><b>{{N_UNMERGED}}</b> unmerged</span>
+    <span class="ok"><b>{{N_SWEPT}}</b> re-reviewed by sweep</span>
+    <span class="ok"><b>{{N_INFLIGHT}}</b> in flight</span>
+    <span class="hold"><b>{{N_THROTTLE}}</b> throttle notice</span>
+    <span class="ok"><b>{{N_CURRENT}}</b> cover head</span>
+    <span class="warn"><b>{{N_STALE}}</b> stale</span>
+    <span class="crit"><b>{{N_NEVER}}</b> never reviewed</span>
+    <span>slot {{SLOT_STATE}} &rarr; {{SLOT_UNTIL}}</span>
+    <span>updated {{STAMP}} &middot; {{FIRED_LINE}}</span>
+  </div>
+
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Coverage</th>
+          <th scope="col">PR</th>
+          <th scope="col">Title</th>
+          <th scope="col" class="rt">Age</th>
+          <th scope="col" class="rt">Diff</th>
+          <th scope="col" class="rt">Find</th>
+          <th scope="col">Head &larr; reviewed</th>
+          <th scope="col" class="grp2">Re-reviewed</th>
+          <th scope="col" class="grp">Throttle notice</th>
+        </tr>
+      </thead>
+      <tbody>
+{{ROWS}}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="legend">
+    <span><i>&#9632;</i> <b>Re-reviewed</b> &mdash; CodeRabbit answered and posted a review. <b>sweep</b> = this routine bought the slot; <b>auto</b> = CodeRabbit ran on its own; <b>running</b> = a pass this routine just triggered is still in progress.</span>
+    <span><em>&#9632;</em> <b>Throttle notice</b> &mdash; a <em>Review limit reached</em> block sitting on the PR&rsquo;s current head, so that code was never looked at.</span>
+    <span>{{RUN_NOTE}}</span>
+  </p>
+
+  <details>
+    <summary>{{FOOTNOTE_SUMMARY}}</summary>
+    <div class="fn">
+{{FOOTNOTE_ROWS}}
+    </div>
+  </details>
+
+</div>
+
+<!-- ROW TEMPLATE — one per unmerged PR. state class: c-crit=never, c-warn=stale, c-ok=current
+        <tr>
+          <td class="st c-crit">never</td>
+          <td><a class="pr" href="{{URL}}">{{REPO}}#{{N}}</a></td>
+          <td class="ttl" title="{{TITLE}}">{{TITLE}}</td>
+          <td class="num rt">{{AGE}}</td>
+          <td class="num rt">+{{ADD}} &minus;{{DEL}}</td>
+          <td class="num rt">{{FINDINGS}}</td>
+          <td class="sha">{{HEAD}} &larr; <span class="was">{{REVIEWED_SHA}}</span></td>
+          <td class="sep"><span class="tag">sweep {{WHEN}}</span><a class="rev" href="{{REVIEW_URL}}">review</a></td>
+          <td class="sep"><span class="hold">waiting {{WAITED}}</span><a class="rev" href="{{BLOCK_URL}}">block</a></td>
+        </tr>
+     tag variants: class="tag run" (pass running now), class="tag auto" (CodeRabbit ran on its own)
+     empty cell:   <span class="dim">none</span>   /   <span class="dim">&mdash;</span>
+-->
