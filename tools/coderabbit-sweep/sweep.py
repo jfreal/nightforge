@@ -129,8 +129,11 @@ def acquire_lock(state_dir: Path):
                     pass
                 continue
             return None, held
-        except OSError:
-            return None, None                        # cannot lock: do not fire
+        except OSError as exc:
+            # Distinct from "someone holds it": the caller would otherwise log
+            # "another sweep has been running since " with an empty timestamp.
+            log(f"cannot create the sweep lock at {path}: {exc} — not firing")
+            return None, None
         else:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(payload)
@@ -209,7 +212,9 @@ def gh_raw(args, check=True, attempts=3) -> str:
             if not check:
                 return ""
         if attempt < attempts - 1:
-            low = last.lower()
+            # Classify on stderr alone. `last` embeds the command line, so a PR numbered
+            # 429 or a branch containing "timeout" would be read as a rate limit.
+            low = err.lower()
             if any(t.lower() in low for t in THROTTLED):
                 pause = 20 * (attempt + 1)
                 vlog(f"gh hit a GitHub rate limit, waiting {pause}s: {last[:120]}")
@@ -680,6 +685,8 @@ def in_cooldown(ledger, pr: PR, cooldown: timedelta, now):
 
 
 def gave_up(ledger, pr: PR):
+    if pr.key in ledger.get("gaveUp", []):
+        return True
     return any(e.get("repo") == pr.slug and e.get("pr") == pr.number and e.get("giveUp")
                for e in ledger.get("fired", []))
 
@@ -691,16 +698,29 @@ def mark_refusal(ledger, entry):
     a manual trigger for. Retiring the PR after a single skip drops it permanently,
     including across later pushes that might well review fine.
     """
-    prior = sum(
+    key = f"{entry.get('repo')}#{entry.get('pr')}"
+
+    # Counted OUTSIDE `fired`, which is trimmed to the last `retention` entries
+    # fleet-wide. A second refusal arrives at least a cooldown later, by which time
+    # the first entry is usually evicted — so a count derived from `fired` resets to
+    # 1 forever and the PR is retriggered indefinitely.
+    counts = ledger.setdefault("refusals", {})
+    prior = int(counts.get(key, 0) or 0)
+    # Tolerate a ledger written before this field existed.
+    prior = max(prior, sum(
         1 for e in ledger.get("fired", [])
         if e is not entry
         and e.get("repo") == entry.get("repo")
         and e.get("pr") == entry.get("pr")
         and e.get("outcome") == "skipped"
-    )
+    ))
+    counts[key] = prior + 1
     entry["refusals"] = prior + 1
     if entry["refusals"] >= 2:
         entry["giveUp"] = True
+        retired = ledger.setdefault("gaveUp", [])
+        if key not in retired:
+            retired.append(key)          # survives trimming; `fired` does not
     return entry["refusals"]
 
 
@@ -1250,6 +1270,7 @@ def main():
 
     # --only narrows the queue to one PR. It overrides the RANKING, never a guard —
     # the gate, fail-closed, cooldown and give-up all still decide whether it fires.
+    only_reason = ""
     if args.only:
         want = args.only.strip()
         picked = [p for p in candidates if p.key == want]
@@ -1266,6 +1287,7 @@ def main():
                 why = "inside its cooldown"
             problems.append(f"--only {want}: {why} — nothing fired")
             log(f"--only {want}: {why}")
+            only_reason = f"--only {want}: {why}"
         candidates = picked
 
     tier_rank = {"never": 0, "stale": 1}
@@ -1289,7 +1311,9 @@ def main():
             decision["note"] = f"Gated; {len(candidates)} candidate(s) waiting."
         log(f"nothing fired — {decision['reason']}")
     elif not candidates:
-        if incomplete:
+        if only_reason:
+            decision["reason"] = only_reason
+        elif incomplete:
             decision["reason"] = "every candidate is in cooldown or gave up"
         else:
             decision["reason"] = "queue empty — every PR covers head"
@@ -1299,7 +1323,10 @@ def main():
         # ---- re-scan immediately before firing (SKILL step 2) ------------- #
         target = candidates[0]
         try:
-            rescan_rows, _ = search_open(cfg)
+            rescan_rows, rescan_truncated = search_open(cfg)
+            if rescan_truncated:
+                problems.append("pre-fire re-scan truncated — the fleet list is incomplete")
+                fail_closed.append("pre-fire re-scan truncated")
             newest = None
             for row in rescan_rows:
                 slug = row["repository"]["nameWithOwner"]
