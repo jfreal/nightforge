@@ -56,6 +56,14 @@ requests | where success == 'False' | summarize cnt=count(), firstSeen=min(times
 - **Normalize the route first.** `name` embeds path parameters (`GET /api/calendar/<32 hex>`), so a raw key files a fresh issue per subscriber.
 - Threshold: **5xx files on the first occurrence; 4xx only at ≥5** on the same normalized route.
 
+**Query the route's successes in the same breath as its failures.** Dropping `where success == 'False'`
+and summarizing by `name, resultCode` costs one extra query and often hands you the mechanism for free,
+because the ordering of the good and bad answers is the finding. On one run `POST /api/injuries`
+showed a single `201` six seconds before a run of eight `500`s from the same user: the create path
+worked and every *subsequent* save of that same record failed, which pointed straight at what the
+client echoes back on a repeat write rather than at the handler's happy path. The failure pass alone
+shows eight 500s and no shape at all.
+
 **`success` is app-writable, so the failure pass is not the whole 4xx picture.** An
 `ITelemetryProcessor` in the app can set `RequestTelemetry.Success = true` on a request that really
 answered 4xx; the row keeps its true `resultCode` and vanishes from `where success == 'False'`. This
