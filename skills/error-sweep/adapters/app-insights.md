@@ -80,7 +80,7 @@ never sees.
 
 So for any hand-off flow, **count the legs against each other** rather than looking for a bad status:
 
-```
+```kusto
 requests | where name has_any ('<start>','<provider return>','<your callback>') | summarize cnt=count() by bin(timestamp, 1d), name, resultCode | order by timestamp asc
 ```
 
@@ -157,9 +157,21 @@ seconds, and every one after the first is then labelled *warm*. On one run that 
 `/_blazor/negotiate` 13 s after boot, four `GET /` inside the same 16 s window, a `/plan` 24 s in.
 Only five rows were genuinely warm. Compare the **age**, not the timestamps:
 
+```kusto
+requests
+| where duration > 5000
+| join kind=leftouter (
+    requests | summarize firstSeen=min(timestamp) by cloud_RoleInstance
+  ) on cloud_RoleInstance
+| extend instanceAgeSec = datetime_diff('second', timestamp, firstSeen)
+| where instanceAgeSec > 60
+| order by duration desc
 ```
-| extend instanceAgeSec = datetime_diff('second', timestamp, firstSeen) | where instanceAgeSec > 60
-```
+
+The join is the whole point and has to be written out: `firstSeen` comes from the per-instance
+summary above, so a bare `| extend instanceAgeSec = ...` fragment has no input table and no
+`firstSeen` in scope. `leftouter` keeps a row whose instance never summarised rather than dropping
+it silently — such a row has a null `instanceAgeSec` and fails the filter, so inspect it by hand.
 
 Sixty seconds is generous on purpose — a warm-instance regression that only shows up in the first
 minute of a boot is still boot cost, and the whole point of the pass is to find the row that is not.
