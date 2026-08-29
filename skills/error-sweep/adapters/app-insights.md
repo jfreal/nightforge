@@ -84,9 +84,15 @@ So for any hand-off flow, **count the legs against each other** rather than look
 ```kusto
 requests
 | where name in ('<start>', '<provider return>', '<your callback>')   // exact names, not has_any
-| summarize cnt=count() by bin(timestamp, 1d), name, resultCode
-| order by timestamp asc
+| summarize cnt=count() by name, resultCode
+| order by name asc
 ```
+
+**Take the ratio over the whole window, not per day.** `bin(timestamp, 1d)` cuts the flow at
+midnight, so a start at 23:58 and its return at 00:02 land in different buckets and the day reads
+as a completion collapse that never happened. Count the legs across the window and divide. If you
+do want a trend, bucket by something that cannot split one flow — correlate on `operation_Id` and
+bin the *start* time — rather than binning each leg independently.
 
 **Match the legs exactly.** `has_any` tests indexed *terms*, not whole `name` values, so an
 unrelated route sharing a term joins the funnel and quietly distorts the very ratio being measured.
@@ -190,7 +196,7 @@ surviving row as a candidate and confirm it before filing.
 
 The join is the whole point and has to be written out: `firstSeen` comes from the per-instance
 summary above, so a bare `| extend instanceAgeSec = ...` fragment has no input table and no
-`firstSeen` in scope. `leftouter` keeps a row whose instance never summarised rather than dropping
+`firstSeen` in scope. `leftouter` keeps a row whose instance never summarized rather than dropping
 it silently — such a row has a null `instanceAgeSec` and fails the filter, so inspect it by hand.
 
 **Sixty seconds is the threshold for the whole section** — do not pair this filter with a looser
