@@ -162,6 +162,25 @@ curl -s "https://api.nuget.org/v3-flatcontainer/<package>/index.json" | python -
 python -c "import re;b=open('<pkg>.dll','rb').read();print(sorted(set(re.findall(r'20\d{2}-\d{2}-\d{2}',b.decode('utf-16-le','ignore')))))"
 ```
 
+**A request row is not the only way an action reaches the app — and some frameworks have a whole
+channel this adapter cannot see.** On Blazor Server (and any SignalR/WebSocket-driven UI) a button
+click resolves a service from DI and runs it *inside the circuit*. There is no HTTP request, so it
+appears in no `requests` pass, at any status code. If the handler's own log is Information-level it
+does not reach `traces` either, and the action becomes completely invisible — right up until
+something it did fails later, in a background worker, with no `operation_Id` to tie it back.
+
+That is exactly how one run's only new bug presented: three foreign-key violations from a timer-driven
+flush, `operation_Name` empty, `operation_Id` empty. The cause was an account deletion 18 seconds
+earlier that left **no row of its own anywhere in telemetry**. It was identified from the one HTTP
+side-effect the flow happened to have — a `POST /auth/clear-cookie` fired by the sign-out that follows
+a confirmed deletion.
+
+So: **an exception with no `operation_Id` is a background worker, and its trigger is often not in
+`requests` at all.** Read the surrounding minutes of the *whole* request stream for a side-effect that
+brackets it, and check whether the suspected trigger is a circuit-driven action before concluding it
+never happened. Say so in the report's blind-spot section — for such an app, "no failed requests" is
+silent about an entire class of user action.
+
 ## 5. Cold-instance join — the trick that cracks transients
 
 For any transient that resists explanation, join it against instance first-request time:
