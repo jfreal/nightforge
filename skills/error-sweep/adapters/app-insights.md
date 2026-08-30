@@ -163,11 +163,22 @@ python -c "import re;b=open('<pkg>.dll','rb').read();print(sorted(set(re.findall
 ```
 
 **A request row is not the only way an action reaches the app — and some frameworks have a whole
-channel this adapter cannot see.** On Blazor Server (and any SignalR/WebSocket-driven UI) a button
-click resolves a service from DI and runs it *inside the circuit*. There is no HTTP request, so it
-appears in no `requests` pass, at any status code. If the handler's own log is Information-level it
-does not reach `traces` either, and the action becomes completely invisible — right up until
-something it did fails later, in a background worker, with no `operation_Id` to tie it back.
+channel this adapter cannot see.** On Blazor Server a button click travels over the circuit's
+persistent connection and runs its handler *inside that circuit*, resolving services from DI. No
+per-action HTTP request is made, so it appears in no `requests` pass, at any status code.
+
+Scope the blind spot to that shape — **an action carried by a persistent connection with no
+per-action HTTP request** — and do not assume it of every SignalR or WebSocket UI. A generic hub
+invocation is a message on an already-open connection, and plenty of WebSocket front ends still
+fire an ordinary HTTP request alongside the socket. Check how the app dispatches the action before
+claiming its trigger is unloggable.
+
+If the handler's own log is Information-level, §6's passes do not see it either — but the reason is
+the pass, not the data. The row does land in `traces`, with `severityLevel == 1`; the standard
+passes ask for `severityLevel >= 3` and a second at `== 2`, so they never request it. Widen to
+`severityLevel >= 1` over the minutes around a finding when that matters, and say which you ran.
+Between the two gaps the action is effectively invisible — right up until something it did fails
+later, in a background worker, with no `operation_Id` to tie it back.
 
 That is exactly how one run's only new bug presented: three foreign-key violations from a timer-driven
 flush, `operation_Name` empty, `operation_Id` empty. The cause was an account deletion 18 seconds
@@ -175,10 +186,13 @@ earlier that left **no row of its own anywhere in telemetry**. It was identified
 side-effect the flow happened to have — a `POST /auth/clear-cookie` fired by the sign-out that follows
 a confirmed deletion.
 
-So: **an exception with no `operation_Id` is a background worker, and its trigger is often not in
-`requests` at all.** Read the surrounding minutes of the *whole* request stream for a side-effect that
-brackets it, and check whether the suspected trigger is a circuit-driven action before concluding it
-never happened. Say so in the report's blind-spot section — for such an app, "no failed requests" is
+So: **an exception with no `operation_Id` may be a background-worker failure, and its trigger is
+often not in `requests` at all.** The absence does not by itself identify the execution context —
+App Insights omits `operation_Id` whenever no correlation context is active, which also covers
+SignalR execution and direct `TelemetryClient` calls. Read it as a prompt, not a verdict: scan the
+surrounding minutes of the *whole* request stream for a side-effect that brackets the failure, and
+check whether the suspected trigger is a circuit-driven action before concluding it never happened.
+Say so in the report's blind-spot section — for such an app, "no failed requests" is
 silent about an entire class of user action.
 
 ## 5. Cold-instance join — the trick that cracks transients
