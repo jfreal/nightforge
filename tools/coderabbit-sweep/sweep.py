@@ -1517,7 +1517,7 @@ def main():
         "note": " ".join((decision.get("note", "") + " " + "; ".join(problems)).split())[:600],
         # Per-PR audit trail — rendered as the expandable detail on the run log.
         "queue": [f"{p.key}: {verdicts[p.key][1]} ({p.tier}, opened {iso(p.created_at)})"
-                  for p in prs if p.key in verdicts][:15],
+                  for p in prs if p.key in verdicts],
         "problems": [str(p)[:300] for p in problems[:10]],
     }
     if problems and run_record["decision"] == "idle":
@@ -1550,6 +1550,17 @@ def main():
     except (OSError, KeyError) as exc:
         problems.append(f"board render failed — {exc}")
         log(f"ERROR board render failed: {exc}")
+        # run_record was persisted before this handler ran, so a render failure
+        # would otherwise leave no trace in runs.json — the one place a human
+        # looks to learn why a board is missing or stale.
+        run_record["problems"] = [str(p)[:300] for p in problems[:10]]
+        if run_record["decision"] == "idle":
+            run_record["decision"] = "error"
+        if not args.dry_run:
+            try:
+                runs_path.write_text(json.dumps(runs, indent=1), encoding="utf-8")
+            except OSError as exc2:
+                log(f"ERROR runs.json rewrite failed: {exc2}")
 
     report_path = Path(cfg["reportsDir"]) / f"{now.strftime('%Y-%m-%d')}.md"
     lines = [
