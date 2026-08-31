@@ -805,7 +805,7 @@ def swept_by_sweep(ledger, pr: PR, review_at):
     return False
 
 
-def board_row(pr: PR, ledger, now):
+def board_row(pr: PR, ledger, now, verdicts):
     cls = {"never": "c-crit", "stale": "c-warn", "current": "c-ok"}[pr.tier]
     age = human_delta(now - pr.created_at) if pr.created_at else "?"
     rsha = reviewed_sha(pr)
@@ -845,6 +845,22 @@ def board_row(pr: PR, ledger, now):
     elif pr.rate_block_refusal and pr.rate_block_names_head:
         notice = f'<span class="hold">refused &middot; {pr.changed_files} files</span>'
 
+    # Sweep verdict — what THIS run decided about the PR, so the board answers
+    # "why was it skipped?" without opening the run log.
+    v = verdicts.get(pr.key)
+    if v:
+        kind, txt = v
+        if kind == "fired":
+            sweep_cell = f'<span class="tag">{esc(txt)}</span>'
+        elif kind == "held":
+            sweep_cell = f'<span class="hold">{esc(txt)}</span>'
+        else:                       # queued / blocked — plain mono text
+            sweep_cell = f'<span class="num">{esc(txt)}</span>'
+    elif pr.is_complete:
+        sweep_cell = '<span class="dim">covers head</span>'
+    else:
+        sweep_cell = '<span class="dim">&mdash;</span>'
+
     return (
         "        <tr>\n"
         f'          <td class="st {cls}">{pr.tier}</td>\n'
@@ -856,11 +872,12 @@ def board_row(pr: PR, ledger, now):
         f'          <td class="sha">{head_cell}</td>\n'
         f'          <td class="sep">{rev_cell}</td>\n'
         f'          <td class="sep">{notice}</td>\n'
+        f'          <td class="sep">{sweep_cell}</td>\n'
         "        </tr>"
     )
 
 
-def render_board(cfg, prs, drafts, ledger, gate, gated, decision, now, run_log_href):
+def render_board(cfg, prs, drafts, ledger, gate, gated, decision, now, run_log_href, verdicts):
     tmpl = Path(cfg["boardTemplate"]).read_text(encoding="utf-8")
 
     unmerged = [p for p in prs if not p.merged]
@@ -892,8 +909,8 @@ def render_board(cfg, prs, drafts, ledger, gate, gated, decision, now, run_log_h
     else:
         fired_line = f"no fire &middot; {esc(decision.get('reason', 'n/a'))}"
 
-    rows = "\n".join(board_row(p, ledger, now) for p in unmerged) or \
-        '        <tr><td colspan="9" class="dim">no unmerged PRs</td></tr>'
+    rows = "\n".join(board_row(p, ledger, now, verdicts) for p in unmerged) or \
+        '        <tr><td colspan="10" class="dim">no unmerged PRs</td></tr>'
 
     foot_rows = []
     for d in drafts:
@@ -980,6 +997,13 @@ td.note{color:var(--muted);font-size:12px}
 .d{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;font-weight:500}
 .d-fired{color:var(--ok)}.d-gated{color:var(--hold)}.d-idle{color:var(--faint)}.d-error{color:var(--crit)}
 a{color:var(--accent)}
+details.audit summary{cursor:pointer;list-style:none;color:var(--muted)}
+details.audit summary::-webkit-details-marker{display:none}
+details.audit summary::before{content:"+ ";font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--faint)}
+details.audit[open] summary::before{content:"\\2212 "}
+ul.audit{margin:5px 0 2px;padding-left:16px}
+ul.audit li{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--muted);margin:2px 0}
+ul.audit li.prob{color:var(--crit)}
 """
 
 
@@ -993,6 +1017,15 @@ def render_run_log(cfg, runs, board_href):
             target = f'<a href="{esc(r["targetUrl"])}">{esc(target)}</a>'
         else:
             target = esc(target) or "&mdash;"
+        # The audit trail: why every candidate was passed over, and what went wrong.
+        queue = r.get("queue") or []
+        probs = r.get("problems") or []
+        note_cell = esc(r.get("note", ""))
+        if queue or probs:
+            items = "".join(f"<li>{esc(q)}</li>" for q in queue)
+            items += "".join(f'<li class="prob">{esc(p)}</li>' for p in probs)
+            note_cell = (f'<details class="audit"><summary>{note_cell or "detail"}</summary>'
+                         f'<ul class="audit">{items}</ul></details>')
         rows.append(
             "<tr>"
             f'<td class="mono">{esc(r.get("at", ""))}</td>'
@@ -1000,7 +1033,7 @@ def render_run_log(cfg, runs, board_href):
             f'<td class="mono">{target}</td>'
             f'<td class="mono">{esc(r.get("outcome", "")) or "&mdash;"}</td>'
             f'<td class="mono">{esc(r.get("gate", "")) or "&mdash;"}</td>'
-            f'<td class="note">{esc(r.get("note", ""))}</td>'
+            f'<td class="note">{note_cell}</td>'
             "</tr>"
         )
     body = "\n".join(rows) or '<tr><td colspan="6">no runs recorded</td></tr>'
@@ -1431,6 +1464,34 @@ def main():
         for pr, why in blocked:
             vlog(f"held back {pr.key}: {why}")
 
+    # ---- audit: one sweep verdict per incomplete PR ----------------------- #
+    # The board and the run log both read this, so a human can see why every
+    # candidate was passed over without reconstructing the ranking by hand.
+    verdicts = {}
+    fired_key = decision.get("fired", {}).get("key", "")
+    for pos, p in enumerate(candidates, start=1):
+        if p.key == fired_key:
+            verdicts[p.key] = ("fired", f"fired now -> {decision['fired'].get('outcome', '?')}")
+        elif not gated and args.dry_run and pos == 1:
+            verdicts[p.key] = ("queued", "#1 in queue (dry run)")
+        elif gated:
+            if fail_closed:
+                verdicts[p.key] = ("held", f"#{pos} held: fail-closed")
+            elif gate_value and gate_value + FIRE_MARGIN > now_utc():
+                verdicts[p.key] = ("held", f"#{pos} held: gate opens in {human_delta(gate_value + FIRE_MARGIN - now_utc())}")
+            else:
+                verdicts[p.key] = ("held", f"#{pos} held: gated")
+        else:
+            verdicts[p.key] = ("queued", f"#{pos} in queue")
+        if p.changed_files > cfg["oversizeFiles"]:
+            kind, txt = verdicts[p.key]
+            verdicts[p.key] = (kind, f"{txt} - oversize {p.changed_files} files")
+    for p, why in blocked:
+        verdicts[p.key] = ("blocked", why)
+    for p in prs:
+        if not p.is_complete and p.key not in verdicts:
+            verdicts[p.key] = ("queued", "not ranked this run")
+
     # ---- step 7: ledger, board, report ----------------------------------- #
     board_path = Path(cfg["board"])
     runlog_path = Path(cfg["runLog"])
@@ -1454,6 +1515,10 @@ def main():
         "outcome": decision.get("fired", {}).get("outcome", ""),
         "gate": iso(gate_value),
         "note": " ".join((decision.get("note", "") + " " + "; ".join(problems)).split())[:600],
+        # Per-PR audit trail — rendered as the expandable detail on the run log.
+        "queue": [f"{p.key}: {verdicts[p.key][1]} ({p.tier}, opened {iso(p.created_at)})"
+                  for p in prs if p.key in verdicts][:15],
+        "problems": [str(p)[:300] for p in problems[:10]],
     }
     if problems and run_record["decision"] == "idle":
         run_record["decision"] = "error"
@@ -1476,7 +1541,7 @@ def main():
 
     try:
         board_html = render_board(cfg, prs, drafts, ledger, gate, gated, decision, now_utc(),
-                                  runlog_path.name)
+                                  runlog_path.name, verdicts)
         board_path.parent.mkdir(parents=True, exist_ok=True)
         board_path.write_text(board_html, encoding="utf-8")
         runlog_path.write_text(render_run_log(cfg, runs, board_path.name), encoding="utf-8")
