@@ -560,7 +560,13 @@ readout, and a run that "improves" it back into sections has broken it.
 
 - **A single one-line header bar** of counts and stamps, plus slot state and generated time.
 - **One row per unmerged PR**: state, PR, title, age, diff, findings, head, re-reviewed, throttle
-  notice. Mono, `tabular-nums`, zebra striping, sticky header.
+  notice, sweep verdict. Mono, `tabular-nums`, zebra striping, sticky header.
+- **The sweep verdict column says what the last run decided about that PR** — `fired now`, `#N in
+  queue`, `held` (gate closed), `in cooldown`, `give-up`, or `covers head` — so a reader never has
+  to reconstruct the ranking to learn why a PR was passed over. The run log keeps the same
+  per-candidate audit for every past run, and the board self-reports its own staleness: a stamp
+  older than 40 minutes on a 15-minute tick means the routine has stopped, and the board must say
+  so rather than present stale rows as live.
 - **State as a left border colour plus a one-word label** — `never` / `stale` / `current`, classified
   against *current head*. Never a bare "reviewed": a review at a superseded SHA is this fleet's most
   common state, and a board that calls it reviewed is telling a comfortable lie.
