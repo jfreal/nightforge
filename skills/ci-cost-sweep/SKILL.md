@@ -12,6 +12,18 @@ Find where a repo's CI minutes go, then cut them. Output is a measured before/af
 
 This file is the pipeline and it is stack-agnostic. Host-specific measurement lives in `adapters/` — read the adapter for the CI host before running anything. Test-runner specifics live in `adapters/test-runners.md`.
 
+## Modes
+
+The `scope` argument selects how far to go. Every mode runs Steps 0–4 first: you cannot pick a lever before you have measured.
+
+| `scope` | Do |
+|---|---|
+| *(empty)* or `audit` | Steps 0–4, then **report** the ranked lever list with the measured evidence behind each. Change nothing. |
+| `fix` | Steps 0–7 in full: audit, implement the levers Step 1 put in the dominant slice, on a branch, verified, PR opened. |
+| a lever name from Step 5 — `parallel-tests`, `caches`, `merge-jobs`, `off-peak-work`, `path-filters`, `run-count` | Steps 0–4, then that one lever, then Steps 6–7. Use when the user has already chosen. |
+
+Anything else: say you did not recognise it, list the accepted values, and stop. Do not guess — a misread scope that silently runs `fix` pushes commits nobody asked for.
+
 ## The one rule
 
 **Measure. Never assume.** Every plausible-sounding CI optimisation in this document has been wrong in some real repo, including the obvious ones. A dependency cache that "obviously" saves time was measured at 71s per run *slower* than no cache. An estimate built on a plausible model was wrong by 2x, twice, in the same investigation.
@@ -53,7 +65,9 @@ Also record, because they change which lever applies:
 
 - **Runs per unit of work.** Runs ÷ pull requests tells you whether the problem is per-run cost or run count. They have completely different fixes.
 - **Cache storage vs the host's cap.** Over the cap, the host evicts, so caches that look like hits in the config are misses in practice.
-- **Conclusion mix.** A high `cancelled` count means concurrency cancellation is already working; a high `failure` count means you are paying twice for flakes, which is a different problem.
+- **Conclusion mix.** A high `cancelled` count means concurrency cancellation is already working.
+
+  A high `failure` count is worth noting, but **it is not rerun cost**. Failed runs prove minutes spent for no green signal; they do not prove anyone re-ran them. If rerun cost is what you want, measure it: count runs whose `run_attempt` is above 1, or group runs by head SHA and look for repeats. Report whichever you actually measured, and say which one it was.
 
 ## Step 2 — Establish an honest baseline
 
@@ -110,7 +124,7 @@ So *create* the arm: add a temporary boolean dispatch input that skips the cache
 
 Judge each cache separately — in one real repo the dependency cache was a 71s/run loss and the browser-binary cache in the same workflow was a clear win (268 MB restoring in 5–7s against a 20–38s reinstall). "Caching is good" is not a finding; per-cache numbers are.
 
-Also check **total cache size against the host's cap**. Over it, the host evicts least-recently-used entries, so caches thrash and you pay the save cost repeatedly for nothing. And check whether several jobs **share one key while storing different content** — whichever job finishes first decides what every other job downloads, which is both slower and non-deterministic. The tell is one key hash present at two different sizes.
+Also check **total cache size against the host's cap**. Over it, the host evicts least-recently-used entries, so caches thrash and you pay the save cost repeatedly for nothing. And check whether several jobs **share one key while storing different content** — whichever job finishes first decides what every other job downloads, which is both slower and non-deterministic. The tell is one key present at two different sizes, but the tell is not proof: a cache entry is identified by key **plus ref scope plus cache version**, so the same key at two sizes is entirely legitimate across two branches. Compare the entries' refs before concluding anything — the host adapter says how.
 
 ### 5c. Merge jobs that do too little to justify their overhead
 
