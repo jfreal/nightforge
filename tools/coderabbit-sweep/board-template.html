@@ -269,6 +269,8 @@
   .legend i { font-style: normal; color: var(--ok); }
   .legend .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--ink); }
 
+  #fresh.stale { color: var(--crit); font-weight: 600; }
+
   @media (max-width: 760px) {
     .wrap { padding: 14px 12px 32px; }
     .ttl { width: auto; max-width: 240px; }
@@ -289,6 +291,7 @@
     <span class="crit"><b>{{N_NEVER}}</b> never reviewed</span>
     <span>slot {{SLOT_STATE}} &rarr; {{SLOT_UNTIL}}</span>
     <span>updated {{STAMP}} &middot; {{FIRED_LINE}}</span>
+    <span id="fresh" data-stamp="{{STAMP}}"></span>
   </div>
 
   <div class="scroll">
@@ -304,6 +307,7 @@
           <th scope="col">Head &larr; reviewed</th>
           <th scope="col" class="grp2">Re-reviewed</th>
           <th scope="col" class="grp">Throttle notice</th>
+          <th scope="col" class="grp">Sweep</th>
         </tr>
       </thead>
       <tbody>
@@ -315,6 +319,7 @@
   <p class="legend">
     <span><i>&#9632;</i> <b>Re-reviewed</b> &mdash; CodeRabbit answered and posted a review. <b>sweep</b> = this routine bought the slot; <b>auto</b> = CodeRabbit ran on its own; <b>running</b> = a pass this routine just triggered is still in progress.</span>
     <span><em>&#9632;</em> <b>Throttle notice</b> &mdash; a <em>Review limit reached</em> block sitting on the PR&rsquo;s current head, so that code was never looked at.</span>
+    <span><b>Sweep</b> &mdash; what the last run decided about this PR: <span class="mono">fired now</span>, <span class="mono">#N in queue</span> (an older starved PR outranks it), <span class="mono">held</span> (the hourly allowance is spent), <span class="mono">in cooldown</span>, or <span class="mono">give-up</span> after two refusals. Full history in the run log below.</span>
     <span>{{RUN_NOTE}}</span>
   </p>
 
@@ -327,6 +332,28 @@
 
 </div>
 
+<script>
+(function () {
+  var el = document.getElementById("fresh");
+  if (!el) return;
+  var t = Date.parse(el.dataset.stamp);
+  if (isNaN(t)) return;
+  function paint() {
+    var m = Math.round((Date.now() - t) / 60000);
+    if (m > 40) {
+      // Ticks every 15 minutes; 40 quiet minutes means the scheduled task is off.
+      el.className = "stale";
+      el.textContent = "⚠ last run " + m + "m ago — the sweep may have stopped";
+    } else {
+      el.className = "";
+      el.textContent = "last run " + (m < 1 ? "just now" : m + "m ago");
+    }
+  }
+  paint();
+  setInterval(paint, 30000);
+})();
+</script>
+
 <!-- ROW TEMPLATE — one per unmerged PR. state class: c-crit=never, c-warn=stale, c-ok=current
         <tr>
           <td class="st c-crit">never</td>
@@ -338,7 +365,10 @@
           <td class="sha">{{HEAD}} &larr; <span class="was">{{REVIEWED_SHA}}</span></td>
           <td class="sep"><span class="tag">sweep {{WHEN}}</span><a class="rev" href="{{REVIEW_URL}}">review</a></td>
           <td class="sep"><span class="hold">waiting {{WAITED}}</span><a class="rev" href="{{BLOCK_URL}}">block</a></td>
+          <td class="sep"><span class="num">{{SWEEP_VERDICT}}</span></td>
         </tr>
      tag variants: class="tag run" (pass running now), class="tag auto" (CodeRabbit ran on its own)
+     sweep cell:   class="tag" (fired now), class="hold" (held by gate), class="num" (queued/blocked),
+                   class="dim" ("covers head" or em-dash)
      empty cell:   <span class="dim">none</span>   /   <span class="dim">&mdash;</span>
 -->

@@ -113,8 +113,8 @@ folder, so the script inherits the ledger the skill was already keeping:
 
 | File | What |
 |---|---|
-| `board.html` | **The deliverable.** One dense table: every unmerged PR, its coverage state, and whether a throttle notice sits on its current head. Open it with `file://`, or serve the folder. |
-| `runs.html` | Run log — one row per run, newest first, linked from the board footnote. |
+| `board.html` | **The deliverable.** One dense table: every unmerged PR, its coverage state, whether a throttle notice sits on its current head, and the sweep's verdict on it this run — `fired now`, `#N in queue`, `held` (gate closed), `in cooldown`, `give-up`. The header self-reports staleness: more than 40 quiet minutes on a 15-minute tick paints a red warning that the scheduled task has stopped. Open it with `file://`, or serve the folder. |
+| `runs.html` | Run log — one row per run, newest first, linked from the board footnote. Each row expands to the full audit: every candidate considered, why it was not fired, and any problems the run hit. |
 | `runs.json` | Data behind the run log. Last 500 runs. |
 | `ledger.json` | Memory between runs: `throttledUntil`, the last 12 fires, `lastRun`. |
 | `<reportsDir>/<YYYY-MM-DD>.md` | Text audit trail, one block appended per run. `reportsDir` defaults to `reports`. |
