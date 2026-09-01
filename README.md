@@ -241,7 +241,7 @@ list.
 
 ### Install
 
-```
+```bat
 cmd /c mklink /J "%USERPROFILE%\.claude\skills\ci-cost-sweep" "<clone>\skills\ci-cost-sweep"
 ```
 

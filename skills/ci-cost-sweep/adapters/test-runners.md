@@ -7,10 +7,11 @@ How to get per-test timings and turn on parallelism, per runner. For the decisio
 | Runner | Emit timings | Parse |
 |---|---|---|
 | MSTest / xUnit / NUnit (.NET) | `dotnet test --logger "trx;LogFileName=t.trx"` | TRX is XML; `UnitTestResult/@duration` is `hh:mm:ss.fffffff`, join to `UnitTest/TestMethod/@className` via `@testId` |
-| pytest | `pytest --durations=0` | text, or `-p json_report --json-report-file=r.json` |
+| pytest | `pytest --durations=0` | text, or `pytest --json-report --json-report-file=r.json` (pytest-json-report). `--json-report-file` only sets the path — without `--json-report` nothing is written |
 | Jest / Vitest | `--json --outputFile=r.json` | `testResults[].assertionResults[].duration` (ms) |
-| Go | `go test -json ./...` | `{"Action":"pass","Elapsed":<s>}` records |
-| JUnit / Maven / Gradle | surefire XML in `target/surefire-reports/` | `<testcase time="...">` |
+| Go | `go test -json ./...` | `Action == "pass"` records **that also carry a `Test` field**. Records without `Test` are package-level totals; counting both double-counts every test |
+| Maven (surefire) | JUnit XML in `target/surefire-reports/` | `<testcase time="...">` |
+| Gradle | JUnit XML in `build/test-results/<testTaskName>/` (e.g. `build/test-results/test/`) | `<testcase time="...">` |
 | RSpec | `--profile` or `--format json` | `examples[].run_time` |
 | Playwright | `--reporter=json` | `suites[].specs[].tests[].results[].duration` |
 
@@ -39,6 +40,14 @@ Compare the **sum of test durations to the step's wall-clock**. A large gap is b
 **Go** — packages already run in parallel; `-p N`. Within a package, tests need an explicit `t.Parallel()`.
 
 **Maven surefire** — `<parallel>classes</parallel>` + `<threadCount>8</threadCount>`.
+
+**Gradle** — a different mechanism, not the surefire settings: `Test.maxParallelForks` (default `1`) forks N test JVMs and distributes classes across them.
+
+```kotlin
+tasks.test { maxParallelForks = 8 }
+```
+
+Each fork is a whole JVM, so this costs more memory per worker than an in-process thread pool — cap it accordingly.
 
 ## Choosing the worker count
 
