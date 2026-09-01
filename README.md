@@ -242,8 +242,13 @@ list.
 ### Install
 
 ```bat
+mkdir "%USERPROFILE%\.claude\skills" 2>nul
 cmd /c mklink /J "%USERPROFILE%\.claude\skills\ci-cost-sweep" "<clone>\skills\ci-cost-sweep"
 ```
+
+`mklink` needs the link's parent folder to exist and fails with *The system cannot find the path
+specified* when it does not, so the `mkdir` matters on a machine with no skills installed yet. It is
+harmless when the folder is already there — same reason the ELI10 block above carries one.
 
 No card — the repo you point it at is the input.
 
