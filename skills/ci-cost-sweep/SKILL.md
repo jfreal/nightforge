@@ -1,11 +1,9 @@
 ---
 name: ci-cost-sweep
 description: Measure where a repo's CI minutes actually go, then cut them without cutting coverage. Profiles billed minutes per workflow/job/event, profiles the test suites inside them, applies a catalogue of levers (test parallelism, dead caches, job merging, moving nice-to-have work off the per-push path), and proves the saving on real runs before claiming it. Use when CI costs too much, a build feels slow, or a test suite is the bottleneck.
-user-invokable: true
-args:
-  - name: scope
-    description: "'audit' (measure and report only, default), 'fix' (audit, then implement the levers on a branch and open a PR), or a single lever name to apply just that one"
-    required: false
+user-invocable: true
+argument-hint: "[audit | fix | <lever>]"
+arguments: [scope]
 ---
 
 Find where a repo's CI minutes go, then cut them. Output is a measured before/after, not an opinion.
