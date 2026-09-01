@@ -63,7 +63,7 @@ Also record, because they change which lever applies:
 
 - **Runs per unit of work.** Runs ÷ pull requests tells you whether the problem is per-run cost or run count. They have completely different fixes.
 - **Cache storage vs the host's cap.** Over the cap, the host evicts, so caches that look like hits in the config are misses in practice.
-- **Conclusion mix.** A high `cancelled` count means concurrency cancellation is already working.
+- **Conclusion mix.** Cancelled runs have several possible sources and only one of them is good news. Concurrency cancellation superseding an older push is the healthy case; a human hitting cancel, a `fail-fast` matrix leg taking its siblings down, and a job hitting `timeout-minutes` all land in the same bucket. Before crediting `cancel-in-progress`, check the cancelled runs actually correlate with a newer run on the same ref — otherwise you are reading timeouts or aborts as a working optimisation.
 
   A high `failure` count is worth noting, but **it is not rerun cost**. Failed runs prove minutes spent for no green signal; they do not prove anyone re-ran them. If rerun cost is what you want, measure it: count runs whose `run_attempt` is above 1, or group runs by head SHA and look for repeats. Report whichever you actually measured, and say which one it was.
 

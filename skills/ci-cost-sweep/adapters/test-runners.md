@@ -8,7 +8,8 @@ How to get per-test timings and turn on parallelism, per runner. For the decisio
 |---|---|---|
 | MSTest / xUnit / NUnit (.NET) | `dotnet test --logger "trx;LogFileName=t.trx"` | TRX is XML; `UnitTestResult/@duration` is `hh:mm:ss.fffffff`, join to `UnitTest/TestMethod/@className` via `@testId` |
 | pytest | `pytest --durations=0` | text, or `pytest --json-report --json-report-file=r.json` (pytest-json-report). `--json-report-file` only sets the path — without `--json-report` nothing is written |
-| Jest / Vitest | `--json --outputFile=r.json` | `testResults[].assertionResults[].duration` (ms) |
+| Jest | `jest --json --outputFile=r.json` | `testResults[].assertionResults[].duration` (ms) |
+| Vitest | `vitest run --reporter=json --outputFile=r.json` — **not** Jest's `--json`, which Vitest does not accept | same shape as Jest: `testResults[].assertionResults[].duration` (ms) |
 | Go | `go test -json ./...` | `Action == "pass"` records **that also carry a `Test` field**. Records without `Test` are package-level totals; counting both double-counts every test |
 | Maven (surefire) | JUnit XML in `target/surefire-reports/` | `<testcase time="...">` |
 | Gradle | JUnit XML in `build/test-results/<testTaskName>/` (e.g. `build/test-results/test/`) | `<testcase time="...">` |
@@ -35,7 +36,9 @@ Compare the **sum of test durations to the step's wall-clock**. A large gap is b
 
 **pytest** — `pytest -n 8` (pytest-xdist). `--dist loadfile` keeps a file's tests on one worker, the usual choice with file-scoped fixtures.
 
-**Jest / Vitest** — parallel by default; `--maxWorkers=N`. Check for `--runInBand` or `maxWorkers: 1` left behind from debugging a flake, which is a common accidental serialisation.
+**Jest** — parallel by default; `--maxWorkers=N`. Check for `--runInBand` or `maxWorkers: 1` left behind from debugging a flake, which is a common accidental serialisation.
+
+**Vitest** — parallel by default; `--maxWorkers=N`. The accidental-serialisation flags differ from Jest's: look for `--no-file-parallelism`, `fileParallelism: false`, or a `poolOptions.*.singleThread`/`singleFork` in the config.
 
 **Go** — packages already run in parallel; `-p N`. Within a package, tests need an explicit `t.Parallel()`.
 
