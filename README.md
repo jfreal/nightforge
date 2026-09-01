@@ -74,6 +74,10 @@ skills/docs-sweep/
 skills/coderabbit-sweep/
   SKILL.md                      the hourly CodeRabbit re-review sweep — find, gate, fire one
   EVIDENCE.md                   dated case law behind each rule — grepped, never read whole
+skills/ci-cost-sweep/
+  SKILL.md                      the CI-minutes pipeline — measure, profile, apply levers, prove
+  adapters/github-actions.md    billing model, jobs-API measurement, cache inspection
+  adapters/test-runners.md      per-test timings and parallelism, per runner
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
@@ -197,6 +201,56 @@ cmd /c mklink /J "%USERPROFILE%\.claude\skills\coderabbit-sweep" "<clone>\skills
 
 Then write the fleet card into an hourly scheduled task (see
 [docs/coderabbit-sweep-card-template.md](docs/coderabbit-sweep-card-template.md)).
+
+## `ci-cost-sweep`
+
+Finds where a repo's CI minutes actually go, then cuts them without cutting coverage. Unlike the
+other three this is **user-invokable, not scheduled** — you run it when a bill or a build annoys
+you. `/ci-cost-sweep` measures and reports; `/ci-cost-sweep fix` implements the levers on a branch
+and opens a PR.
+
+The whole skill exists to enforce one rule: **measure, never assume.** Every plausible CI
+optimisation in it has been wrong in some real repo. The worked example that produced it: a
+dependency cache that "obviously" saved time was measured at **71 seconds per run slower** than no
+cache at all, because the runner reached the package registry about as fast as it reached the
+Actions cache — while the browser-binary cache in the same workflow was a clear win. "Caching is
+good" is not a finding; per-cache numbers are.
+
+Two measurement traps it encodes, both of which produce confidently wrong answers:
+
+- **The billed-minutes endpoint lies.** `/actions/runs/<id>/timing` returns `total_ms: 0` on repos
+  that are definitely being billed. Sum the jobs API and round each job up instead — because
+  GitHub bills every job rounded **up** to a whole minute, which makes job *count* a cost driver
+  independent of job *duration*.
+- **You often cannot A/B from history.** To compare "cache hit" against "cold restore doing real
+  work" you need runs of the second kind, and a high hit rate means there may be none — the only
+  misses were jobs that short-circuited and did no work anyway. The answer is to *create* the arm
+  with a temporary dispatch switch, run it twice against a warm control on the same commit, then
+  delete the switch.
+
+On the test side it profiles per-test timings and classifies the time before touching anything,
+because the classification picks the lever: **blocked** time (app boots, retry backoff, sleeps)
+parallelises past the core count, since a blocked worker holds no core, while CPU-bound time does
+not. That distinction is the difference between a 27% and a 33% cut on the same suite. It also
+knows where the floor is — when a runner keeps tests within a class sequential, no worker count
+takes the suite below its slowest single class.
+
+It will not shorten a retry-policy test's backoff or drop a matrix leg to make a number look
+better. Those are coverage cuts wearing a performance costume, and they are on the hard-constraint
+list.
+
+### Install
+
+```bat
+mkdir "%USERPROFILE%\.claude\skills" 2>nul
+cmd /c mklink /J "%USERPROFILE%\.claude\skills\ci-cost-sweep" "<clone>\skills\ci-cost-sweep"
+```
+
+`mklink` needs the link's parent folder to exist and fails with *The system cannot find the path
+specified* when it does not, so the `mkdir` matters on a machine with no skills installed yet. It is
+harmless when the folder is already there — same reason the ELI10 block above carries one.
+
+No card — the repo you point it at is the input.
 
 ## `sync-docs`
 
