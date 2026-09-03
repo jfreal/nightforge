@@ -707,21 +707,55 @@ def in_cooldown(ledger, pr: PR, cooldown: timedelta, now, cap: int = 0):
     return None, window, streak
 
 
-def paused_hold(pr: PR, quiet: timedelta, now):
+def observe_heads(ledger, prs, now):
+    """Record when each PR's head was first seen at this SHA. Prunes to the live fleet.
+
+    The committer date alone cannot answer "when did this branch last move": a rebase,
+    a force-push, or a delayed push all put an OLD commit at a NEW head, and the churn
+    hold would read that as a branch that has been quiet for hours. What the sweep can
+    say for certain is when it first saw this SHA on this PR.
+    """
+    heads = ledger.setdefault("heads", {})
+    for pr in prs:
+        if not pr.head:
+            continue
+        seen = heads.get(pr.key)
+        if not seen or seen.get("sha") != pr.head:
+            # First sight of a PR is not evidence its head just moved — only a change
+            # away from a SHA we already recorded is. Otherwise every PR the sweep
+            # meets would look freshly pushed and sit out its first churn window.
+            at = now if seen else (commit_date(pr.slug, pr.head) or now)
+            heads[pr.key] = {"sha": pr.head, "at": iso(at)}
+    live = {pr.key for pr in prs}
+    for key in [k for k in heads if k not in live]:
+        del heads[key]
+    return heads
+
+
+def head_moved_at(ledger, pr: PR):
+    """Best available answer to "when did this head appear", newest evidence winning."""
+    seen = (ledger.get("heads") or {}).get(pr.key)
+    observed = parse_ts(seen.get("at")) if seen and seen.get("sha") == pr.head else None
+    committed = commit_date(pr.slug, pr.head)
+    candidates = [d for d in (observed, committed) if d]
+    return max(candidates) if candidates else None
+
+
+def paused_hold(ledger, pr: PR, quiet: timedelta, now):
     """SKILL step 4, the churn hold. Return the time the branch goes quiet, or None.
 
     CodeRabbit pauses AUTOMATIC review on a branch it judges to be under active
     development. A manual trigger still works, which is why the sweep never noticed
     the pause — it kept spending reviews mid-churn. The marker is sticky and does not
     clear itself, so presence alone cannot be a block or the PR is starved forever.
-    Hold only while the head commit is still fresh; once the branch has been quiet for
+    Hold only while the head is still fresh; once the branch has been quiet for
     `quiet`, the churn CodeRabbit was worried about is over and a review is worth it.
     """
     if "paused" not in pr.markers:
         return None
-    at = commit_date(pr.slug, pr.head)
+    at = head_moved_at(ledger, pr)
     if at is None:
-        return None                       # a missing commit date is not evidence of churn
+        return None                       # no timestamp at all is not evidence of churn
     until = at + quiet
     return until if now < until else None
 
@@ -1211,6 +1245,20 @@ def load_config(path: Path):
         cfg[key] = str(p if p.is_absolute() else base / p)
     if not cfg["owners"]:
         raise SystemExit("config error: 'owners' must name at least one GitHub owner")
+
+    # Retention is a floor, not a taste. `in_cooldown` can only enforce a window while
+    # the firing entry is still in `fired`, and `fired` is trimmed fleet-wide — so a
+    # config that widens the backoff past what retention covers gets the *silent*
+    # failure: the PR simply fires early and nothing says why. At most one fire lands
+    # per hour (the gate writes throttledUntil = fire + 60min), so N hours of window
+    # needs N entries, plus a margin for the reconcile tail. Raise it rather than
+    # refuse: an unattended task that exits on a config edit reviews nothing at all.
+    max_window_min = cfg["cooldownMinutes"] * (2 ** max(0, cfg["barrenBackoffMax"]))
+    floor = -(-max_window_min // 60) + 4
+    if cfg["retention"] < floor:
+        cfg["retentionRaised"] = (cfg["retention"], floor)
+        cfg["retention"] = floor
+
     cfg["excludeRepos"] = set(cfg["excludeRepos"])
     cfg["excludePRs"] = set(cfg["excludePRs"])
     return cfg
@@ -1250,6 +1298,13 @@ def main():
     paused_quiet = timedelta(minutes=cfg["pausedQuietMinutes"])
     trigger = cfg["triggerPhrase"]
     problems = []
+
+    if cfg.get("retentionRaised"):
+        was, now_at = cfg["retentionRaised"]
+        note = (f"retention {was} cannot cover a {cfg['cooldownMinutes']}min cooldown doubled "
+                f"{cfg['barrenBackoffMax']}x — using {now_at}; set it in the config to silence this")
+        problems.append(note)
+        log(note)
 
     ledger, ledger_note = load_ledger(Path(cfg["ledger"]))
     if ledger_note:
@@ -1411,13 +1466,16 @@ def main():
         vlog(line)
 
     # ---- step 4: pick one ------------------------------------------------- #
+    # Stamp head observations before the churn hold reads them, so a head that
+    # moved since the last run is known to have moved even if its commit is old.
+    observe_heads(ledger, prs, now)
     incomplete = [p for p in prs if not p.is_complete]
     candidates, blocked = [], []
     for pr in incomplete:
         if gave_up(ledger, pr):
             blocked.append((pr, "give-up flag set after two refusals"))
             continue
-        quiet_at = paused_hold(pr, paused_quiet, now)
+        quiet_at = paused_hold(ledger, pr, paused_quiet, now)
         if quiet_at:
             blocked.append((pr, f"CodeRabbit paused this branch and it is still "
                                 f"churning — quiet at {iso(quiet_at)}"))
@@ -1447,7 +1505,7 @@ def main():
                 why = "already covers its head"
             elif gave_up(ledger, named):
                 why = "carries the give-up flag"
-            elif paused_hold(named, paused_quiet, now):
+            elif paused_hold(ledger, named, paused_quiet, now):
                 why = "paused branch, still churning"
             elif in_cooldown(ledger, named, cooldown, now, cfg["barrenBackoffMax"])[0]:
                 why = "inside its cooldown"

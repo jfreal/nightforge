@@ -116,7 +116,7 @@ folder, so the script inherits the ledger the skill was already keeping:
 | `board.html` | **The deliverable.** One dense table: every unmerged PR, its coverage state, whether a throttle notice sits on its current head, and the sweep's verdict on it this run — `fired now`, `#N in queue`, `held` (gate closed), `in cooldown`, `give-up`. The header self-reports staleness: more than 40 quiet minutes on a 15-minute tick paints a red warning that the scheduled task has stopped. Open it with `file://`, or serve the folder. |
 | `runs.html` | Run log — one row per run, newest first, linked from the board footnote. Each row expands to the full audit: every candidate considered, why it was not fired, and any problems the run hit. |
 | `runs.json` | Data behind the run log. Last 500 runs. |
-| `ledger.json` | Memory between runs: `throttledUntil`, the last 12 fires, `lastRun`. |
+| `ledger.json` | Memory between runs: `throttledUntil`, the retained `fired` entries (`retention`, 40 by default), the `barren` streaks, `refusals`, `gaveUp`, `heads`, `lastRun`. |
 | `<reportsDir>/<YYYY-MM-DD>.md` | Text audit trail, one block appended per run. `reportsDir` defaults to `reports`. |
 
 The board and run log are plain self-contained HTML files. They are not published anywhere — link
@@ -137,7 +137,7 @@ to them on disk, or point a static file server at `stateDir`.
 | `pausedQuietMinutes` | While CodeRabbit has paused a branch, hold the PR until its head commit is this old. 120. |
 | `barrenBackoffMax` | How many times a PR's cooldown may double after consecutive reviews that found nothing. 3, so 90m → 3h → 6h → 12h and no further. |
 | `searchLimit` | Passed to `gh search prs`. Never set it below the fleet's real size. |
-| `retention` | How many `fired` entries the ledger keeps. 40 — it must outlast the longest backoff window, because a trimmed entry is a cooldown that silently stops applying. |
+| `retention` | How many `fired` entries the ledger keeps. 40 — it must outlast the longest backoff window, because a trimmed entry is a cooldown that silently stops applying. Checked at startup against `cooldownMinutes x 2^barrenBackoffMax` and raised, with a line in the report, if the configured value is too small. |
 | `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its tier. 300. |
 | `pollRounds` / `pollInterval` | Confirmation poll. 11 × 30s ≈ 5 minutes, ending on a fetch. |
 | `stateDir` | Where every output above lives. Relative paths resolve against the config file. |
@@ -169,7 +169,9 @@ Each of these is a rule from the SKILL, implemented rather than remembered:
 - **A churn hold on a paused branch.** CodeRabbit pauses *automatic* review on a branch under
   active development; a manual trigger still works, so the sweep used to spend reviews straight
   through the pause. The marker is sticky and never clears itself, so it cannot be a permanent
-  block — the PR waits only until its head commit is `pausedQuietMinutes` old.
+  block — the PR waits only until its head has been unchanged for `pausedQuietMinutes`. The head's
+  age is the newer of its committer date and when the sweep first saw that SHA on that PR, so a
+  rebase or force-push of an old commit reads as the push it is, not as a branch gone quiet.
 - **A barren backoff.** A PR goes stale on every push and stale PRs rank oldest-first, so an old
   branch someone keeps pushing to wins the queue every time and can eat the fleet's whole budget
   while returning nothing. Each consecutive review that finds nothing doubles that PR's cooldown,
