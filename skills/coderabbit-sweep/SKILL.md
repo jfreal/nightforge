@@ -444,16 +444,29 @@ again, every time. Observed on `jfreal/pheidi#651`: six reviews across 34 hours,
 nothing, taking a third of the fleet's whole budget for one PR.
 
 - **Hold a paused branch until the churn stops.** When the summary carries
-  `review paused by coderabbit.ai`, do not fire until the head commit is at least the card's
-  `pausedQuietMinutes` old. The marker never clears itself, so presence alone must never be a
-  block — that is starvation, which is exactly what step 3 warns against. It is the head commit's
-  *age* that decides.
+  `review paused by coderabbit.ai`, do not fire until the head has been unchanged for the card's
+  `pausedQuietMinutes`. The marker never clears itself, so presence alone must never be a block —
+  that is starvation, which is step 3's warning. It is the head's *age* that decides.
+
+  **Age the head on the newer of two clocks: its committer date, and when you first saw this SHA
+  on this PR.** A rebase, a force-push, or a delayed push all put an *old* commit at a *new* head,
+  and a committer date alone calls such a branch quiet the instant it moved — the one moment it
+  certainly is not. Record `{sha, at}` per PR in the ledger, stamping `at` with the current time
+  only when the SHA changes away from one already recorded; a PR seen for the first time takes its
+  committer date instead, or every PR the sweep ever meets would sit out a pointless first window.
+  Prune the record to the open fleet each run.
 - **Double the cooldown after a review that finds nothing.** Count consecutive reviews on a PR
   that returned no findings; its cooldown is `cooldown × 2^min(streak, barrenBackoffMax)`. Any
   review that finds something resets the streak to zero. Keep the streak *outside* `fired`, for
   the same reason refusals are kept outside it: `fired` is trimmed fleet-wide, and a streak derived
-  from it would reset before it could ever bite. Retention must also outlast the longest window,
-  or the cooldown lookup itself misses the entry.
+  from it would reset before it could ever bite.
+
+  **Check retention against the widest window the card can produce, and say so when it falls
+  short.** The cooldown is enforced by finding the firing entry in `fired`; once that entry is
+  trimmed the window silently stops applying, and the symptom is a PR that fires early with no
+  explanation anywhere. At most one fire lands per hour, so a window of N hours needs N entries
+  plus a margin. Raise the retention and report it — an unattended run that refuses to start on a
+  config edit reviews nothing at all, which is worse than the fault it is objecting to.
 
 Both guards delay a PR; neither retires one. Retiring is the give-up flag's job alone.
 
@@ -494,7 +507,7 @@ Poll the PR for about 5 minutes:
 
 ```
 gh api --paginate repos/<slug>/issues/<n>/comments --jq '.[] | select(.user.login=="coderabbitai[bot]") | {updated_at, body}'
-gh api --paginate repos/<slug>/pulls/<n>/reviews --jq '.[] | select((.user.login=="coderabbitai[bot]") and (.body|startswith("**Actionable comments posted:"))) | {commit_id, submitted_at}'
+gh api --paginate repos/<slug>/pulls/<n>/reviews --jq '.[] | select(.user.login=="coderabbitai[bot]") | select((.body // "") != "") | select(((.body|startswith("**Actionable comments posted:"))) or ((.body|contains("Outside diff range comments")))) | {commit_id, submitted_at, body}'
 ```
 
 **Judge every outcome against the step 5 baseline, on the same contract step 3 uses**: the result

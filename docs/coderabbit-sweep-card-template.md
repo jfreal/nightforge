@@ -37,6 +37,7 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 | **Cooldown** | **<n> minutes** — a PR fired inside this window is not re-fired |
 | **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head commit is this old |
 | **Barren backoff max** | **<n>** (3) — how many times a PR's cooldown may double after consecutive reviews that found nothing |
+| **Retention** | **<n>** (40) — `fired` entries kept. Must be at least `cooldown x 2^backoff max` in **hours**, since at most one fire lands per hour |
 | **Ledger** | `<abs path>/ledger.json` |
 | **Report** | `<abs path>/reports/<YYYY-MM-DD>.md` |
 
@@ -79,6 +80,13 @@ where PRs sit open a long time between real changes, lower it where a stale revi
 Whatever these become, **retention must outlast the longest window they can produce**
 (`cooldown x 2^max`), because cooldowns are read from the ledger's `fired` list and a trimmed entry
 is a cooldown that silently stops applying.
+
+State that floor in **entries**, which is what retention actually counts. At most one fire lands per
+hour, so the minimum is the widest window in hours, plus a few for the reconcile tail: 90 minutes
+doubled 3 times is 12 hours, so 16 entries — the default 40 covers it comfortably. Raise the cap to
+6 and the window becomes 96 hours, needing 100 entries; leave retention at 40 there and the PR fires
+after about 40 hours with nothing saying why. The script checks this at startup and raises retention
+rather than refusing to run, but the card should carry the right number so the check stays quiet.
 
 **Trigger phrase** — `@coderabbitai full review` re-reviews the entire PR from scratch;
 `@coderabbitai review` is an incremental pass over what changed since the last review. Full is right
