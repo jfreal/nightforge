@@ -50,20 +50,30 @@ Read the card, then the ledger JSON at the card's ledger path. It is the only me
 {
   "boardUrl": "https://claude.ai/code/artifact/<id>",
   "throttledUntil": "2026-08-23T18:15:00Z",
+  "barren": {"jfreal/pheidi#651": 2},
+  "refusals": {},
+  "gaveUp": [],
   "fired": [
-    {"repo": "jfreal/pheidi", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed"}
+    {"repo": "jfreal/pheidi", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed",
+     "findings": 3}
   ]
 }
 ```
 
 Missing or unparseable: treat as empty, say so in the report, carry on.
 
-**Keep the ledger small — the card names the retention (12 entries).** Drop older entries when
+**Keep the ledger small — the card names the retention (40 entries).** Drop older entries when
 writing back, hold each `note` to one line, and delete a `baseline` once its entry is reconciled to
-`reviewed` or `skipped`. The ledger reached 90KB once and cost ~6k tokens of read on every run;
-nothing needs more than the last few fires plus the cooldown window. It follows that the `fired`
-array is **not** a lifetime record: never compute totals or streaks from it, and never keep a
-hand-maintained tally anywhere — count what you need at report time and state it there.
+`reviewed` or `skipped` — with one exception, the barren re-check in step 6, which needs its
+baseline for exactly one more run. The ledger reached 90KB once and cost ~6k tokens of read on
+every run; nothing needs more than the cooldown window's worth of fires. **Retention is a floor,
+not a preference:** it must outlast the longest backoff window step 4 can produce, because a
+trimmed entry is a cooldown that silently stops applying.
+
+It follows that the `fired` array is **not** a lifetime record: never compute totals or streaks
+from it, and never keep a hand-maintained tally anywhere. Anything that must survive trimming —
+the refusal count, the barren streak, the give-up list — lives outside `fired` as its own keyed
+object. Everything else is counted at report time and stated there.
 
 ## Step 1 — Enumerate the fleet's open PRs
 
@@ -385,7 +395,7 @@ zero-findings pass posts no review object.
 | `walkthrough_start` | A summary was produced. Says nothing about whether the *review* ran. |
 | `recent_review_start` | A pass finished. The SHAs inside say which code it covered — this is the completeness test. |
 | `review in progress by coderabbit.ai` | A pass is running now. The trigger was accepted and the slot spent; it replaces the rate-limit block in the same comment. Not a completion signal. **Clears itself when the pass lands**, ~4 seconds before the review object posts, so it is not a durable record — do not expect to reconstruct "was a review running an hour ago?" from the summary. |
-| `review paused by coderabbit.ai` | Automatic reviews are paused for **future** pushes (`auto_pause_after_reviewed_commits`). Says nothing about current head — classify on the `recent_review` block. **A manual trigger still works on a paused PR**; the pause suppresses automatic attempts only. Never skip a candidate for carrying this, and never read it as "nothing can review this head" — on a paused repo the sweep is the only thing that can. |
+| `review paused by coderabbit.ai` | Automatic reviews are paused for **future** pushes (`auto_pause_after_reviewed_commits`). Says nothing about current head — classify on the `recent_review` block. **A manual trigger still works on a paused PR**; the pause suppresses automatic attempts only. Never read it as "nothing can review this head" — on a paused repo the sweep is the only thing that can, and the marker is sticky, so a PR skipped for merely carrying it is starved forever. It does still say the branch was churning when CodeRabbit looked, which is why step 4 holds such a PR **until its head commit stops moving** rather than skipping it. |
 | `failure by coderabbit.ai` | A review **started and then aborted**; the block names the reason. Not completion and **not** a throttle — but the attempt was accepted, so it **spent the hour** (step 2). |
 | No CodeRabbit comment at all | The app is not installed on that repo, or the PR predates it. Not a candidate. |
 
@@ -410,7 +420,7 @@ Report give-ups so a human can look at them.
 ## Step 4 — Pick one
 
 Candidates are the incomplete PRs, minus any PR in the ledger's `fired` list whose `at` is inside
-the card's cooldown, minus any marked `giveUp`. Rank, and take the first:
+the card's cooldown, minus any held for churn, minus any marked `giveUp`. Rank, and take the first:
 
 1. **Never reviewed** — no completion evidence of any kind at any SHA. Oldest `createdAt` first.
 2. **Stale** — completion evidence exists, but only at an older SHA. Oldest `createdAt` first.
@@ -425,6 +435,25 @@ the next run's candidate.
 
 Oldest-first within a tier is deliberate: a starved PR that keeps getting pushed to would otherwise
 keep losing its place to whatever landed most recently — which is how PRs rot unreviewed for weeks.
+
+**Oldest-first also has a failure mode, and these two guards are its price.** A PR goes stale on
+every push, so an old branch someone is actively pushing to re-enters the stale tier and wins it
+again, every time. Observed on `jfreal/pheidi#651`: six reviews across 34 hours, four of which found
+nothing, taking a third of the fleet's whole budget for one PR.
+
+- **Hold a paused branch until the churn stops.** When the summary carries
+  `review paused by coderabbit.ai`, do not fire until the head commit is at least the card's
+  `pausedQuietMinutes` old. The marker never clears itself, so presence alone must never be a
+  block — that is starvation, which is exactly what step 3 warns against. It is the head commit's
+  *age* that decides.
+- **Double the cooldown after a review that finds nothing.** Count consecutive reviews on a PR
+  that returned no findings; its cooldown is `cooldown × 2^min(streak, barrenBackoffMax)`. Any
+  review that finds something resets the streak to zero. Keep the streak *outside* `fired`, for
+  the same reason refusals are kept outside it: `fired` is trimmed fleet-wide, and a streak derived
+  from it would reset before it could ever bite. Retention must also outlast the longest window,
+  or the cooldown lookup itself misses the entry.
+
+Both guards delay a PR; neither retires one. Retiring is the give-up flag's job alone.
 
 **A PR over the 300-file limit will refuse, so rank it last within its tier and say why.** `pulls/<n>`
 already returns `changed_files`, so this is free to check. Do not silently skip it — it is a real
@@ -479,7 +508,10 @@ one second before such a loop exited.
 Four outcomes, written to the entry step 5 created as `unknown`:
 
 - **`reviewed`** — new-and-current completion evidence. Leave `throttledUntil` alone; the successful
-  review is what spent the hour.
+  review is what spent the hour. **Record what it found, and record zero as zero.** CodeRabbit posts
+  a review object only when it has actionable comments, so a completion carried by the `recent_review`
+  block alone is `"findings": 0` — not a blank. Step 4's barren backoff is only as good as that
+  number. Feed the result to the streak: above zero clears it, zero increments it.
 - **`throttled`** — a fresh rate-limit block. Parse its countdown, add to that comment's
   `updated_at`, write `throttledUntil`. See "a burned slot" in step 2 — do not re-fire.
 - **`skipped`** — a fresh *Review skipped* block. Set `"giveUp": true`; do not fire again this run.
@@ -510,6 +542,13 @@ Treat the re-check as part of the fire. **The tell that one is worth running rig
 block, no *Review skipped* — is a review about to land, not a lost slot.
 
 Do not extend the poll. A `pending` costs nothing; the next run sees the finished review.
+
+**That same tail is why a zero must be re-checked before the backoff trusts it.** The summary can
+move a moment before the review object lands, and the poll stops at the first non-pending outcome —
+so a review that found three things can be scored `findings: 0` by a few seconds. Keep the baseline
+on any `reviewed` / `summary-comment` / `findings: 0` entry and re-judge it once on the next run;
+if a review object at the fired head has since appeared, correct the count and clear the streak.
+Then mark the entry settled and drop its baseline, so this costs one extra look, never a loop.
 
 **Record the link to the result, on every outcome** — a bare `outcome: "reviewed"` makes a human go
 hunting. Both endpoints return `html_url`, so ask for it in the call that classifies the outcome.
@@ -562,7 +601,8 @@ readout, and a run that "improves" it back into sections has broken it.
 - **One row per unmerged PR**: state, PR, title, age, diff, findings, head, re-reviewed, throttle
   notice, sweep verdict. Mono, `tabular-nums`, zebra striping, sticky header.
 - **The sweep verdict column says what the last run decided about that PR** — `fired now`, `#N in
-  queue`, `held` (gate closed), `in cooldown`, `give-up`, or `covers head` — so a reader never has
+  queue`, `held` (gate closed), `in cooldown` (with the streak and window when the barren backoff
+  widened it), `paused branch still churning`, `give-up`, or `covers head` — so a reader never has
   to reconstruct the ranking to learn why a PR was passed over. The run log keeps the same
   per-candidate audit for every past run, and the board self-reports its own staleness: a stamp
   older than 40 minutes on a 15-minute tick means the routine has stopped, and the board must say

@@ -133,9 +133,11 @@ to them on disk, or point a static file server at `stateDir`.
 | `excludePRs` | `repo#number` or `owner/repo#number` to skip. |
 | `includeDrafts` | `false` — CodeRabbit answers drafts with *Review skipped*. |
 | `triggerPhrase` | Posted alone as the comment body. |
-| `cooldownMinutes` | A PR fired inside this window is not re-fired. 90. |
+| `cooldownMinutes` | A PR fired inside this window is not re-fired. 90. Doubled by `barrenBackoffMax`. |
+| `pausedQuietMinutes` | While CodeRabbit has paused a branch, hold the PR until its head commit is this old. 120. |
+| `barrenBackoffMax` | How many times a PR's cooldown may double after consecutive reviews that found nothing. 3, so 90m → 3h → 6h → 12h and no further. |
 | `searchLimit` | Passed to `gh search prs`. Never set it below the fleet's real size. |
-| `retention` | How many `fired` entries the ledger keeps. 12. |
+| `retention` | How many `fired` entries the ledger keeps. 40 — it must outlast the longest backoff window, because a trimmed entry is a cooldown that silently stops applying. |
 | `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its tier. 300. |
 | `pollRounds` / `pollInterval` | Confirmation poll. 11 × 30s ≈ 5 minutes, ending on a fetch. |
 | `stateDir` | Where every output above lives. Relative paths resolve against the config file. |
@@ -164,6 +166,20 @@ Each of these is a rule from the SKILL, implemented rather than remembered:
 - **`--paginate` everywhere**, with concatenated JSON arrays decoded properly and a zero-byte
   response raised as an error. `[]` is a valid answer; nothing is one.
 - **Give-up after two refusals**, so one permanently unreviewable PR cannot eat every slot.
+- **A churn hold on a paused branch.** CodeRabbit pauses *automatic* review on a branch under
+  active development; a manual trigger still works, so the sweep used to spend reviews straight
+  through the pause. The marker is sticky and never clears itself, so it cannot be a permanent
+  block — the PR waits only until its head commit is `pausedQuietMinutes` old.
+- **A barren backoff.** A PR goes stale on every push and stale PRs rank oldest-first, so an old
+  branch someone keeps pushing to wins the queue every time and can eat the fleet's whole budget
+  while returning nothing. Each consecutive review that finds nothing doubles that PR's cooldown,
+  up to `barrenBackoffMax`; any review that finds something resets it. The streak lives outside
+  `fired` for the reason refusals do — a trimmed ledger would reset it forever.
+- **Zero findings is a number, not a blank.** CodeRabbit posts a review object only when it has
+  actionable comments, so a completion carried by the summary comment alone is recorded as
+  `findings: 0`. Because the summary can move a moment before the review object lands, such an
+  entry keeps its baseline and gets exactly one re-check on the next run before the backoff
+  trusts the count.
 - **Reserve the ledger entry before posting**, so a run killed mid-fire cannot cause a second
   trigger inside a spent hour.
 - **Reconcile last run's `pending` / `unknown` entries first**, and only when a baseline was
