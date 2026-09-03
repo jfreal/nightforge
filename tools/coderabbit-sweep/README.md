@@ -179,7 +179,9 @@ Each of these is a rule from the SKILL, implemented rather than remembered:
   actionable comments, so a completion carried by the summary comment alone is recorded as
   `findings: 0`. Because the summary can move a moment before the review object lands, such an
   entry keeps its baseline and gets exactly one re-check on the next run before the backoff
-  trusts the count.
+  trusts the count. A review *object* clears the streak on its kind alone — the
+  `Outside diff range comments` form has no `**Actionable comments posted: N**` header to parse,
+  and an unparsed count is unknown, never zero.
 - **Reserve the ledger entry before posting**, so a run killed mid-fire cannot cause a second
   trigger inside a spent hour.
 - **Reconcile last run's `pending` / `unknown` entries first**, and only when a baseline was

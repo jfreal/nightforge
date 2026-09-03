@@ -35,6 +35,8 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 | **Include drafts** | **no** (default) / yes |
 | **Trigger phrase** | `@coderabbitai full review` |
 | **Cooldown** | **<n> minutes** — a PR fired inside this window is not re-fired |
+| **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head commit is this old |
+| **Barren backoff max** | **<n>** (3) — how many times a PR's cooldown may double after consecutive reviews that found nothing |
 | **Ledger** | `<abs path>/ledger.json` |
 | **Report** | `<abs path>/reports/<YYYY-MM-DD>.md` |
 
@@ -67,6 +69,16 @@ they are old, so oldest-first ranking would hand them every slot.
 **Cooldown** — long enough to cover a queued review landing, short enough that a swallowed trigger
 gets retried the same day. Somewhere near the review interval is the safe default; shorter than the
 run interval defeats the purpose.
+
+**Paused quiet** and **barren backoff max** — the two guards against one busy PR eating the fleet's
+budget. Raise *paused quiet* on a fleet where agents push in long bursts; it only delays a PR whose
+branch CodeRabbit has already flagged as churning, and never a quiet one. Raise *barren backoff max*
+where PRs sit open a long time between real changes, lower it where a stale review costs little.
+`0` disables the backoff. Neither can retire a PR — only the give-up flag does that.
+
+Whatever these become, **retention must outlast the longest window they can produce**
+(`cooldown x 2^max`), because cooldowns are read from the ledger's `fired` list and a trimmed entry
+is a cooldown that silently stops applying.
 
 **Trigger phrase** — `@coderabbitai full review` re-reviews the entire PR from scratch;
 `@coderabbitai review` is an incremental pass over what changed since the last review. Full is right
