@@ -39,8 +39,10 @@ Dated worked examples live in `EVIDENCE.md` beside this file. Grep it; never rea
 ## What the caller gives you
 
 A fleet card naming: the GitHub owner to sweep, excluded repos and PRs, whether draft PRs count,
-the in-flight cooldown, the trigger phrase, and the ledger / board-template / report / evidence
-paths. Everything below reads those values; nothing below hardcodes a repo.
+the in-flight cooldown, the two step-4 guard settings (**paused quiet**, default 120 minutes, and
+**barren backoff max**, default 3), the trigger phrase, and the ledger / board-template / report /
+evidence paths. Everything below reads those values; nothing below hardcodes a repo. A card written
+before the guards existed is fine — take the defaults and say in the report that you did.
 
 ## Step 0 — Load the card and the ledger
 
@@ -512,6 +514,12 @@ Four outcomes, written to the entry step 5 created as `unknown`:
   a review object only when it has actionable comments, so a completion carried by the `recent_review`
   block alone is `"findings": 0` — not a blank. Step 4's barren backoff is only as good as that
   number. Feed the result to the streak: above zero clears it, zero increments it.
+
+  **Judge on the evidence's kind, not the count alone.** A review *object* is substance, so it
+  clears the streak whether or not a count comes out of it — the `Outside diff range comments`
+  form step 3 accepts carries no `**Actionable comments posted: N**` header at all, and reading
+  that missing count as "found nothing" would widen the cooldown of the very PR that just earned
+  its slot. An unparsed count is unknown, and unknown is not zero.
 - **`throttled`** — a fresh rate-limit block. Parse its countdown, add to that comment's
   `updated_at`, write `throttledUntil`. See "a burned slot" in step 2 — do not re-fire.
 - **`skipped`** — a fresh *Review skipped* block. Set `"giveUp": true`; do not fire again this run.

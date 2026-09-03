@@ -740,21 +740,28 @@ def awaiting_yield_check(entry):
             and not entry.get("yieldConfirmed"))
 
 
-def note_yield(ledger, entry, findings):
-    """Track consecutive zero-finding reviews per PR. Returns the new streak.
+def note_yield(ledger, entry, findings, kind=None):
+    """Track consecutive zero-finding reviews per PR. Returns the new streak, or None.
 
     Counted OUTSIDE `fired` for the reason `mark_refusal` gives: `fired` is trimmed to
     the last `retention` entries fleet-wide, so a streak derived from it resets long
     before the backoff it feeds could ever bite.
     """
-    if findings is None:
-        return None
     key = f"{entry.get('repo')}#{entry.get('pr')}"
     counts = ledger.setdefault("barren", {})
-    if findings > 0:
+
+    # A review OBJECT is CodeRabbit posting substance, so it always resets the streak —
+    # judge on the kind, never on the count alone. `is_pass` also accepts the
+    # `Outside diff range comments` form, whose body carries no
+    # `**Actionable comments posted: N**` header, so FINDINGS_RE leaves the count None.
+    # Reading an unparsed count as "found nothing" would widen the cooldown of exactly
+    # the PR that just proved it deserves the slot.
+    if kind == "review-object" or (findings or 0) > 0:
         counts.pop(key, None)             # also the correction path when reconcile upgrades
         entry["barrenStreak"] = 0
         return 0
+    if findings is None:
+        return None                       # outcome carries no yield signal either way
     if "barrenStreak" in entry:
         return entry["barrenStreak"]      # poll and reconcile must not double-count one fire
     counts[key] = int(counts.get(key, 0) or 0) + 1
@@ -1323,15 +1330,21 @@ def main():
                 # The one re-check a barren review owes: did the review object land
                 # after the poll stopped? Settle it either way and release the baseline.
                 entry["yieldConfirmed"] = True
-                if kind == "review-object" and (findings or 0) > 0:
+                if kind == "review-object":
                     entry["outcome"] = outcome
                     entry["reviewUrl"] = url
                     entry["reviewUrlKind"] = kind
-                    entry["findings"] = findings
-                    note_yield(ledger, entry, findings)
+                    # An `Outside diff range comments` review has no parseable count.
+                    # Drop the recorded 0 rather than keep a number now known wrong.
+                    if findings is None:
+                        entry.pop("findings", None)
+                    else:
+                        entry["findings"] = findings
+                    note_yield(ledger, entry, findings, kind)
+                    got = findings if findings is not None else "unparsed"
                     entry["note"] = (f"{entry.get('note', '')} Reconciled {iso(now)}: "
-                                     f"0 -> {findings} findings.").strip()
-                    log(f"reconciled {key}: barren -> {findings} findings, backoff cleared")
+                                     f"0 -> {got} findings.").strip()
+                    log(f"reconciled {key}: barren -> review object ({got}), backoff cleared")
                 else:
                     vlog(f"{key}: confirmed the review found nothing")
                 entry.pop("baseline", None)
@@ -1346,7 +1359,7 @@ def main():
                 if findings is not None:
                     entry["findings"] = findings
                 if outcome == "reviewed":
-                    note_yield(ledger, entry, findings)
+                    note_yield(ledger, entry, findings, kind)
                 if outcome == "skipped":
                     n = mark_refusal(ledger, entry)
                     log(f"{key}: refusal {n}" + (" — giving up on it" if n >= 2 else ""))
@@ -1467,7 +1480,16 @@ def main():
         if only_reason:
             decision["reason"] = only_reason
         elif incomplete:
-            decision["reason"] = "every candidate is in cooldown or gave up"
+            # Name the guard that actually did it. A blanket "in cooldown" here sends a
+            # human to the ledger to explain a hold the ledger knows nothing about.
+            held = sum(1 for _, why in blocked if why.startswith("CodeRabbit paused"))
+            if held == len(blocked):
+                decision["reason"] = "every candidate is on a paused branch still churning"
+            elif held:
+                decision["reason"] = (f"no candidate free — {held} churning on a paused "
+                                      f"branch, {len(blocked) - held} in cooldown or gave up")
+            else:
+                decision["reason"] = "every candidate is in cooldown or gave up"
         else:
             decision["reason"] = "queue empty — every PR covers head"
         decision["note"] = decision["reason"].capitalize() + "."
@@ -1560,7 +1582,7 @@ def main():
                 if findings is not None:
                     fired_entry["findings"] = findings
                 if outcome == "reviewed":
-                    n = note_yield(ledger, fired_entry, findings)
+                    n = note_yield(ledger, fired_entry, findings, kind)
                     if n:
                         nxt, _ = effective_cooldown(ledger, target, cooldown, cfg["barrenBackoffMax"])
                         log(f"{target.key}: {n} straight review(s) found nothing — "
