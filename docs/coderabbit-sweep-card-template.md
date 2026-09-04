@@ -35,7 +35,10 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 | **Include drafts** | **no** (default) / yes |
 | **Trigger phrase** | `@coderabbitai full review` |
 | **Cooldown** | **<n> minutes** — a PR fired inside this window is not re-fired |
-| **Ledger** | `<abs path>/ledger.json` — keep the newest **<n>** `fired` entries |
+| **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head commit is this old |
+| **Barren backoff max** | **<n>** (3) — how many times a PR's cooldown may double after consecutive reviews that found nothing |
+| **Retention** | **<n>** (40) — `fired` entries kept. Must be at least `cooldown x 2^backoff max` in **hours**, since at most one fire lands per hour |
+| **Ledger** | `<abs path>/ledger.json` |
 | **Board template** | `<abs path>/board-template.html` |
 | **Report** | `<abs path>/reports/<YYYY-MM-DD>.md` |
 | **Evidence** | `<path to>/skills/coderabbit-sweep/EVIDENCE.md` |
@@ -70,10 +73,29 @@ they are old, so oldest-first ranking would hand them every slot.
 gets retried the same day. Somewhere near the review interval is the safe default; shorter than the
 run interval defeats the purpose.
 
+**Paused quiet** and **barren backoff max** — the two guards against one busy PR eating the fleet's
+budget. Raise *paused quiet* on a fleet where agents push in long bursts; it only delays a PR whose
+branch CodeRabbit has already flagged as churning, and never a quiet one. Raise *barren backoff max*
+where PRs sit open a long time between real changes, lower it where a stale review costs little.
+`0` disables the backoff. Neither can retire a PR — only the give-up flag does that.
+
+Whatever these become, **retention must outlast the longest window they can produce**
+(`cooldown x 2^max`), because cooldowns are read from the ledger's `fired` list and a trimmed entry
+is a cooldown that silently stops applying.
+
+State that floor in **entries**, which is what retention actually counts. At most one fire lands per
+hour, so the minimum is the widest window in hours, plus a few for the reconcile tail: 90 minutes
+doubled 3 times is 12 hours, so 16 entries — the default 40 covers it comfortably. Raise the cap to
+6 and the window becomes 96 hours, needing 100 entries; leave retention at 40 there and the PR fires
+after about 40 hours with nothing saying why. The script checks this at startup and raises retention
+rather than refusing to run, but the card should carry the right number so the check stays quiet.
+
 **Ledger** — the only memory between runs: `throttledUntil`, the published `boardUrl`, and the
-`fired` list. Name a retention on the card and keep it small; the sweep drops older `fired` entries
-when it writes the ledger back. It once grew to 90KB and cost about 6k tokens of read on *every*
-hourly run. It follows that `fired` is not a lifetime record — never compute totals or streaks off it.
+`fired` list. Its size is governed by **retention** above, not by a separate judgement call — the
+floor there is the binding constraint, and the sweep drops entries past the cap when it writes the
+ledger back. It once grew to 90KB and cost about 6k tokens of read on *every* hourly run, which is
+why the cap exists at all. It follows that `fired` is not a lifetime record — never compute totals
+or streaks off it.
 
 **Board template** — the HTML the run fills in to publish the board Artifact. It lives on disk
 precisely so the sweep never has to fetch the published board to recover its own design: fetching
