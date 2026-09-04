@@ -5,6 +5,10 @@ Finds every open PR across an owner's repos whose CodeRabbit review is missing,
 throttled, or stale against the head commit, picks the single oldest one, and
 spends the account's one available review on it.
 
+Two guards keep one busy PR from eating the whole fleet's budget: a PR whose branch
+CodeRabbit has paused waits until its head commit stops moving, and a PR whose
+reviews keep coming back with no findings has its cooldown doubled each time.
+
 This is a straight port of skills/coderabbit-sweep/SKILL.md. Every rule that file
 states is implemented here; the section it comes from is named in a comment.
 
@@ -668,20 +672,144 @@ def save_ledger(path: Path, ledger, retention: int):
     for entry in ledger["fired"]:
         if entry.get("note"):
             entry["note"] = " ".join(str(entry["note"]).split())[:400]
-        # SKILL step 0: drop a baseline once its entry is reconciled.
-        if entry.get("outcome") in ("reviewed", "skipped") and "baseline" in entry:
+        # SKILL step 0: drop a baseline once its entry is reconciled. A barren review
+        # still owes one re-check, and that re-check needs the baseline to judge against.
+        if (entry.get("outcome") in ("reviewed", "skipped")
+                and "baseline" in entry
+                and not awaiting_yield_check(entry)):
             entry.pop("baseline", None)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
 
 
-def in_cooldown(ledger, pr: PR, cooldown: timedelta, now):
+def effective_cooldown(ledger, pr: PR, base: timedelta, cap: int):
+    """SKILL step 4, the barren backoff. Return (window, streak).
+
+    A PR goes stale on every push, and the queue ranks stale PRs oldest-first — so an
+    old branch an agent keeps pushing to wins the queue every single time it goes
+    stale and can eat the whole fleet's budget while returning nothing. Each
+    consecutive review that finds nothing doubles that PR's cooldown; any review that
+    finds something resets it. `cap` bounds the doubling so a PR is delayed, never
+    retired — that is what the give-up flag is for.
+    """
+    streak = int((ledger.get("barren") or {}).get(pr.key, 0) or 0)
+    return base * (2 ** min(streak, max(0, cap))), streak
+
+
+def in_cooldown(ledger, pr: PR, cooldown: timedelta, now, cap: int = 0):
+    """Return (fired_at | None, window, streak). fired_at is set only while inside it.
+
+    Measure from the NEWEST fire on this PR. `fired` is append-ordered and retention is
+    now wide enough to hold several fires for one PR, so taking the first match dates
+    the window from the oldest one — which reports a release time earlier than the real
+    one, and reports it in the very place a human looks to explain the hold.
+    """
+    window, streak = effective_cooldown(ledger, pr, cooldown, cap)
+    newest = None
     for entry in ledger.get("fired", []):
         if entry.get("repo") == pr.slug and entry.get("pr") == pr.number:
             at = parse_ts(entry.get("at"))
-            if at and (now - at) < cooldown:
-                return at
-    return None
+            if at and (newest is None or at > newest):
+                newest = at
+    if newest is not None and (now - newest) < window:
+        return newest, window, streak
+    return None, window, streak
+
+
+def observe_heads(ledger, prs, now):
+    """Record when each PR's head was first seen at this SHA. Prunes to the live fleet.
+
+    The committer date alone cannot answer "when did this branch last move": a rebase,
+    a force-push, or a delayed push all put an OLD commit at a NEW head, and the churn
+    hold would read that as a branch that has been quiet for hours. What the sweep can
+    say for certain is when it first saw this SHA on this PR.
+    """
+    heads = ledger.setdefault("heads", {})
+    for pr in prs:
+        if not pr.head:
+            continue
+        seen = heads.get(pr.key)
+        if not seen or seen.get("sha") != pr.head:
+            # First sight of a PR is not evidence its head just moved — only a change
+            # away from a SHA we already recorded is. Otherwise every PR the sweep
+            # meets would look freshly pushed and sit out its first churn window.
+            at = now if seen else (commit_date(pr.slug, pr.head) or now)
+            heads[pr.key] = {"sha": pr.head, "at": iso(at)}
+    live = {pr.key for pr in prs}
+    for key in [k for k in heads if k not in live]:
+        del heads[key]
+    return heads
+
+
+def head_moved_at(ledger, pr: PR):
+    """Best available answer to "when did this head appear", newest evidence winning."""
+    seen = (ledger.get("heads") or {}).get(pr.key)
+    observed = parse_ts(seen.get("at")) if seen and seen.get("sha") == pr.head else None
+    committed = commit_date(pr.slug, pr.head)
+    candidates = [d for d in (observed, committed) if d]
+    return max(candidates) if candidates else None
+
+
+def paused_hold(ledger, pr: PR, quiet: timedelta, now):
+    """SKILL step 4, the churn hold. Return the time the branch goes quiet, or None.
+
+    CodeRabbit pauses AUTOMATIC review on a branch it judges to be under active
+    development. A manual trigger still works, which is why the sweep never noticed
+    the pause — it kept spending reviews mid-churn. The marker is sticky and does not
+    clear itself, so presence alone cannot be a block or the PR is starved forever.
+    Hold only while the head is still fresh; once the branch has been quiet for
+    `quiet`, the churn CodeRabbit was worried about is over and a review is worth it.
+    """
+    if "paused" not in pr.markers:
+        return None
+    at = head_moved_at(ledger, pr)
+    if at is None:
+        return None                       # no timestamp at all is not evidence of churn
+    until = at + quiet
+    return until if now < until else None
+
+
+def awaiting_yield_check(entry):
+    """True while a zero-finding review still owes one re-check (see reconcile).
+
+    CodeRabbit can move the summary comment a moment before it posts the review
+    object. The poll stops at the first non-pending outcome, so it can score a review
+    barren that in fact found something. Such an entry keeps its baseline for one
+    more run so reconcile can correct it before the backoff acts on a wrong count.
+    """
+    return (entry.get("outcome") == "reviewed"
+            and entry.get("reviewUrlKind") == "summary-comment"
+            and entry.get("findings") == 0
+            and not entry.get("yieldConfirmed"))
+
+
+def note_yield(ledger, entry, findings, kind=None):
+    """Track consecutive zero-finding reviews per PR. Returns the new streak, or None.
+
+    Counted OUTSIDE `fired` for the reason `mark_refusal` gives: `fired` is trimmed to
+    the last `retention` entries fleet-wide, so a streak derived from it resets long
+    before the backoff it feeds could ever bite.
+    """
+    key = f"{entry.get('repo')}#{entry.get('pr')}"
+    counts = ledger.setdefault("barren", {})
+
+    # A review OBJECT is CodeRabbit posting substance, so it always resets the streak —
+    # judge on the kind, never on the count alone. `is_pass` also accepts the
+    # `Outside diff range comments` form, whose body carries no
+    # `**Actionable comments posted: N**` header, so FINDINGS_RE leaves the count None.
+    # Reading an unparsed count as "found nothing" would widen the cooldown of exactly
+    # the PR that just proved it deserves the slot.
+    if kind == "review-object" or (findings or 0) > 0:
+        counts.pop(key, None)             # also the correction path when reconcile upgrades
+        entry["barrenStreak"] = 0
+        return 0
+    if findings is None:
+        return None                       # outcome carries no yield signal either way
+    if "barrenStreak" in entry:
+        return entry["barrenStreak"]      # poll and reconcile must not double-count one fire
+    counts[key] = int(counts.get(key, 0) or 0) + 1
+    entry["barrenStreak"] = counts[key]
+    return counts[key]
 
 
 def gave_up(ledger, pr: PR):
@@ -760,7 +888,10 @@ def evaluate_outcome(pr: PR, baseline, fired_head):
     summary_moved = base_summary_at is None or (pr.summary_updated_at and pr.summary_updated_at > base_summary_at)
 
     if fired_head in pr.recent_review_shas and summary_moved:
-        return "reviewed", pr.summary_url or pr.url, "summary-comment", None
+        # CodeRabbit posts a review object only when it has actionable comments. A
+        # completion carried by the summary alone is therefore a review that found
+        # nothing — 0, not unknown. The barren backoff counts on that distinction.
+        return "reviewed", pr.summary_url or pr.url, "summary-comment", 0
 
     if summary_moved and "skip_review" in pr.markers:
         return "skipped", pr.summary_url or pr.url, "summary-comment", None
@@ -1089,8 +1220,15 @@ DEFAULTS = {
     "includeDrafts": False,
     "triggerPhrase": "@coderabbitai full review",
     "cooldownMinutes": 90,
+    # Hold a PR whose branch CodeRabbit paused until its head commit is this old.
+    "pausedQuietMinutes": 120,
+    # How many times a PR's cooldown may double after consecutive barren reviews.
+    # 3 with a 90-minute base is 90m -> 3h -> 6h -> 12h, and no further.
+    "barrenBackoffMax": 3,
     "searchLimit": 1000,
-    "retention": 12,
+    # Must outlast the longest backoff window: cooldown reads `fired`, and an entry
+    # trimmed away is an entry whose cooldown silently stops applying.
+    "retention": 40,
     "oversizeFiles": 300,
     "pollRounds": 11,
     "pollInterval": 30,
@@ -1116,6 +1254,20 @@ def load_config(path: Path):
         cfg[key] = str(p if p.is_absolute() else base / p)
     if not cfg["owners"]:
         raise SystemExit("config error: 'owners' must name at least one GitHub owner")
+
+    # Retention is a floor, not a taste. `in_cooldown` can only enforce a window while
+    # the firing entry is still in `fired`, and `fired` is trimmed fleet-wide — so a
+    # config that widens the backoff past what retention covers gets the *silent*
+    # failure: the PR simply fires early and nothing says why. At most one fire lands
+    # per hour (the gate writes throttledUntil = fire + 60min), so N hours of window
+    # needs N entries, plus a margin for the reconcile tail. Raise it rather than
+    # refuse: an unattended task that exits on a config edit reviews nothing at all.
+    max_window_min = cfg["cooldownMinutes"] * (2 ** max(0, cfg["barrenBackoffMax"]))
+    floor = -(-max_window_min // 60) + 4
+    if cfg["retention"] < floor:
+        cfg["retentionRaised"] = (cfg["retention"], floor)
+        cfg["retention"] = floor
+
     cfg["excludeRepos"] = set(cfg["excludeRepos"])
     cfg["excludePRs"] = set(cfg["excludePRs"])
     return cfg
@@ -1152,8 +1304,16 @@ def main():
 
     now = now_utc()
     cooldown = timedelta(minutes=cfg["cooldownMinutes"])
+    paused_quiet = timedelta(minutes=cfg["pausedQuietMinutes"])
     trigger = cfg["triggerPhrase"]
     problems = []
+
+    if cfg.get("retentionRaised"):
+        was, now_at = cfg["retentionRaised"]
+        note = (f"retention {was} cannot cover a {cfg['cooldownMinutes']}min cooldown doubled "
+                f"{cfg['barrenBackoffMax']}x — using {now_at}; set it in the config to silence this")
+        problems.append(note)
+        log(note)
 
     ledger, ledger_note = load_ledger(Path(cfg["ledger"]))
     if ledger_note:
@@ -1211,7 +1371,8 @@ def main():
     # Scoring that "lost" turns a healthy in-flight fire into a fake failure.
     settle = timedelta(seconds=max(600, cfg["pollRounds"] * cfg["pollInterval"] + 300))
     for entry in ledger.get("fired", []):
-        if entry.get("outcome") not in ("pending", "unknown"):
+        recheck_yield = awaiting_yield_check(entry)
+        if entry.get("outcome") not in ("pending", "unknown") and not recheck_yield:
             continue
         at = parse_ts(entry.get("at"))
         if at and (now - at) < settle:
@@ -1229,6 +1390,29 @@ def main():
             if live is None:
                 live = classify(entry["repo"], entry["pr"], trigger)
             outcome, url, kind, findings = evaluate_outcome(live, base, base.get("head") or live.head)
+            if recheck_yield:
+                # The one re-check a barren review owes: did the review object land
+                # after the poll stopped? Settle it either way and release the baseline.
+                entry["yieldConfirmed"] = True
+                if kind == "review-object":
+                    entry["outcome"] = outcome
+                    entry["reviewUrl"] = url
+                    entry["reviewUrlKind"] = kind
+                    # An `Outside diff range comments` review has no parseable count.
+                    # Drop the recorded 0 rather than keep a number now known wrong.
+                    if findings is None:
+                        entry.pop("findings", None)
+                    else:
+                        entry["findings"] = findings
+                    note_yield(ledger, entry, findings, kind)
+                    got = findings if findings is not None else "unparsed"
+                    entry["note"] = (f"{entry.get('note', '')} Reconciled {iso(now)}: "
+                                     f"0 -> {got} findings.").strip()
+                    log(f"reconciled {key}: barren -> review object ({got}), backoff cleared")
+                else:
+                    vlog(f"{key}: confirmed the review found nothing")
+                entry.pop("baseline", None)
+                continue
             if outcome == "pending":
                 entry["reconciledOutcome"] = "lost"        # SKILL step 6
             else:
@@ -1238,6 +1422,8 @@ def main():
                 entry["reviewUrlKind"] = kind
                 if findings is not None:
                     entry["findings"] = findings
+                if outcome == "reviewed":
+                    note_yield(ledger, entry, findings, kind)
                 if outcome == "skipped":
                     n = mark_refusal(ledger, entry)
                     log(f"{key}: refusal {n}" + (" — giving up on it" if n >= 2 else ""))
@@ -1289,20 +1475,32 @@ def main():
         vlog(line)
 
     # ---- step 4: pick one ------------------------------------------------- #
+    # Stamp head observations before the churn hold reads them, so a head that
+    # moved since the last run is known to have moved even if its commit is old.
+    observe_heads(ledger, prs, now)
     incomplete = [p for p in prs if not p.is_complete]
     candidates, blocked = [], []
     for pr in incomplete:
         if gave_up(ledger, pr):
             blocked.append((pr, "give-up flag set after two refusals"))
             continue
-        cd = in_cooldown(ledger, pr, cooldown, now)
+        quiet_at = paused_hold(ledger, pr, paused_quiet, now)
+        if quiet_at:
+            blocked.append((pr, f"CodeRabbit paused this branch and it is still "
+                                f"churning — quiet at {iso(quiet_at)}"))
+            continue
+        cd, window, streak = in_cooldown(ledger, pr, cooldown, now, cfg["barrenBackoffMax"])
         if cd:
-            blocked.append((pr, f"in cooldown until {iso(cd + cooldown)}"))
+            why = f"in cooldown until {iso(cd + window)}"
+            if streak:
+                why += f" — {streak} straight review(s) found nothing, window {human_delta(window)}"
+            blocked.append((pr, why))
             continue
         candidates.append(pr)
 
     # --only narrows the queue to one PR. It overrides the RANKING, never a guard —
-    # the gate, fail-closed, cooldown and give-up all still decide whether it fires.
+    # the gate, fail-closed, cooldown, churn hold and give-up all still decide
+    # whether it fires.
     only_reason = ""
     if args.only:
         want = args.only.strip()
@@ -1316,7 +1514,9 @@ def main():
                 why = "already covers its head"
             elif gave_up(ledger, named):
                 why = "carries the give-up flag"
-            elif in_cooldown(ledger, named, cooldown, now):
+            elif paused_hold(ledger, named, paused_quiet, now):
+                why = "paused branch, still churning"
+            elif in_cooldown(ledger, named, cooldown, now, cfg["barrenBackoffMax"])[0]:
                 why = "inside its cooldown"
             problems.append(f"--only {want}: {why} — nothing fired")
             log(f"--only {want}: {why}")
@@ -1347,7 +1547,16 @@ def main():
         if only_reason:
             decision["reason"] = only_reason
         elif incomplete:
-            decision["reason"] = "every candidate is in cooldown or gave up"
+            # Name the guard that actually did it. A blanket "in cooldown" here sends a
+            # human to the ledger to explain a hold the ledger knows nothing about.
+            held = sum(1 for _, why in blocked if why.startswith("CodeRabbit paused"))
+            if held == len(blocked):
+                decision["reason"] = "every candidate is on a paused branch still churning"
+            elif held:
+                decision["reason"] = (f"no candidate free — {held} churning on a paused "
+                                      f"branch, {len(blocked) - held} in cooldown or gave up")
+            else:
+                decision["reason"] = "every candidate is in cooldown or gave up"
         else:
             decision["reason"] = "queue empty — every PR covers head"
         decision["note"] = decision["reason"].capitalize() + "."
@@ -1381,6 +1590,26 @@ def main():
             problems.append(f"pre-fire re-scan failed — {exc}")
             fail_closed.append("pre-fire re-scan failed")
 
+        # ---- re-read the target itself, not just the fleet list ----------- #
+        # The re-scan above only hunts for PRs that appeared during the run. The
+        # target's own classification is minutes and a few hundred API calls old by
+        # now, and the whole fleet may have been classified before that. A push in
+        # that gap leaves the churn hold judging a head that no longer exists and the
+        # baseline naming a SHA the review will not be measured at.
+        stale_head, target_moved, reread_failed = target.head, False, ""
+        try:
+            target = classify(target.slug, target.number, trigger)
+            prs = [target if p.key == target.key else p for p in prs]
+            target_moved = target.head != stale_head
+            if target_moved:
+                observe_heads(ledger, prs, now_utc())
+                log(f"{target.key} moved {stale_head[:8]} -> {target.short_head} during the run")
+        except (GhError, json.JSONDecodeError) as exc:
+            reread_failed = str(exc)
+            problems.append(f"pre-fire re-read of {target.key} failed — {exc}")
+        moved_into_hold = (paused_hold(ledger, target, paused_quiet, now_utc())
+                           if not reread_failed else None)
+
         if fail_closed:
             gated = True
             decision["reason"] = "fail-closed: " + "; ".join(fail_closed[:3])
@@ -1390,6 +1619,21 @@ def main():
             gated = True
             decision["reason"] = f"re-scan moved the gate to {iso(gate_value)}"
             decision["note"] = "Gate arrived during the run; nothing fired."
+            log(decision["reason"])
+        elif reread_failed:
+            # Firing blind would spend the slot at an unknown head. Next tick retries.
+            decision["reason"] = f"pre-fire re-read of {target.key} failed — nothing fired"
+            decision["note"] = f"Could not re-read {target.key} before firing; nothing fired."
+            log(decision["reason"])
+        elif target.is_complete:
+            decision["reason"] = (f"{target.key} was reviewed at {target.short_head} "
+                                  f"during the run — nothing fired")
+            decision["note"] = decision["reason"].capitalize() + "."
+            log(decision["reason"])
+        elif moved_into_hold:
+            decision["reason"] = (f"{target.key} pushed mid-run onto a paused branch — "
+                                  f"held until {iso(moved_into_hold)}")
+            decision["note"] = decision["reason"].capitalize() + "."
             log(decision["reason"])
         elif args.dry_run:
             decision["reason"] = f"dry run — would fire {target.key}"
@@ -1439,6 +1683,12 @@ def main():
                 fired_entry["reviewUrlKind"] = kind
                 if findings is not None:
                     fired_entry["findings"] = findings
+                if outcome == "reviewed":
+                    n = note_yield(ledger, fired_entry, findings, kind)
+                    if n:
+                        nxt, _ = effective_cooldown(ledger, target, cooldown, cfg["barrenBackoffMax"])
+                        log(f"{target.key}: {n} straight review(s) found nothing — "
+                            f"next cooldown {human_delta(nxt)}")
                 if outcome == "skipped":
                     n = mark_refusal(ledger, fired_entry)
                     log(f"{target.key}: refusal {n}" + (" — giving up on it" if n >= 2 else ""))
@@ -1449,7 +1699,7 @@ def main():
                     f"reserved {iso(fire_at)}, trigger posted {iso(posted_at)}; "
                     f"fired head {target.head[:8]}; outcome {outcome}"
                 )
-                if outcome in ("reviewed", "skipped"):
+                if outcome in ("reviewed", "skipped") and not awaiting_yield_check(fired_entry):
                     fired_entry.pop("baseline", None)
 
                 decision["fired"] = {"key": target.key, "outcome": outcome, "url": url}
