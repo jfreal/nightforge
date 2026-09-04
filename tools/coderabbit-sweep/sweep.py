@@ -697,13 +697,22 @@ def effective_cooldown(ledger, pr: PR, base: timedelta, cap: int):
 
 
 def in_cooldown(ledger, pr: PR, cooldown: timedelta, now, cap: int = 0):
-    """Return (fired_at | None, window, streak). fired_at is set only while inside it."""
+    """Return (fired_at | None, window, streak). fired_at is set only while inside it.
+
+    Measure from the NEWEST fire on this PR. `fired` is append-ordered and retention is
+    now wide enough to hold several fires for one PR, so taking the first match dates
+    the window from the oldest one — which reports a release time earlier than the real
+    one, and reports it in the very place a human looks to explain the hold.
+    """
     window, streak = effective_cooldown(ledger, pr, cooldown, cap)
+    newest = None
     for entry in ledger.get("fired", []):
         if entry.get("repo") == pr.slug and entry.get("pr") == pr.number:
             at = parse_ts(entry.get("at"))
-            if at and (now - at) < window:
-                return at, window, streak
+            if at and (newest is None or at > newest):
+                newest = at
+    if newest is not None and (now - newest) < window:
+        return newest, window, streak
     return None, window, streak
 
 
@@ -1581,6 +1590,26 @@ def main():
             problems.append(f"pre-fire re-scan failed — {exc}")
             fail_closed.append("pre-fire re-scan failed")
 
+        # ---- re-read the target itself, not just the fleet list ----------- #
+        # The re-scan above only hunts for PRs that appeared during the run. The
+        # target's own classification is minutes and a few hundred API calls old by
+        # now, and the whole fleet may have been classified before that. A push in
+        # that gap leaves the churn hold judging a head that no longer exists and the
+        # baseline naming a SHA the review will not be measured at.
+        stale_head, target_moved, reread_failed = target.head, False, ""
+        try:
+            target = classify(target.slug, target.number, trigger)
+            prs = [target if p.key == target.key else p for p in prs]
+            target_moved = target.head != stale_head
+            if target_moved:
+                observe_heads(ledger, prs, now_utc())
+                log(f"{target.key} moved {stale_head[:8]} -> {target.short_head} during the run")
+        except (GhError, json.JSONDecodeError) as exc:
+            reread_failed = str(exc)
+            problems.append(f"pre-fire re-read of {target.key} failed — {exc}")
+        moved_into_hold = (paused_hold(ledger, target, paused_quiet, now_utc())
+                           if not reread_failed else None)
+
         if fail_closed:
             gated = True
             decision["reason"] = "fail-closed: " + "; ".join(fail_closed[:3])
@@ -1590,6 +1619,21 @@ def main():
             gated = True
             decision["reason"] = f"re-scan moved the gate to {iso(gate_value)}"
             decision["note"] = "Gate arrived during the run; nothing fired."
+            log(decision["reason"])
+        elif reread_failed:
+            # Firing blind would spend the slot at an unknown head. Next tick retries.
+            decision["reason"] = f"pre-fire re-read of {target.key} failed — nothing fired"
+            decision["note"] = f"Could not re-read {target.key} before firing; nothing fired."
+            log(decision["reason"])
+        elif target.is_complete:
+            decision["reason"] = (f"{target.key} was reviewed at {target.short_head} "
+                                  f"during the run — nothing fired")
+            decision["note"] = decision["reason"].capitalize() + "."
+            log(decision["reason"])
+        elif moved_into_hold:
+            decision["reason"] = (f"{target.key} pushed mid-run onto a paused branch — "
+                                  f"held until {iso(moved_into_hold)}")
+            decision["note"] = decision["reason"].capitalize() + "."
             log(decision["reason"])
         elif args.dry_run:
             decision["reason"] = f"dry run — would fire {target.key}"
