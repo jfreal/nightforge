@@ -71,8 +71,8 @@ JSON has no comments. A JSON source is recorded in the registry by hand instead 
 
    An HTML comment rather than YAML frontmatter: these pages are read on GitHub as plain Markdown,
    with no static-site build consuming frontmatter, and a frontmatter block would render as a stray
-   table at the top of the page. (Skill files under `skills/` do carry YAML frontmatter — the skill
-   loader requires it. That is a different thing from a doc key.)
+   table at the top of the page. (Skill files under `skills/` and `.claude/skills/` do carry YAML
+   frontmatter — the skill loader requires it. That is a different thing from a doc key.)
 
 3. Register it in `.claude/skills/sync-docs/registry.json`:
 
@@ -102,7 +102,8 @@ Beyond comparing each page against its tagged sources, the audit reports:
 | Unregistered Keys | A `@doc:` tag in a source with no registry entry |
 | Orphaned Keys | A registry entry with no tag anywhere — feature removed? |
 | Missing Doc Pages | A registry entry whose `docs/<name>.md` does not exist |
-| Mismatched docKey | A page whose marker is not its registry key, or is missing |
+| Invalid Keys | A registry key that fails the kebab-case grammar — excluded from diffing and from scope selection until renamed |
+| Mismatched docKey | A page whose marker is not its registry key, fails the grammar, or is missing |
 | Missing from Index | A registered page not linked from `README.md` |
 | Inventory Drift | The README file tree or the `Adapters available today:` line disagrees with disk |
 
