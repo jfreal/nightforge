@@ -286,7 +286,11 @@ becomes readable by anyone with the link, forever — so the host is optional an
 at before they go anywhere.
 
 The write set is deliberately tiny: test-plan checkboxes, one comment per run, and the pass label on
-the PR and the issues it closes, applied only when every item passed. It never pushes, commits,
+the PR and the issues it closes — applied only when every item passed *and* the head is still the
+commit that was tested, because a push landing mid-run would otherwise get vouched for by a label
+nobody earned. Body edits are read-modify-write for the same reason the rest of this is careful:
+`gh pr edit --body-file` replaces the whole description, so a file holding only the plan silently
+deletes the author's prose. It never pushes, commits,
 merges, or closes anything. Checking out a branch to run it is not a licence to change it.
 
 ### Install
