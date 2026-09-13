@@ -33,5 +33,12 @@
       ".claude/skills/sync-docs/SKILL.md",
       ".claude/skills/sync-docs/registry.json"
     ]
+  },
+  "pr-test-card": {
+    "doc": "docs/pr-test-card-template.md",
+    "summary": "The project card: the only per-project input pr-test takes. One card per repo, its fields (repo slug and checkout path, service table with URLs and start commands, test accounts, credential env var names, screenshot dir and optional host, pass label), where the card lives, why it stays out of a public repo, and the rule for where a learned gotcha goes (card vs pipeline). Drifts whenever the pipeline changes what it reads off the card.",
+    "sources": [
+      "skills/pr-test/SKILL.md"
+    ]
   }
 }
