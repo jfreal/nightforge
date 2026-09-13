@@ -85,10 +85,12 @@ The plan is the contract for the rest of the run.
 - **The PR body already has one** — a `## Test plan` section (or `Test plan`, or `Testing`) with
   checkboxes. Use it as written. Do not rewrite items to be easier to verify.
 - **It does not** — derive one from the diff and **write it into the PR body first**, before testing
-  anything:
+  anything. `--body-file` *replaces* the body, so read, append, write — never write the plan alone:
 
   ```bash
-  gh pr edit <pr> --repo <slug> --body-file <file>
+  gh pr view <pr> --repo <slug> --json body --jq .body > body.md
+  printf '\n## Test plan\n\n- [ ] ...\n' >> body.md
+  gh pr edit <pr> --repo <slug> --body-file body.md
   ```
 
   Write the plan against the *behaviour* the diff changes, not against the diff. "Filter persists
@@ -123,7 +125,8 @@ Find the entry whose `branch` line ends with the PR's `headRefName`.
   gh pr checkout <pr> --repo <slug>
   ```
 
-Either way, confirm `git log -1` matches the PR's head commit before you start a service. Every
+Either way, confirm `git log -1` matches the PR's head commit before you start a service, and keep
+that SHA — the report names it and Step 6 re-checks it before labelling. Every
 service you start must run from this checkout; a service left running from an earlier session serves
 the old code and will happily "pass" the test plan.
 
@@ -154,7 +157,12 @@ a person may be sitting in front of the screen and the point is that they can se
   every failure. Write them into the card's gitignored screenshot dir, numbered in run order
   (`01-login.png`, `02-filter-applied.png`), never into a system temp dir where the next step cannot
   find them.
-- **Update the checkbox the moment an item resolves**, with `gh pr edit`. Not batched at the end.
+- **Update the checkbox the moment an item resolves.** Same read-modify-write as Step 1: fetch the
+  current body, change *only* that item's `- [ ]` / `- [x]` marker inside the test-plan section, and
+  write the whole body back. Never rebuild the body from the plan — the author's prose, links, and
+  headings are in that file too, and a `--body-file` holding only the plan deletes them. Refetch each
+  time rather than reusing an earlier copy: the author may have edited the description mid-run. Not
+  batched at the end.
 
 When an item fails, capture the failure before moving on: the screenshot, the console output, the
 network error, the server log line. A failure you cannot describe precisely is a failure the author
@@ -198,14 +206,22 @@ One comment per run, containing:
   you no way to reach, anything you skipped. This is part of the deliverable, not an admission.
 - The screenshots, collapsed.
 
-Then, **only if every item passed**, apply the pass label to the PR and to each issue it closes:
+Then, **only if every item passed and the PR head is still the commit you tested**, apply the pass
+label to the PR and to each issue it closes. Step 2 confirmed the head before the run; confirm it
+again here, because the author can push while you test and the label would then vouch for a commit
+nobody exercised:
 
 ```bash
+gh pr view <pr> --repo <slug> --json headRefOid --jq .headRefOid   # vs the SHA you tested
 gh pr edit <pr> --repo <slug> --add-label "<pass label>"
 gh pr view <pr> --repo <slug> --json closingIssuesReferences \
   --jq '.closingIssuesReferences[].number'
 gh issue edit <issue> --repo <slug> --add-label "<pass label>"
 ```
+
+Heads differ: label nothing, and say in the comment that the branch moved mid-run and which commit
+the results describe. The results are still worth reporting — they are just about an older commit,
+and re-running against the new head is the user's call.
 
 The label is a machine-readable claim that this pipeline ran green on this PR. A partial pass, a
 read-only review, and a run that died halfway all get a comment and no label.
