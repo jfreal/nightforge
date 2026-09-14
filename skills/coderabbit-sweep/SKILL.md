@@ -1,13 +1,13 @@
 ---
 name: coderabbit-sweep
-description: Hourly unattended CodeRabbit re-review sweep. Find every open PR across an owner's repos whose CodeRabbit review is missing, throttled, or stale against the head commit, pick the single oldest one, and spend the account's one available review on it. The scheduled task supplies a fleet card; this file supplies everything else. Use when running or editing the coderabbit-sweep scheduled task.
+description: Hourly unattended CodeRabbit re-review sweep. Find every open PR across an owner's repos whose CodeRabbit review is missing, throttled, or stale against the head commit, pick one — priority-labelled first, oldest otherwise — and spend the account's one available review on it. The scheduled task supplies a fleet card; this file supplies everything else. Use when running or editing the coderabbit-sweep scheduled task.
 ---
 
 CodeRabbit enforces a **per-developer, account-wide** review allowance (1 review per hour at
 sustained activity). Open PRs that land while the allowance is spent get a *Review limit reached*
 comment and no review — and nothing ever retries them. This sweep is that retry: once an hour it
-finds the PRs CodeRabbit never finished, picks the **single oldest** one, and spends the one
-available review on it.
+finds the PRs CodeRabbit never finished, picks **one** — a PR a human labelled priority if there
+is one, the single oldest starved PR otherwise — and spends the one available review on it.
 
 **The one-per-run cap is the whole design.** The allowance is shared across every repo, so a
 per-repo trigger fights every other repo's trigger for the same slot and they all lose. One central
@@ -40,8 +40,8 @@ Dated worked examples live in `EVIDENCE.md` beside this file. Grep it; never rea
 
 A fleet card naming: the GitHub owner to sweep, excluded repos and PRs, whether draft PRs count,
 the in-flight cooldown, the two step-4 guard settings (**paused quiet**, default 120 minutes, and
-**barren backoff max**, default 3), the trigger phrase, and the ledger / board-template / report /
-evidence paths. Everything below reads those values; nothing below hardcodes a repo. A card written
+**barren backoff max**, default 3), the **priority labels** (default `coderabbit-priority`), the
+trigger phrase, and the ledger / board-template / report / evidence paths. Everything below reads those values; nothing below hardcodes a repo. A card written
 before the guards existed is fine — take the defaults and say in the report that you did.
 
 ## Step 0 — Load the card and the ledger
@@ -424,11 +424,27 @@ Report give-ups so a human can look at them.
 Candidates are the incomplete PRs, minus any PR in the ledger's `fired` list whose `at` is inside
 the card's cooldown, minus any held for churn, minus any marked `giveUp`. Rank, and take the first:
 
+0. **Priority-labelled** — the PR carries one of the card's `priorityLabels`. Ranked ahead of every
+   unlabelled PR; inside this group, by the same tier, then oversize, then age order as below.
 1. **Never reviewed** — no completion evidence of any kind at any SHA. Oldest `createdAt` first.
 2. **Stale** — completion evidence exists, but only at an older SHA. Oldest `createdAt` first.
 
 Both tiers weigh the two kinds of completion evidence equally; ranking on review objects alone puts
 every cleanly-reviewed PR in tier 1 forever.
+
+**The label outranks the tier, because it is the only signal a human sent.** Everything else the
+ranking uses is inferred from GitHub state; a label is someone saying *this one, now*, usually
+because the PR is blocking a release. `pulls/<n>` already returns the labels, so this costs no extra
+call, and matching is case-insensitive — GitHub keeps the case a label was created with, and a card
+that spells it differently must still win.
+
+**The label changes the order, never a guard.** A labelled PR inside its cooldown, on a paused
+branch that is still churning, or carrying the give-up flag is still held — those guards exist to
+stop one PR eating the fleet's whole allowance, and a label that could switch them off would be a
+way to do exactly that. What the run owes instead is a **line in the report naming the guard that
+held a labelled PR**, because to the human who applied the label a held PR and an ignored label look
+identical. Likewise an oversize labelled PR still ranks below a labelled one CodeRabbit will accept:
+firing at a PR that will refuse spends the slot and reviews nothing.
 
 **The tier comes before the age, and that is correct.** Age only orders *within* a tier, so a
 brand-new never-reviewed PR outranks a stale one half a day older. A stale PR has been looked at; a
@@ -470,7 +486,7 @@ nothing, taking a third of the fleet's whole budget for one PR.
 
 Both guards delay a PR; neither retires one. Retiring is the give-up flag's job alone.
 
-**A PR over the 300-file limit will refuse, so rank it last within its tier and say why.** `pulls/<n>`
+**A PR over the 300-file limit will refuse, so rank it last within its group and say why.** `pulls/<n>`
 already returns `changed_files`, so this is free to check. Do not silently skip it — it is a real
 starved PR a human may want to split. Fire at the smaller candidate first and name the file count in
 the report, so the size reads as the blocker rather than the sweep.
@@ -631,7 +647,12 @@ readout, and a run that "improves" it back into sections has broken it.
 - **State as a left border colour plus a one-word label** — `never` / `stale` / `current`, classified
   against *current head*. Never a bare "reviewed": a review at a superseded SHA is this fleet's most
   common state, and a board that calls it reviewed is telling a comfortable lie.
-- **Sort by attention, not by repo**: never, then stale, then current; oldest first within each.
+- **Sort by attention, not by repo**: the step-4 order exactly — priority label, then tier (never,
+  stale, current), then oversize, then oldest first. The board's top row and the run's pick must
+  never disagree about what comes next, which is why it is the same comparison and not a second
+  one written to look similar. One deviation, and state it: a PR that already covers its head
+  cannot be fired at, so its label does not lift it above the PRs that can. Mark a labelled row
+  with a badge on its title.
 - **The `head` column shows the current SHA, and after an arrow the SHA actually reviewed** when they
   differ.
 - **Two separate columns for two independent facts.** *Re-reviewed* says CodeRabbit answered, tagged

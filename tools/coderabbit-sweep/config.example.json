@@ -8,6 +8,9 @@
   "excludePRs": [],
   "includeDrafts": false,
   "triggerPhrase": "@coderabbitai full review",
+  "priorityLabels": [
+    "coderabbit-priority"
+  ],
   "cooldownMinutes": 90,
   "pausedQuietMinutes": 120,
   "barrenBackoffMax": 3,
