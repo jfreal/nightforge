@@ -19,7 +19,7 @@ Not credentials, but not worth publishing. The ledger and reports stay private f
 ```markdown
 ---
 name: coderabbit-sweep
-description: Hourly sweep for open PRs CodeRabbit never finished reviewing; triggers a full review on the single oldest one.
+description: Hourly sweep for open PRs CodeRabbit never finished reviewing; triggers a full review on one — a priority-labelled PR if there is one, the oldest otherwise.
 ---
 
 **Run the `coderabbit-sweep` skill against the fleet card below.** The pipeline lives at

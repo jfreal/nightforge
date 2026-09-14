@@ -617,6 +617,53 @@ def derive_gate(prs, ledger, now) -> Gate:
     return gate
 
 
+def rank_key(cfg, now):
+    """SKILL step 4: priority label, then tier, then oversize, then age.
+
+    A human labelling a PR is saying "this one, now" — the sweep has no better signal
+    than that, so it sits above everything the sweep infers for itself. The order
+    *within* each group is unchanged, so an oversize or stale priority PR still loses
+    to a smaller, never-reviewed one that carries the same label.
+    """
+    tier_rank = {"never": 0, "stale": 1, "current": 2}
+    return lambda p: (
+        0 if p.priority else 1,
+        tier_rank[p.tier],
+        1 if p.changed_files > cfg["oversizeFiles"] else 0,
+        p.created_at or now,
+    )
+
+
+def rank_candidates(prs, ledger, cfg, cooldown, paused_quiet, now):
+    """Apply the step-4 guards to the fleet and rank what survives.
+
+    One function because it runs twice: once on the classified fleet, and again after
+    the pre-fire re-scan, which can turn up a PR — a freshly labelled priority one
+    above all — that outranks the first pick. Two copies of this logic would be two
+    chances for the two passes to disagree.
+    """
+    candidates, blocked = [], []
+    for pr in [p for p in prs if not p.is_complete]:
+        if gave_up(ledger, pr):
+            blocked.append((pr, "give-up flag set after two refusals"))
+            continue
+        quiet_at = paused_hold(ledger, pr, paused_quiet, now)
+        if quiet_at:
+            blocked.append((pr, f"CodeRabbit paused this branch and it is still "
+                                f"churning — quiet at {iso(quiet_at)}"))
+            continue
+        cd, window, streak = in_cooldown(ledger, pr, cooldown, now, cfg["barrenBackoffMax"])
+        if cd:
+            why = f"in cooldown until {iso(cd + window)}"
+            if streak:
+                why += f" — {streak} straight review(s) found nothing, window {human_delta(window)}"
+            blocked.append((pr, why))
+            continue
+        candidates.append(pr)
+    candidates.sort(key=rank_key(cfg, now))
+    return candidates, blocked
+
+
 def countdown_assertion(prs):
     """SKILL step 2: markers present but zero countdowns parsed is a bug, never an open slot."""
     markers = [p for p in prs if "rate_limited" in p.markers]
@@ -1030,11 +1077,12 @@ def render_board(cfg, prs, drafts, ledger, gate, gated, decision, now, run_log_h
     tmpl = Path(cfg["boardTemplate"]).read_text(encoding="utf-8")
 
     unmerged = [p for p in prs if not p.merged]
-    order = {"never": 0, "stale": 1, "current": 2}
-    # Same order the queue uses: a labelled PR that still needs a review sits on top,
-    # so the board and the ranking never disagree about what comes next.
-    unmerged.sort(key=lambda p: (0 if (p.priority and not p.is_complete) else 1,
-                                 order[p.tier], p.created_at or now))
+    # Same order the queue uses — priority, tier, oversize, age — so the board's top
+    # row and the sweep's pick never disagree about what comes next. The one deviation
+    # is deliberate: a PR that already covers its head cannot be fired at, so its label
+    # does not lift it above the PRs that can.
+    rank = rank_key(cfg, now)
+    unmerged.sort(key=lambda p: rank(p) if not p.is_complete else (1, 2) + rank(p)[2:])
 
     n_never = sum(1 for p in unmerged if p.tier == "never")
     n_stale = sum(1 for p in unmerged if p.tier == "stale")
@@ -1507,24 +1555,7 @@ def main():
     # moved since the last run is known to have moved even if its commit is old.
     observe_heads(ledger, prs, now)
     incomplete = [p for p in prs if not p.is_complete]
-    candidates, blocked = [], []
-    for pr in incomplete:
-        if gave_up(ledger, pr):
-            blocked.append((pr, "give-up flag set after two refusals"))
-            continue
-        quiet_at = paused_hold(ledger, pr, paused_quiet, now)
-        if quiet_at:
-            blocked.append((pr, f"CodeRabbit paused this branch and it is still "
-                                f"churning — quiet at {iso(quiet_at)}"))
-            continue
-        cd, window, streak = in_cooldown(ledger, pr, cooldown, now, cfg["barrenBackoffMax"])
-        if cd:
-            why = f"in cooldown until {iso(cd + window)}"
-            if streak:
-                why += f" — {streak} straight review(s) found nothing, window {human_delta(window)}"
-            blocked.append((pr, why))
-            continue
-        candidates.append(pr)
+    candidates, blocked = rank_candidates(prs, ledger, cfg, cooldown, paused_quiet, now)
 
     # --only narrows the queue to one PR. It overrides the RANKING, never a guard —
     # the gate, fail-closed, cooldown, churn hold and give-up all still decide
@@ -1551,18 +1582,6 @@ def main():
             only_reason = f"--only {want}: {why}"
         candidates = picked
 
-    # SKILL step 4: the priority label outranks the tier, the tier outranks the age.
-    # A human labelling a PR is saying "this one, now" — the sweep has no better signal
-    # than that, so it sits above everything the sweep infers for itself. The order
-    # *within* each group is unchanged, so an oversize or stale priority PR still loses
-    # to a smaller, never-reviewed one that carries the same label.
-    tier_rank = {"never": 0, "stale": 1}
-    candidates.sort(key=lambda p: (
-        0 if p.priority else 1,
-        tier_rank[p.tier],
-        1 if p.changed_files > cfg["oversizeFiles"] else 0,   # oversize ranks last within its group
-        p.created_at or now,
-    ))
     n_priority = sum(1 for p in candidates if p.priority)
     if n_priority:
         log(f"{n_priority} priority candidate(s) — labelled "
@@ -1613,23 +1632,38 @@ def main():
             if rescan_truncated:
                 problems.append("pre-fire re-scan truncated — the fleet list is incomplete")
                 fail_closed.append("pre-fire re-scan truncated")
-            newest = None
+            # Classify *every* PR that appeared during the run, not just the newest.
+            # Each one can carry a rate-limit block the gate must see, and any one of
+            # them can be a priority PR that outranks the pick made minutes ago.
+            known = {p.key for p in prs}
+            appeared = []
             for row in rescan_rows:
                 slug = row["repository"]["nameWithOwner"]
                 key = f"{slug}#{row['number']}"
                 ok, _why = eligible(cfg, row)
-                if not ok:
-                    continue
-                if key not in {p.key for p in prs}:
-                    created = parse_ts(row["createdAt"])
-                    if newest is None or (created and created > newest[0]):
-                        newest = (created, slug, row["number"])
-            if newest:
-                log(f"re-scan found a new PR {newest[1]}#{newest[2]} — classifying")
-                fresh = classify(newest[1], newest[2], trigger)
-                prs.append(fresh)
+                if ok and key not in known:
+                    appeared.append((slug, row["number"]))
+            for slug, number in appeared:
+                log(f"re-scan found a new PR {slug}#{number} — classifying")
+                prs.append(classify(slug, number, trigger))
+            if appeared:
                 gate = derive_gate(prs + closed_checked, ledger, now_utc())
                 gate_value = gate.value
+                # The queue was ranked before these existed. Re-rank, or a priority PR
+                # opened during the run waits a whole tick behind an older unlabelled
+                # one — the exact delay the label exists to prevent.
+                observe_heads(ledger, prs, now_utc())
+                fresh_c, fresh_b = rank_candidates(prs, ledger, cfg, cooldown,
+                                                   paused_quiet, now_utc())
+                if args.only:
+                    fresh_c = [p for p in fresh_c if p.key == args.only.strip()]
+                if fresh_c:
+                    candidates, blocked = fresh_c, fresh_b
+                    if candidates[0].key != target.key:
+                        log(f"re-scan re-ranked the queue: {target.key} -> "
+                            f"{candidates[0].key}"
+                            + (" (priority label)" if candidates[0].priority else ""))
+                        target = candidates[0]
         except (GhError, json.JSONDecodeError) as exc:
             problems.append(f"pre-fire re-scan failed — {exc}")
             fail_closed.append("pre-fire re-scan failed")

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import filecmp
 import json
+import os
 import shutil
 import sys
 from datetime import datetime, timedelta, timezone
@@ -65,6 +66,49 @@ def lock_holder(target: Path):
     return f"a sweep started {at.isoformat().replace('+00:00', 'Z')} (pid {data.get('pid')})"
 
 
+def reserve_lock(target: Path):
+    """Take `sweep.lock` the way sweep.py does, so no run can start mid-copy.
+
+    Observing the lock is not enough: `sweep.py` can create it with O_EXCL in the gap
+    between the check and the first `shutil.copy2`, and then a tick is reading
+    `board-template.html` while this rewrites it. Creating it here atomically closes
+    that gap, and makes the scheduled task wait its turn instead — it logs the holder
+    and exits without firing, which costs one idle tick and nothing else.
+
+    Returns (acquired, holder). `acquired` is True only when THIS call created the
+    lock, which is also the only case in which it may be removed again.
+    """
+    path = target / "sweep.lock"
+    payload = json.dumps({"pid": os.getpid(), "at": stamp(), "by": "deploy.py"})
+    for attempt in (0, 1):
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            holder = lock_holder(target)
+            if holder:
+                return False, holder
+            if attempt == 0:
+                # Stale or unreadable, so nothing live owns it. Same cleanup sweep.py
+                # does, and the retry is what makes the removal safe to lose.
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+            return False, "a lock that keeps reappearing"
+        except OSError as exc:
+            return False, f"an unwritable lock path ({exc})"
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            return True, None
+    return False, "a lock that keeps reappearing"
+
+
+def stamp():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def main():
     ap = argparse.ArgumentParser(description="deploy the sweep scripts to the scheduled task")
     ap.add_argument("--config", default=str(Path(__file__).with_name("config.json")))
@@ -82,7 +126,14 @@ def main():
         print(f"no config at {cfg_path} — copy config.example.json to config.json first")
         return 1
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-    target = Path(args.target or cfg.get("stateDir") or ".").resolve()
+    # Resolve a relative stateDir against the CONFIG FILE, exactly as sweep.py's
+    # load_config does. Resolving it against the working directory instead would let
+    # `python tools/coderabbit-sweep/deploy.py` run from the repo root deploy into a
+    # different folder than the one the task reads, and report success either way.
+    state_dir = Path(cfg.get("stateDir") or ".")
+    target = (Path(args.target).resolve() if args.target
+              else (state_dir if state_dir.is_absolute()
+                    else cfg_path.parent / state_dir).resolve())
 
     print(f"from  {src}")
     print(f"to    {target}")
@@ -93,14 +144,33 @@ def main():
         print("source and target are the same folder; nothing to deploy")
         return 0
 
-    held = lock_holder(target)
-    if held and not args.force:
-        print(f"REFUSING: {held} is running. Wait for it, or pass --force.")
-        return 1
-    if held:
-        print(f"WARNING: {held} is running; --force given, copying anyway")
+    # A preview reads and copies nothing, so it only reports the lock; taking one
+    # would make `deploy.py` with no arguments block the scheduled task.
+    owned = False
+    if not args.apply:
+        held = lock_holder(target)
+        if held:
+            print(f"NOTE: {held} is running — an --apply right now would be refused")
+    else:
+        owned, blocker = reserve_lock(target)
+        if not owned and not args.force:
+            print(f"REFUSING: {blocker} is running. Wait for it, or pass --force.")
+            return 1
+        if not owned:
+            print(f"WARNING: {blocker} is running; --force given, copying anyway")
 
     files = list(PAYLOAD) + (["config.json"] if args.config_too else [])
+    try:
+        return copy_all(src, target, files, args)
+    finally:
+        if owned:
+            try:
+                (target / "sweep.lock").unlink()
+            except OSError:
+                pass
+
+
+def copy_all(src: Path, target: Path, files, args):
     copied = same = missing = 0
     for name in files:
         s, t = src / name, target / name

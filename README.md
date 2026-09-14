@@ -176,9 +176,9 @@ activity it drops to one review per hour. PRs that open while it is spent get a 
 reached* comment instead of a review, and nothing ever retries them. This sweep is the retry: once
 an hour it lists every open PR the account owns, works out which ones have no finished review
 against their current head commit, and spends the one available review on **one** of them: a PR
-you labelled `coderabbit-priority` if there is one, the single oldest starved PR otherwise. The
-label is the one lever a human has over the queue — it reorders it, and never switches off a
-guard.
+you labelled with one of the card's priority labels if there is one, the single oldest starved PR
+otherwise. `coderabbit-priority` is the default label; a card can name others, or none. The label
+is the one lever a human has over the queue — it reorders it, and never switches off a guard.
 
 One routine, one trigger per run, is the point. A trigger per repo is several jobs racing for one
 account-wide slot, none of them aware of the others — which is how you get a queue where the newest
