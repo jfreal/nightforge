@@ -84,15 +84,26 @@ leaving it idle for up to an hour. To go back to hourly, change the task's repet
 
 The scheduled task points at a **copy** in `stateDir`, not at this repo, because this repo is often
 checked out in a transient git worktree. This directory is the source of truth; after changing
-`sweep.py` here, push the copy to whatever `stateDir` your `config.json` names:
+anything here, redeploy:
 
 ```bash
-cp sweep.py board-template.html README.md "<your-stateDir>/"
+python deploy.py            # preview what would change
+python deploy.py --apply    # copy it
 ```
+
+Or double-click `deploy.cmd`. It reads the destination from `config.json`'s `stateDir`, so the
+path lives in exactly one place, and it copies only the script files — `sweep.py`,
+`ensure-priority-label.py`, `deploy.py`, `board-template.html`, `run.cmd`, `deploy.cmd`,
+`README.md`, `config.example.json`. Everything the task owns (`ledger.json`, `board.html`,
+`runs.json`, `sweep.log`, `reports/`) is live state and is never touched.
 
 `board-template.html` is in that list because `boardTemplate` resolves under `stateDir` by
 default. Without it the board — the run's actual deliverable — fails to render on every run,
 and only a line in the report says so.
+
+**It refuses to deploy over a live run.** A sweep mid-poll holds `sweep.lock`; copying a new
+`sweep.py` underneath it leaves a half-old pipeline deciding whether to spend the hour's review.
+Wait for the lock to clear, or pass `--force` if you know the run is dead.
 
 **`stateDir` needs its own `config.json`.** The scheduled command reads
 `"<stateDir>\config.json"`, and that copy — not the one in this repo — is authoritative for the
@@ -102,9 +113,26 @@ task. Create it once, when you first deploy:
 cp config.example.json "<your-stateDir>/config.json"
 ```
 
-then edit it there. It is left out of the routine sync above on purpose: the installed config
-names real paths and may differ from the one you develop against, so re-copying it every time
-would overwrite your deployment settings.
+then edit it there. `deploy.py` leaves it alone on purpose: the installed config names real paths
+and may differ from the one you develop against, so re-copying it every time would overwrite your
+deployment settings. It does print a NOTE when the two differ, so a newly added key is never
+silently left behind — pass `--config-too` when you do want the local one to win.
+
+## Create the priority label
+
+`priorityLabels` does nothing until the label exists on the repos, and GitHub labels are per-repo.
+This creates them across the whole fleet, using the same `owners` and `excludeRepos` the sweep
+uses, so the two can never disagree about which repos are in it:
+
+```bash
+python ensure-priority-label.py            # preview, writes nothing
+python ensure-priority-label.py --apply    # create the missing ones
+```
+
+Idempotent — a repo that already has the label is reported and skipped. `--update` also brings an
+existing label's colour and description in line, `--repo <name>` limits it to named repos, and
+`--label <name>` overrides the config. Archived repos and repos where you have only read access
+are skipped, because both reject the write.
 
 ## Output
 
