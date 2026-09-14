@@ -5,7 +5,8 @@ constraints, no model in the loop — so a run costs API calls instead of ~20k t
 
 CodeRabbit enforces one review per hour, account-wide. PRs that land while the allowance is spent
 get a *Review limit reached* comment and nothing ever retries them. This is that retry: it finds
-the starved PRs, picks the single oldest one, and spends the one available review on it.
+the starved PRs, picks one — a PR you labelled `coderabbit-priority` if there is one, the
+oldest never-reviewed PR otherwise — and spends the one available review on it.
 
 ## Set it up
 
@@ -133,12 +134,13 @@ to them on disk, or point a static file server at `stateDir`.
 | `excludePRs` | `repo#number` or `owner/repo#number` to skip. |
 | `includeDrafts` | `false` — CodeRabbit answers drafts with *Review skipped*. |
 | `triggerPhrase` | Posted alone as the comment body. |
+| `priorityLabels` | PR labels that jump the queue. `["coderabbit-priority"]`. Matched case-insensitively; a labelled PR is fired at before any unlabelled one, but every guard (gate, cooldown, churn hold, give-up) still applies to it. Empty list disables the feature. |
 | `cooldownMinutes` | A PR fired inside this window is not re-fired. 90. Doubled by `barrenBackoffMax`. |
 | `pausedQuietMinutes` | While CodeRabbit has paused a branch, hold the PR until its head commit is this old. 120. |
 | `barrenBackoffMax` | How many times a PR's cooldown may double after consecutive reviews that found nothing. 3, so 90m → 3h → 6h → 12h and no further. |
 | `searchLimit` | Passed to `gh search prs`. Never set it below the fleet's real size. |
 | `retention` | How many `fired` entries the ledger keeps. 40 — it must outlast the longest backoff window, because a trimmed entry is a cooldown that silently stops applying. Checked at startup against `cooldownMinutes x 2^barrenBackoffMax` and raised, with a line in the report, if the configured value is too small. |
-| `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its tier. 300. |
+| `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its group. 300. |
 | `pollRounds` / `pollInterval` | Confirmation poll. 11 × 30s ≈ 5 minutes, ending on a fetch. |
 | `stateDir` | Where every output above lives. Relative paths resolve against the config file. |
 
@@ -147,6 +149,11 @@ to them on disk, or point a static file server at `stateDir`.
 Each of these is a rule from the SKILL, implemented rather than remembered:
 
 - **One trigger per run, fleet-wide.** Never two, on any outcome.
+- **A human's priority label outranks everything the sweep infers.** A PR carrying one of
+  `priorityLabels` is picked before any unlabelled PR, whatever its tier or age. It does not
+  bypass a guard: a labelled PR inside its cooldown, on a churning paused branch, or flagged
+  `giveUp` is still held, and the run says so in the report rather than silently ignoring the
+  label.
 - **The only write is one comment.** No pushes, merges, closes, or edits to CodeRabbit's comments.
 - **The gate is the `max` of five sources**, four of which leave no rate-limit block: the ledger
   window, the newest block's reset, the newest completed pass's attempt + 60min, a live
