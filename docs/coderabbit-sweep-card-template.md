@@ -3,8 +3,8 @@
 <!-- docKey: coderabbit-sweep-card -->
 
 A **fleet card** is the only input the `coderabbit-sweep` skill needs. Everything else — PR
-discovery, the throttle gate, the complete-vs-starved test, oldest-first ranking, the single
-trigger, and the ledger — lives in the shared skill.
+discovery, the throttle gate, the complete-vs-starved test, priority-then-oldest ranking, the
+single trigger, and the ledger — lives in the shared skill.
 
 Put the card in the scheduled task's `SKILL.md`. There is one card for the whole account, not one
 per repo, because CodeRabbit's review allowance is **per developer across every repo**. A card per
@@ -19,7 +19,7 @@ Not credentials, but not worth publishing. The ledger and reports stay private f
 ```markdown
 ---
 name: coderabbit-sweep
-description: Hourly sweep for open PRs CodeRabbit never finished reviewing; triggers a full review on the single oldest one.
+description: Hourly sweep for open PRs CodeRabbit never finished reviewing; triggers a full review on one — a priority-labelled PR if there is one, the oldest otherwise.
 ---
 
 **Run the `coderabbit-sweep` skill against the fleet card below.** The pipeline lives at
@@ -34,6 +34,7 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 | **Exclude PRs** | `<slug>#<n>` — <why> |
 | **Include drafts** | **no** (default) / yes |
 | **Trigger phrase** | `@coderabbitai full review` |
+| **Priority labels** | `coderabbit-priority` (default) — a PR carrying one is fired at before any unlabelled PR |
 | **Cooldown** | **<n> minutes** — a PR fired inside this window is not re-fired |
 | **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head commit is this old |
 | **Barren backoff max** | **<n>** (3) — how many times a PR's cooldown may double after consecutive reviews that found nothing |
@@ -68,6 +69,17 @@ and can never produce a candidate. A repo with no CodeRabbit comment on any PR i
 gets a *Review skipped* comment instead of a review, so triggering one can spend the hourly slot and
 buy nothing. It matters most when other automation opens draft PRs in bulk: they are numerous and
 they are old, so oldest-first ranking would hand them every slot.
+
+**Priority labels** — the hand-operated override. Label a PR and the next run picks it ahead of
+everything the sweep worked out for itself, whatever its tier or age; that is the whole point, since
+the sweep cannot know which PR is blocking a release. Create the label in each repo that needs it —
+GitHub labels are per-repo — and keep it to one or two names, because a label applied to half the
+fleet ranks nothing at all.
+
+It reorders the queue; it does not unlock a guard. A labelled PR still waits out its cooldown, a
+churning paused branch, and the give-up flag, because those are what stop one PR eating the whole
+allowance. The run names the guard holding a labelled PR in its report, so a label that appears to
+do nothing always has a stated reason. Set the field to an empty list to turn the feature off.
 
 **Cooldown** — long enough to cover a queued review landing, short enough that a swallowed trigger
 gets retried the same day. Somewhere near the review interval is the safe default; shorter than the

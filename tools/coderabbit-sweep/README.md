@@ -5,7 +5,8 @@ constraints, no model in the loop — so a run costs API calls instead of ~20k t
 
 CodeRabbit enforces one review per hour, account-wide. PRs that land while the allowance is spent
 get a *Review limit reached* comment and nothing ever retries them. This is that retry: it finds
-the starved PRs, picks the single oldest one, and spends the one available review on it.
+the starved PRs, picks one — a PR you labelled `coderabbit-priority` if there is one, the
+oldest never-reviewed PR otherwise — and spends the one available review on it.
 
 ## Set it up
 
@@ -83,15 +84,26 @@ leaving it idle for up to an hour. To go back to hourly, change the task's repet
 
 The scheduled task points at a **copy** in `stateDir`, not at this repo, because this repo is often
 checked out in a transient git worktree. This directory is the source of truth; after changing
-`sweep.py` here, push the copy to whatever `stateDir` your `config.json` names:
+anything here, redeploy:
 
 ```bash
-cp sweep.py board-template.html README.md "<your-stateDir>/"
+python deploy.py            # preview what would change
+python deploy.py --apply    # copy it
 ```
+
+Or double-click `deploy.cmd`. It reads the destination from `config.json`'s `stateDir`, so the
+path lives in exactly one place, and it copies only the script files — `sweep.py`,
+`ensure-priority-label.py`, `deploy.py`, `board-template.html`, `run.cmd`, `deploy.cmd`,
+`README.md`, `config.example.json`. Everything the task owns (`ledger.json`, `board.html`,
+`runs.json`, `sweep.log`, `reports/`) is live state and is never touched.
 
 `board-template.html` is in that list because `boardTemplate` resolves under `stateDir` by
 default. Without it the board — the run's actual deliverable — fails to render on every run,
 and only a line in the report says so.
+
+**It refuses to deploy over a live run.** A sweep mid-poll holds `sweep.lock`; copying a new
+`sweep.py` underneath it leaves a half-old pipeline deciding whether to spend the hour's review.
+Wait for the lock to clear, or pass `--force` if you know the run is dead.
 
 **`stateDir` needs its own `config.json`.** The scheduled command reads
 `"<stateDir>\config.json"`, and that copy — not the one in this repo — is authoritative for the
@@ -101,9 +113,26 @@ task. Create it once, when you first deploy:
 cp config.example.json "<your-stateDir>/config.json"
 ```
 
-then edit it there. It is left out of the routine sync above on purpose: the installed config
-names real paths and may differ from the one you develop against, so re-copying it every time
-would overwrite your deployment settings.
+then edit it there. `deploy.py` leaves it alone on purpose: the installed config names real paths
+and may differ from the one you develop against, so re-copying it every time would overwrite your
+deployment settings. It does print a NOTE when the two differ, so a newly added key is never
+silently left behind — pass `--config-too` when you do want the local one to win.
+
+## Create the priority label
+
+`priorityLabels` does nothing until the label exists on the repos, and GitHub labels are per-repo.
+This creates them across the whole fleet, using the same `owners` and `excludeRepos` the sweep
+uses, so the two can never disagree about which repos are in it:
+
+```bash
+python ensure-priority-label.py            # preview, writes nothing
+python ensure-priority-label.py --apply    # create the missing ones
+```
+
+Idempotent — a repo that already has the label is reported and skipped. `--update` also brings an
+existing label's colour and description in line, `--repo <name>` limits it to named repos, and
+`--label <name>` overrides the config. Archived repos and repos where you have only read access
+are skipped, because both reject the write.
 
 ## Output
 
@@ -133,12 +162,13 @@ to them on disk, or point a static file server at `stateDir`.
 | `excludePRs` | `repo#number` or `owner/repo#number` to skip. |
 | `includeDrafts` | `false` — CodeRabbit answers drafts with *Review skipped*. |
 | `triggerPhrase` | Posted alone as the comment body. |
+| `priorityLabels` | PR labels that jump the queue. `["coderabbit-priority"]`. Matched case-insensitively; a labelled PR is fired at before any unlabelled one, but every guard (gate, cooldown, churn hold, give-up) still applies to it. Empty list disables the feature. |
 | `cooldownMinutes` | A PR fired inside this window is not re-fired. 90. Doubled by `barrenBackoffMax`. |
 | `pausedQuietMinutes` | While CodeRabbit has paused a branch, hold the PR until its head commit is this old. 120. |
 | `barrenBackoffMax` | How many times a PR's cooldown may double after consecutive reviews that found nothing. 3, so 90m → 3h → 6h → 12h and no further. |
 | `searchLimit` | Passed to `gh search prs`. Never set it below the fleet's real size. |
 | `retention` | How many `fired` entries the ledger keeps. 40 — it must outlast the longest backoff window, because a trimmed entry is a cooldown that silently stops applying. Checked at startup against `cooldownMinutes x 2^barrenBackoffMax` and raised, with a line in the report, if the configured value is too small. |
-| `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its tier. 300. |
+| `oversizeFiles` | Over this many changed files CodeRabbit refuses outright; such a PR ranks last within its group. 300. |
 | `pollRounds` / `pollInterval` | Confirmation poll. 11 × 30s ≈ 5 minutes, ending on a fetch. |
 | `stateDir` | Where every output above lives. Relative paths resolve against the config file. |
 
@@ -147,6 +177,11 @@ to them on disk, or point a static file server at `stateDir`.
 Each of these is a rule from the SKILL, implemented rather than remembered:
 
 - **One trigger per run, fleet-wide.** Never two, on any outcome.
+- **A human's priority label outranks everything the sweep infers.** A PR carrying one of
+  `priorityLabels` is picked before any unlabelled PR, whatever its tier or age. It does not
+  bypass a guard: a labelled PR inside its cooldown, on a churning paused branch, or flagged
+  `giveUp` is still held, and the run says so in the report rather than silently ignoring the
+  label.
 - **The only write is one comment.** No pushes, merges, closes, or edits to CodeRabbit's comments.
 - **The gate is the `max` of five sources**, four of which leave no rate-limit block: the ledger
   window, the newest block's reset, the newest completed pass's attempt + 60min, a live
