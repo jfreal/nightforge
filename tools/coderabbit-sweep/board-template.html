@@ -183,6 +183,19 @@
     color: var(--ink);
   }
 
+  .prio {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--crit);
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 0 4px;
+    margin-right: 7px;
+  }
+
   .num, .sha { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); }
   .sha { color: var(--faint); }
   .sha .was { color: var(--muted); }
@@ -358,7 +371,7 @@
         <tr>
           <td class="st c-crit">never</td>
           <td><a class="pr" href="{{URL}}">{{REPO}}#{{N}}</a></td>
-          <td class="ttl" title="{{TITLE}}">{{TITLE}}</td>
+          <td class="ttl" title="{{TITLE}}"><span class="prio">priority</span>{{TITLE}}</td>
           <td class="num rt">{{AGE}}</td>
           <td class="num rt">+{{ADD}} &minus;{{DEL}}</td>
           <td class="num rt">{{FINDINGS}}</td>
