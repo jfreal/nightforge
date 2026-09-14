@@ -425,7 +425,7 @@ Candidates are the incomplete PRs, minus any PR in the ledger's `fired` list who
 the card's cooldown, minus any held for churn, minus any marked `giveUp`. Rank, and take the first:
 
 0. **Priority-labelled** — the PR carries one of the card's `priorityLabels`. Ranked ahead of every
-   unlabelled PR; inside this group, by the same tier-then-age order as below.
+   unlabelled PR; inside this group, by the same tier, then oversize, then age order as below.
 1. **Never reviewed** — no completion evidence of any kind at any SHA. Oldest `createdAt` first.
 2. **Stale** — completion evidence exists, but only at an older SHA. Oldest `createdAt` first.
 
@@ -647,9 +647,12 @@ readout, and a run that "improves" it back into sections has broken it.
 - **State as a left border colour plus a one-word label** — `never` / `stale` / `current`, classified
   against *current head*. Never a bare "reviewed": a review at a superseded SHA is this fleet's most
   common state, and a board that calls it reviewed is telling a comfortable lie.
-- **Sort by attention, not by repo**: priority-labelled and still incomplete first, then never,
-  then stale, then current; oldest first within each. The board and the queue must agree about
-  what comes next, so it is the step-4 order. Mark a labelled row with a badge on its title.
+- **Sort by attention, not by repo**: the step-4 order exactly — priority label, then tier (never,
+  stale, current), then oversize, then oldest first. The board's top row and the run's pick must
+  never disagree about what comes next, which is why it is the same comparison and not a second
+  one written to look similar. One deviation, and state it: a PR that already covers its head
+  cannot be fired at, so its label does not lift it above the PRs that can. Mark a labelled row
+  with a badge on its title.
 - **The `head` column shows the current SHA, and after an arrow the SHA actually reviewed** when they
   differ.
 - **Two separate columns for two independent facts.** *Re-reviewed* says CodeRabbit answered, tagged
