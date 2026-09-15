@@ -137,8 +137,8 @@ these are the ones worth reading before you write your own:
   night — the follow-up a fix agent left out of scope, the runtime scan nobody spawned — and the
   owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause
   goes to a fix agent, every additive tracker comment is posted in the run, an issue closes only
-  when a merged, deployed PR and quiet telemetry both prove it, and only decisions reach the report.
-  The pipeline has no chip output at all.
+  when a merged, deployed PR and quiet telemetry both prove it, and the report's *Needs you* list
+  holds only decisions. The pipeline has no chip output at all.
 
 Mechanical traps the adapters document, each of which fails *quietly*:
 
