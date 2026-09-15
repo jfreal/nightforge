@@ -136,8 +136,9 @@ these are the ones worth reading before you write your own:
 - **A chip is a bug you found and decided not to fix.** For three weeks the sweeps opened one a
   night — the follow-up a fix agent left out of scope, the runtime scan nobody spawned — and the
   owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause
-  goes to a fix agent, every additive tracker comment is posted in the run, and only decisions reach
-  the report. The pipeline has no chip output at all.
+  goes to a fix agent, every additive tracker comment is posted in the run, an issue closes only
+  when a merged, deployed PR and quiet telemetry both prove it, and only decisions reach the report.
+  The pipeline has no chip output at all.
 
 Mechanical traps the adapters document, each of which fails *quietly*:
 
