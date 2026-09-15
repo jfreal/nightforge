@@ -14,7 +14,7 @@ A project card naming: app + URL, repo path + GitHub slug + default branch, the 
 
 ## Hard constraints — every project, no exceptions
 
-- **Never push to the default branch. Never merge a PR. Never deploy.** Output is issues and PRs for the user to review.
+- **Never push to the default branch. Never merge a PR. Never deploy.** Output is issues and PRs for the user to review. An issue closes only under step 7b's proof; the sweep never reopens, relabels, or merges.
 - **Never build, test, commit, or `checkout` in the main checkout.** It may be dirty or on someone else's branch. Read from it freely; all write work happens in an isolated worktree (step 6).
 - **Never apply a schema migration.** No `supabase db push`, no MCP `apply_migration`, no `az deployment group create`, no DDL against a hosted database. A branch that applies its own migration before merging poisons migration history for every other checkout. Ship the `.sql`/`.bicep` file on the branch and say in the PR body that it needs applying.
 - **Respect the fix-session cap in the card.** Every PR push costs CI time and, on hosts that build a preview per branch, build credits. Over the cap: spawn the highest-impact ones, leave the rest as issues, and say so in the report.
@@ -39,12 +39,13 @@ bins, decided by what the item *is*, not by where it came from:
 | A code change whose cause is not yet clear, but the *way to find it* is — a diagnostic to write, a live page to walk, a census to run | **Step 5** for the issue, then **step 6** anyway. The brief already tells the agent to stop and comment rather than guess. On one project that spawn was the run that finally closed a class three per-node fixes had missed. |
 | A code change with neither a clear cause nor a clear approach | **Step 5**: an issue carrying the analysis, and a ledger note saying so. No agent. |
 | An additive write to the tracker — a comment carrying new evidence, a timeline, a recovery measurement | **Do it in this run.** A comment is reversible and embeds no decision. |
-| A state change on the tracker — close, reopen, relabel, merge — or a decision only the owner can make | **The report**, one line under *Needs you*, with the evidence and a recommendation. Never done by the sweep, never a chip. |
+| A close that a merged, deployed PR and quiet telemetry both prove | **Step 7b**, with every test there passed. Anything short of that is the row below. |
+| Any other state change on the tracker — a close short of that proof, reopen, relabel, merge — or a decision only the owner can make | **The report**, one line under *Needs you*, with the evidence and a recommendation. Never done by the sweep, never a chip. |
 | Work that needs a credential or an adapter the card does not have | **The report**, naming the card gap. The remedy is a card edit, not a session. |
 
 Most chips were rows one, two and four: work the sweep could have done in the run that found it. A
-comment does not need a person. A close does — and a chip that asks the person is the report line
-with extra steps.
+comment does not need a person. A close does, unless the code proves it — and a chip that asks the
+person is the report line with extra steps.
 
 ## Step 0 — Load context
 
@@ -84,7 +85,7 @@ If the ledger is missing or unparseable, treat it as empty, **say so in the repo
 gh issue list --repo <slug> --state all --search "\"<fingerprint or distinctive phrase>\" in:body"
 ```
 
-A hit, **open or closed**, means it is already tracked or already fixed. Record it in the ledger and move on.
+A hit, **open or closed**, means it is already tracked or already fixed. Record it in the ledger and move on — with one exception: a signature the ledger marks `fixed` whose newest occurrence is *after* the deploy that fixed it is a recurrence, not a duplicate. Step 7b says what to do with it.
 
 **A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
 skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
@@ -243,13 +244,68 @@ If a bug has no issue yet, file one first (step 5) so the agent can close it.
 
 ## Step 7 — Update the ledger
 
-Write every newly triaged signature back to `seen.json` with `first_seen` (today), `status` (`bug`/`noise`/`external`), a one-line `note`, `issue` (number or null), and `pr` (number or null). Preserve existing entries.
+Write every newly triaged signature back to `seen.json` with `first_seen` (today), `status` (`bug`/`noise`/`external`, or `fixed` once step 7b closes it), a one-line `note`, `issue` (number or null), `pr` (number or null), and `closed_by_sweep` (date, only when step 7b closed it). Preserve existing entries.
 
 **Only record signatures you actually finished triaging.** A signature whose issue creation failed must stay unrecorded so the next run retries it.
 
 **A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the two reasons
 differently: `deferred: over cap` (re-spawned next run) or `stopped: cause unclear — analysis on
 #<n>` (re-spawned only on new evidence). A bare null is read as `deferred`.
+
+## Step 7b — Close an issue only when the code and the telemetry both prove it
+
+The sweep may close an issue. It may not *decide* one. The line between those is evidence, and every
+test below must pass. A single miss leaves the issue open and puts it under the report's *Needs you*
+with the test that failed. When two readings of a test disagree, the issue stays open.
+
+1. **The sweep tracks it.** The issue is in the ledger — filed by this sweep, or filed by the app's
+   own triage bot and adopted through the `github-auto-issues` adapter. An issue a person wrote is
+   never closed by a machine.
+2. **A merged PR fixes it, by name.** The ledger's `pr`, or a merged PR whose body says `Closes #<n>`
+   or `Fixes #<n>`. Quiet with no PR is not fixed — it is waiting.
+3. **That PR is deployed.** The adapter's deploy data names the running commit (Netlify `commit_ref`,
+   the deploy workflow's `headSha`), and the PR's merge commit is its ancestor:
+
+   ```bash
+   git merge-base --is-ancestor <merge-sha> <deployed-sha>
+   ```
+
+   Both commits must be in the local object store first — fetch them the way step 4 does. Where the
+   card's adapters cannot name a deployed SHA, nothing closes.
+4. **The telemetry has been quiet since the deploy, for long enough.** Zero occurrences of the
+   signature after the deploy timestamp, and the quiet span is at least the *longest* of: 72 hours;
+   the card's collection window; the longest gap between consecutive occurrences before the fix that
+   the ledger or this window shows. The 72 h floor exists because one per-node fix looked good for
+   33 h. Another looked good for 184 h, which is why the reverse path below exists.
+5. **The adapters can see this signature.** Absence from a stream that structurally cannot carry
+   the failure — a circuit-driven action, an Information-level trace, a suppressed route — proves
+   nothing. A fix whose success condition *is* absence (a telemetry filter, a sampling rule) passes
+   only with the adapter's control probe on record (app-insights §6b).
+6. **No person has spoken since the fix.** A human comment on the issue newer than the PR's merge
+   means someone is engaged; leave it to them. This is also the override: to hold any issue open,
+   comment on it.
+7. **The run is not clearing the board.** If more than five issues qualify in one run, close none
+   and list them all. A rule that suddenly matches everything is more likely wrong than right — a
+   misread deployed SHA passes test 3 for every issue at once.
+
+Close with the evidence on the issue, not only in the report:
+
+```
+gh issue close <n> --repo <slug> --reason completed --comment "<PR, merge SHA, deployed SHA and time, quiet span, the pass that confirmed absence>. Closed by the error sweep; reopen if it recurs."
+```
+
+Then the ledger entry: `status: fixed`, `pr`, `closed_by_sweep: <date>`.
+
+**Never `not planned`.** An `external` or `noise` signature has no fix to prove — it went quiet on
+its own, or it is correct behaviour that someone still has to agree is correct. Those closes are the
+owner's. List them under *Needs you* with the evidence and, for a batch, the single command that
+does it, so the decision is one click.
+
+**The reverse is never automatic.** A `fixed` signature that recurs after its deploy is not "already
+fixed" — it is a regression, or a fix that closed one instance and not the class. Comment the
+recurrence on the closed issue, recommend a reopen under *Needs you*, and re-triage it as new
+evidence: the routing table decides whether it earns a fix agent, and that brief must name the PR
+that did not hold.
 
 ## Step 8 — Report
 
@@ -259,9 +315,11 @@ Write the full write-up to the card's dated report file, then a short summary to
 - what you filed and what you spawned, with issue/PR numbers and links
 - what you deliberately skipped — over the cap, or matched known-noise
 - what failed, and which failure classes this run could not see
-- **Needs you** — decisions and tracker state changes only: close #n, merge #n, escalate to a
-  provider, rotate a secret, each with its evidence and your recommendation. Code work is never in
-  this list; it is in the PRs above. Additive comments you already posted are listed as done.
+- what you closed under step 7b, each with the test evidence, and what fell short and on which test
+- **Needs you** — decisions and tracker state changes only: close #n (short of 7b's proof), merge #n,
+  escalate to a provider, rotate a secret, each with its evidence and your recommendation. Code
+  work is never in this list; it is in the PRs above. Additive comments you already posted are
+  listed as done.
 - any finding that is not yet actionable, and why
 
 **Re-verify every carry-forward against the code before repeating it.** A ledger note saying "fixed,
