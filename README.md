@@ -138,7 +138,8 @@ these are the ones worth reading before you write your own:
   owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause
   goes to a fix agent, every additive tracker comment is posted in the run, an issue closes only
   when a merged, deployed PR and quiet telemetry both prove it, and the report's *Needs you* list
-  holds only decisions. The pipeline has no chip output at all.
+  holds only decisions — the closures, failed tests, skips, and not-yet-actionable findings stay in
+  the sections above it. The pipeline has no chip output at all.
 
 Mechanical traps the adapters document, each of which fails *quietly*:
 
