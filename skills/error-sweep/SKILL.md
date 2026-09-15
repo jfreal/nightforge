@@ -85,15 +85,28 @@ If the ledger is missing or unparseable, treat it as empty, **say so in the repo
 gh issue list --repo <slug> --state all --search "\"<fingerprint or distinctive phrase>\" in:body"
 ```
 
-A hit, **open or closed**, means it is already tracked or already fixed. Record it in the ledger and move on — with one exception: a signature the ledger marks `fixed` whose newest occurrence is *after* the deploy that fixed it is a recurrence, not a duplicate. Step 7b says what to do with it.
+A hit means it is already tracked, so **step 5 files nothing** — but what you record, and whether
+you move on, depends on the issue's state:
+
+- **Closed:** record it `fixed` and move on — unless the signature's newest occurrence is *after*
+  the deploy that fixed it. That is a recurrence, not a duplicate; step 7b says what to do with it.
+- **Open, with a PR that claims it** (`gh issue view <n> --repo <slug> --json
+  closedByPullRequestsReferences`): the fix is written and waiting. Record `bug` with that `pr`
+  and move on.
+- **Open, no PR:** record `bug`, `pr: null`, `note: deferred: no PR`. That is the deferred case
+  below, and it goes into **this run's** step 6 queue, not the next run's. A tracker hit that only
+  says "seen" turns an open bug into a permanent skip.
+
+Whichever it is, record `filed_by` from the issue's author (step 7) — a hit found this way may
+be a person's issue, and step 7b needs to know.
 
 **A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
 skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
-re-spawns it; the next run is the only thing that will. The entry's `note` says which kind it is
-(step 7): `deferred: over cap` goes straight back into the queue; `stopped: cause unclear` goes back
-only when this run collected new evidence — occurrences with a new shape since `last_seen`, or a
-comment from a person on the issue. Re-spawning a cause-unclear stop on the same evidence is a
-nightly loop that costs a session and produces the same comment.
+re-spawns it. The entry's `note` says which kind it is (step 7): `deferred: …` — over cap, or no
+PR — goes straight back into the queue; `stopped: cause unclear` goes back only when this run
+collected new evidence — occurrences with a new shape since `last_seen`, or a comment from a
+person on the issue. Re-spawning a cause-unclear stop on the same evidence is a nightly loop that
+costs a session and produces the same comment.
 
 ## Step 4 — Triage: read the code before judging anything
 
@@ -188,8 +201,9 @@ If the label does not exist, create it once (`gh label create <label> --repo <sl
 
 ## Step 6 — Spawn a fix agent per bug (up to the cap)
 
-**What qualifies is any code change with a clear cause, whatever surfaced it** — see *Where work
-goes*. A follow-up with no collector row still gets an issue (step 5) and a ledger entry, under the
+**What qualifies is any code change with a clear cause — or a clear way to find one — whatever
+surfaced it**; see *Where work goes*. The second kind gets the same brief, which already tells the
+agent to stop and comment rather than guess. A follow-up with no collector row still gets an issue (step 5) and a ledger entry, under the
 signature `followup|<component>|<one-line description>`, so the next run sees it as handled rather
 than as new.
 
@@ -244,13 +258,27 @@ If a bug has no issue yet, file one first (step 5) so the agent can close it.
 
 ## Step 7 — Update the ledger
 
-Write every newly triaged signature back to `seen.json` with `first_seen` (today), `status` (`bug`/`noise`/`external`, or `fixed` once step 7b closes it), a one-line `note`, `issue` (number or null), `pr` (number or null), and `closed_by_sweep` (date, only when step 7b closed it). Preserve existing entries.
+Write every newly triaged signature back to `seen.json` with:
+
+- `first_seen` (today) and `last_seen` (the newest occurrence this run saw)
+- `max_gap` — hours, the longest gap between consecutive occurrences on record: the gaps inside
+  this window, plus the gap from the previous run's `last_seen` to this run's first occurrence.
+  Keep the larger of the stored and the new figure. Null until two occurrences have been seen.
+  This is the only long memory a day-wide collector has, and step 7b's quiet test depends on it.
+- `status` — `bug`/`noise`/`external`, or `fixed` once step 7b closes it
+- a one-line `note`
+- `issue` (number or null) and `filed_by` — `sweep`, `bot`, or `human`, from the issue's author
+  (`gh issue view <n> --repo <slug> --json author`). Step 7b closes only the first two.
+- `pr` (number or null) and `closed_by_sweep` (date, only when step 7b closed it)
+
+Preserve existing entries.
 
 **Only record signatures you actually finished triaging.** A signature whose issue creation failed must stay unrecorded so the next run retries it.
 
-**A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the two reasons
-differently: `deferred: over cap` (re-spawned next run) or `stopped: cause unclear — analysis on
-#<n>` (re-spawned only on new evidence). A bare null is read as `deferred`.
+**A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the reasons
+differently: `deferred: over cap` or `deferred: no PR` (re-spawned next run — or this run, when
+step 3 found it) versus `stopped: cause unclear — analysis on #<n>` (re-spawned only on new
+evidence). A bare null is read as `deferred`.
 
 ## Step 7b — Close an issue only when the code and the telemetry both prove it
 
@@ -258,9 +286,11 @@ The sweep may close an issue. It may not *decide* one. The line between those is
 test below must pass. A single miss leaves the issue open and puts it under the report's *Needs you*
 with the test that failed. When two readings of a test disagree, the issue stays open.
 
-1. **The sweep tracks it.** The issue is in the ledger — filed by this sweep, or filed by the app's
-   own triage bot and adopted through the `github-auto-issues` adapter. An issue a person wrote is
-   never closed by a machine.
+1. **A machine filed it.** The ledger's `filed_by` is `sweep` or `bot`, and the issue's author on
+   GitHub agrees (`gh issue view <n> --repo <slug> --json author`). Check the author, not the
+   presence of a ledger entry — the step 3 tracker search can put a person's issue in the ledger.
+   `bot` means the app's own triage workflow, which the `github-auto-issues` adapter identifies by
+   its label and its `fp:` fingerprint. An issue a person wrote is never closed by a machine.
 2. **A merged PR fixes it, by name.** The ledger's `pr`, or a merged PR whose body says `Closes #<n>`
    or `Fixes #<n>`. Quiet with no PR is not fixed — it is waiting.
 3. **That PR is deployed.** The adapter's deploy data names the running commit (Netlify `commit_ref`,
@@ -274,9 +304,13 @@ with the test that failed. When two readings of a test disagree, the issue stays
    card's adapters cannot name a deployed SHA, nothing closes.
 4. **The telemetry has been quiet since the deploy, for long enough.** Zero occurrences of the
    signature after the deploy timestamp, and the quiet span is at least the *longest* of: 72 hours;
-   the card's collection window; the longest gap between consecutive occurrences before the fix that
-   the ledger or this window shows. The 72 h floor exists because one per-node fix looked good for
-   33 h. Another looked good for 184 h, which is why the reverse path below exists.
+   the card's collection window; the ledger's `max_gap` for the signature. That last figure is the
+   one the window cannot supply — a 26 h Netlify pass or a 24 h Supabase pass cannot see a weekly
+   bug's rhythm, and even App Insights' `P30D` is a ceiling — which is why step 7 accumulates it
+   across runs. **A null `max_gap` means fewer than two occurrences are on record, so there is no
+   gap to measure: leave it open** and say so. One hit proves neither a rate nor its absence. The
+   72 h floor exists because one per-node fix looked good for 33 h. Another looked good for 184 h,
+   which is why the reverse path below exists.
 5. **The adapters can see this signature.** Absence from a stream that structurally cannot carry
    the failure — a circuit-driven action, an Information-level trace, a suppressed route — proves
    nothing. A fix whose success condition *is* absence (a telemetry filter, a sampling rule) passes
