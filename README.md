@@ -133,6 +133,13 @@ these are the ones worth reading before you write your own:
   against that project's actual bill.
 - **Knowledge left in a run report is knowledge you will pay for twice.** Nothing reads last night's
   report. Gotchas go in the adapter or the card, in the same run you learn them.
+- **A chip is a bug you found and decided not to fix.** For three weeks the sweeps opened one a
+  night — the follow-up a fix agent left out of scope, the runtime scan nobody spawned — and the
+  owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause
+  goes to a fix agent, every additive tracker comment is posted in the run, an issue closes only
+  when a merged, deployed PR and quiet telemetry both prove it, and the report's *Needs you* list
+  holds only decisions — the closures, failed tests, skips, and not-yet-actionable findings stay in
+  the sections above it. The pipeline has no chip output at all.
 
 Mechanical traps the adapters document, each of which fails *quietly*:
 
