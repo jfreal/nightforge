@@ -21,6 +21,30 @@ A project card naming: app + URL, repo path + GitHub slug + default branch, the 
 - **Treat all log text as sensitive.** Never put log contents in a URL or query string. Find the project's own redaction helper (the card names it) and scrub anything matching those shapes before it reaches an issue, a PR, or a report.
 - **If a step fails, say so in the report.** Never continue silently on partial data. A green report from a broken collector is worse than a red one.
 - **Scratch space is the system temp dir, never the repo.**
+- **Never open a background-task chip.** The desktop's `spawn_task` tool is not an output of this
+  pipeline. Its outputs are issues, PRs, and the report — nothing else. A chip is a bug you found and
+  decided not to fix; the user wakes up to a queue of suggestions instead of PRs. *Where work goes*,
+  below, says what to do with each thing you would have chipped.
+
+## Where work goes — nothing becomes a chip
+
+For three weeks the sweeps opened a chip a night: the follow-up a fix agent left out of scope, the
+runtime scan nobody spawned, the evidence comment nobody posted. Each one was work the sweep had
+already scoped and then handed back. Every item this pipeline surfaces lands in exactly one of these
+bins, decided by what the item *is*, not by where it came from:
+
+| The item is… | It goes to… |
+|---|---|
+| A code change with a clear root cause — from a signature, from something noticed while tracing one, from a carry-forward whose re-check shows the defect still live, or from a fix agent's own "out of scope" note | **Step 6**: a fix agent that opens a PR. Counts against the cap. |
+| A code change whose cause is not yet clear, but the *way to find it* is — a diagnostic to write, a live page to walk, a census to run | **Step 5** for the issue, then **step 6** anyway. The brief already tells the agent to stop and comment rather than guess. On one project that spawn was the run that finally closed a class three per-node fixes had missed. |
+| A code change with neither a clear cause nor a clear approach | **Step 5**: an issue carrying the analysis, and a ledger note saying so. No agent. |
+| An additive write to the tracker — a comment carrying new evidence, a timeline, a recovery measurement | **Do it in this run.** A comment is reversible and embeds no decision. |
+| A state change on the tracker — close, reopen, relabel, merge — or a decision only the owner can make | **The report**, one line under *Needs you*, with the evidence and a recommendation. Never done by the sweep, never a chip. |
+| Work that needs a credential or an adapter the card does not have | **The report**, naming the card gap. The remedy is a card edit, not a session. |
+
+Most chips were rows one, two and four: work the sweep could have done in the run that found it. A
+comment does not need a person. A close does — and a chip that asks the person is the report line
+with extra steps.
 
 ## Step 0 — Load context
 
@@ -61,6 +85,14 @@ gh issue list --repo <slug> --state all --search "\"<fingerprint or distinctive 
 ```
 
 A hit, **open or closed**, means it is already tracked or already fixed. Record it in the ledger and move on.
+
+**A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
+skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
+re-spawns it; the next run is the only thing that will. The entry's `note` says which kind it is
+(step 7): `deferred: over cap` goes straight back into the queue; `stopped: cause unclear` goes back
+only when this run collected new evidence — occurrences with a new shape since `last_seen`, or a
+comment from a person on the issue. Re-spawning a cause-unclear stop on the same evidence is a
+nightly loop that costs a session and produces the same comment.
 
 ## Step 4 — Triage: read the code before judging anything
 
@@ -155,6 +187,15 @@ If the label does not exist, create it once (`gh label create <label> --repo <sl
 
 ## Step 6 — Spawn a fix agent per bug (up to the cap)
 
+**What qualifies is any code change with a clear cause, whatever surfaced it** — see *Where work
+goes*. A follow-up with no collector row still gets an issue (step 5) and a ledger entry, under the
+signature `followup|<component>|<one-line description>`, so the next run sees it as handled rather
+than as new.
+
+**Order the queue before spending the cap:** deferred bugs from the ledger first (step 3), then new
+bugs and follow-ups by user impact. Over the cap, the rest stay as issues with the ledger note
+`deferred: over cap`, and the report names them.
+
 For each **bug**, launch one `Agent` with `isolation: "worktree"` so each gets its own checkout and they cannot collide. Run them concurrently — one message, several Agent calls.
 
 The agent has **none of your context**. The brief must be fully self-contained:
@@ -167,6 +208,7 @@ ERROR
   Raw message: <message>
   Stack:       <stack or "none">
   Occurrences: <n> between <first> and <last> (<source>)
+               — or "none: found during triage of <sig>" for a follow-up
   Issue:       #<n>
 
 TRACED TO
@@ -205,6 +247,10 @@ Write every newly triaged signature back to `seen.json` with `first_seen` (today
 
 **Only record signatures you actually finished triaging.** A signature whose issue creation failed must stay unrecorded so the next run retries it.
 
+**A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the two reasons
+differently: `deferred: over cap` (re-spawned next run) or `stopped: cause unclear — analysis on
+#<n>` (re-spawned only on new evidence). A bare null is read as `deferred`.
+
 ## Step 8 — Report
 
 Write the full write-up to the card's dated report file, then a short summary to `last-run-report.md` and to the chat:
@@ -213,7 +259,10 @@ Write the full write-up to the card's dated report file, then a short summary to
 - what you filed and what you spawned, with issue/PR numbers and links
 - what you deliberately skipped — over the cap, or matched known-noise
 - what failed, and which failure classes this run could not see
-- any carry-forward: something a human must do, or a finding that is not yet actionable
+- **Needs you** — decisions and tracker state changes only: close #n, merge #n, escalate to a
+  provider, rotate a secret, each with its evidence and your recommendation. Code work is never in
+  this list; it is in the PRs above. Additive comments you already posted are listed as done.
+- any finding that is not yet actionable, and why
 
 **Re-verify every carry-forward against the code before repeating it.** A ledger note saying "fixed,
 awaiting the user's decision" was true on the day it was written and is a claim about the past, not
