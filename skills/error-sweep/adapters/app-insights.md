@@ -23,6 +23,26 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
 - A backtick inside a `--query` JMESPath literal is eaten by PowerShell before `az` sees it. Filter in KQL, not JMESPath.
 - **Keep KQL on one line.** A multi-line `--analytics-query` runs only line 1 on this Windows `az` and returns a plausible *wrong* table — the worst possible failure mode.
 - `az` returns column-oriented tables. Flatten to row objects before doing anything else.
+- **A `union` leg may not `project`/`extend` a constant string column** — that is a third source of
+  the same opaque `BadArgumentError`, and unlike the two above it is not a KQL error at all, so
+  re-reading your syntax teaches you nothing. Confirmed deterministically:
+  `union (requests | project timestamp, kind='REQ'), (exceptions | project timestamp, kind='EXC')`
+  is rejected, and so is the version with the *identical* literal in both legs; the same
+  `extend kind = 'REQ'` **outside** a union is accepted, as are numeric constants and string
+  expressions over real columns (`substring`, `toupper`, `strcat(name, 'z')`, a bare rename).
+  A cross-table timeline is the natural thing to want here, so label the legs with a column that
+  already exists instead: `union requests, exceptions, dependencies` supplies `itemType` for free.
+  Where that will not do, run the passes separately and merge them yourself.
+- **`client_City` is per-telemetry-item, not per-operation — an outbound call and its exception can
+  carry the *server's* city.** Inside one `operation_Id` the inbound `request` and its SQL
+  dependencies read `Kobenhavn` (the visitor), while the outbound `GET /v1/forecast` dependency and
+  the `HttpRequestException` it raised both read `Des Moines` — the app's own datacenter. Read a
+  city off an exception row and you will place a provider failure in a city no user was in. Two
+  consequences: resolve the visitor from the operation's own inbound `request` row, never from the
+  exception; and on a circuit-scoped exception (no `operation_Id` at all) treat `client_City` as
+  meaningless rather than as a hint. This also makes datacenter cities worth recognising as
+  *monitor* traffic in a raw timeline — one `GET /` per minute from Des Moines, San Antonio,
+  Northlake, Quincy and Boydton is uptime checking, not five visitors.
 - If `az monitor app-insights query` returns zero rows where you expect data, the workspace-backed path is the fallback: `az monitor log-analytics query -w <workspace_id> --analytics-query "AppExceptions | ..."`. Note the table names differ (`AppExceptions`, not `exceptions`).
 - **A handled, logged error arrives in `exceptions`, not `traces`.** The App Insights `ILogger`
   provider ships any `LogError`/`LogWarning` that *carries an exception object* as
@@ -35,6 +55,18 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
   (`Microsoft.EntityFrameworkCore.Query`, `Microsoft.AspNetCore.*`) means nothing of the app's caught
   it; an application category means something did — go read that class's handler before classifying
   it a bug.
+- **The same category rule applies to `traces`, and it cuts the other way: a framework Warning can
+  describe a path the app deliberately handles.** A framework component often logs its own complaint
+  *before* handing control to the app's hook, and the app's handler may then log at Information —
+  which the standard `severityLevel >= 3` / `== 2` passes never request (§4). So the only trace you
+  see is the framework's, at Warning, for an outcome that is entirely by design. On one run
+  `Microsoft.AspNetCore.Authentication.Google.GoogleHandler` logged `'.AspNetCore.Correlation.<t>'
+  cookie not found` for a visitor who had signed in successfully two minutes earlier and merely
+  replayed a torn-down tab's callback; the app's `OnRemoteFailure` hook classified it, logged at
+  Information, and redirected. **Before classifying a framework auth/middleware Warning, look for the
+  app's own hook on that extension point** (`OnRemoteFailure`, exception filters, `IExceptionHandler`)
+  and check the raw per-request timeline for the visitor. Neither the trace's severity nor its
+  category tells you the user-visible outcome.
 
 ## 3. Exceptions
 
@@ -43,6 +75,43 @@ exceptions | summarize cnt=count(), firstSeen=min(timestamp), lastSeen=max(times
 ```
 
 `problemId` **is** the signature. Use it directly; do not invent your own.
+
+**But it is a *method* key, not a defect key — and a ledger keyed on it alone will skip a live bug.**
+`problemId` is `<exception type> at <throwing method>`. Two unrelated defects that fault in the same
+framework method collapse into one key. On one run
+`Microsoft.Data.SqlClient.SqlException at Microsoft.Data.SqlClient.SqlConnection.OnError` had sat in
+the ledger for two weeks as an accepted `UserVisits` unique-index race; the same key came back
+carrying a **different** inner message — a duplicate `SentEmails` key that proved a user had been
+emailed twice. A dedup pass that stops at the key never reads the second one. **Compare
+`sampleInner` against the ledger's recorded message before skipping a known problemId**, and record
+that message in the ledger entry so the next run can.
+
+**One handled failure also produces two problemIds, not one.** A `catch { _logger.LogWarning(ex, …) }`
+in application code emits the app's own `ExceptionTelemetry` row *and* the framework's — EF's
+`Microsoft.EntityFrameworkCore.Update` Error-level log fires for the same `SaveChangesAsync`. They
+arrive tens of milliseconds apart with identical messages and different `problemId`s (one framework
+category, one application category — see §2). Reconcile them into a single finding by timestamp
+proximity and identical `innermostMessage`, and triage the **application** one; the framework row is
+the same event seen from underneath, and filing both files the same bug twice.
+
+**A by-design warning can still carry a finding — read the identity fields, not the message.** Once
+you have decided a handled-exception key is the healthy path logged loudly, the temptation is to note
+the rate and move on. Do not stop before projecting `customDimensions`: an app that logs
+`LogWarning(ex, "… for user {UserId} on plan {PlanId} …")` stamps those parameters as their own
+dimensions, and the *distribution* of the identities is evidence the aggregate cannot show.
+
+The rule that pays: for anything emitted by a periodic background job, **count distinct entity ids
+against occurrences within a single pass**. A job that visits each entity once per pass cannot log
+about the same id twice in the same pass — unless its work list contains that entity twice. On one
+run six identical-looking claim-collision warnings landed inside five seconds of one hourly pass, and
+four of them were four different users doing exactly what the design intended. The finding was that
+the other three all read *user 1*. The only way to reach that is three rows for one user in the table
+the job iterates — which turned out to be a documented, tolerated duplicate that a *sibling* service
+handled by grouping and this one did not. The loud key was harmless; the thing it revealed was a
+daily duplicate email on a code path with no error telemetry of its own at all.
+
+So: a signature classified `noise` is not finished being read. Ask what each occurrence proves about
+the *state* of the data, not only about the level of the log.
 
 ## 4. Failed requests — a 404 is not an exception
 
@@ -128,6 +197,31 @@ path logged at the wrong level and `external` means a provider or network failur
 cannot see is neither until something outside this telemetry says which. Report the funnel, name
 what could not be seen, and classify only when there is evidence for it.
 
+**A challenge status is the first leg of a flow, not a failure — correlate before classifying it.**
+Some protocols answer 401 or 400 *by design* to tell the client what to do next, and the aggregate
+pass shows only the refusal. The same `operation_Id` correlation that measures a broken funnel also
+settles a healthy one, and it is the cheapest evidence there is. On one run two `POST /mcp` 401s
+looked like an auth failure until the per-operation timeline showed the whole OAuth 2.1 hand-off
+completing behind each of them — `POST /mcp` 401 → `/.well-known/oauth-protected-resource` 200 →
+`/.well-known/oauth-authorization-server` 200 → `POST /oauth/register` 201 → `GET /oauth/authorize`
+200 → `POST /oauth/authorize` 302 → `POST /oauth/token` 200 → `POST /mcp` 200. The 401 *was* the
+discovery challenge. Read the operation forward before writing "auth failing" down, and record that
+you observed the continuation rather than assumed it.
+
+That timeline is also the discriminator against the scanner reading of the same routes. The same
+window carried `GET /oauth/authorize` 400, `GET /oauth/token` 400 and `GET /oauth/register` 405 from
+a spread of hosting cities inside one four-minute sweep — the correct refusals to a parameterless
+probe, and *not* the same clients. A real client's refusal is followed by its own continuation in
+the same operation; a scanner's is followed by nothing.
+
+**And read a status against whoever actually owns the route, not against the `MapX` you grepped.**
+A framework that claims an endpoint by configuration installs middleware ahead of routing, so it can
+answer a status the route registration cannot explain. `MapPost("/oauth/token")` plus OpenIddict's
+`SetTokenEndpointUris("/oauth/token")` answers a GET with **400**, not the 405 the bare `MapPost`
+implies — and a 400 on a token endpoint reads like a malformed real exchange, which is exactly the
+wrong conclusion. Before triaging an odd status on a route, check whether a library was configured to
+own it.
+
 So for any route you are actively watching, **query it by URL and result code, never by `success`**:
 
 ```
@@ -195,6 +289,146 @@ check whether the suspected trigger is a circuit-driven action before concluding
 Say so in the report's blind-spot section — for such an app, "no failed requests" is
 silent about an entire class of user action.
 
+**A stack with no app frames is not evidence that the defect is not yours.** A framework component
+that fails *on the far side* of the wire produces a stack made entirely of framework frames by
+construction: a Blazor Server render batch that the browser cannot apply comes back as
+`InvalidOperationException at ExceptionDispatchInfo.Throw` under
+`Renderer.InvokeRenderCompletedCallsAfterUpdateDisplayTask`, carrying the *browser's* error text
+(`TypeError: Cannot read properties of null (reading 'insertBefore')`) and nothing of yours. The
+absent app frame is a property of where the failure surfaced, not of who caused it. One sweep
+called such a key `external` across six consecutive runs on exactly that reasoning while it was
+killing a quarter of the app's new-user onboarding sessions.
+
+What settles it is the raw surrounding request stream, and it is cheap:
+
+```kusto
+requests
+| where timestamp between (datetime(<crash ts>) - 4m .. datetime(<crash ts>) + 3m)
+| where name !has '_content' and name !has '.woff2' and name !has '.css' and name !has '.js'
+| project timestamp, client_City, name, resultCode
+| order by timestamp asc
+```
+
+Filter the static assets out or the navigations drown. Then read the timeline as a story: what the
+visitor did just before, and — decisively — **what they did next**. A visitor who reloads the same
+route within seconds of the crash, three or four times, and then leaves for a different page has
+told you both that the failure is user-visible and which route owns it. That is the whole finding,
+and it is invisible in every aggregate.
+
+**Then measure the gap, because the offset from the connection handshake names the lifecycle phase.**
+A circuit-scoped exception carries no `operation_Id`, so the timeline is the only thing that can say
+*when in the page's life* it fired — and the framework's own handshake request is a clock you already
+have. On one run the crash landed 0.77–1.02 s after each `POST /_blazor/negotiate` and 0.77–2.10 s
+after the page `GET`, three consecutive times, with no request in between and the visitor leaving
+straight afterwards. That is the server-rendered → interactive hand-off patching the existing DOM,
+not an idle page re-rendering itself. The distinction decided the whole investigation: an earlier fix
+attempt had measured the page in a test harness, found two render batches inside 180 ms and then
+nothing, and concluded there was no post-connect render for the fault to race — so it could not
+reproduce the bug. The production gap said the render it needed was the transition itself.
+
+Two rules fall out. **A "no re-render happens here" conclusion drawn from a harness is a claim about
+the harness**; check it against the handshake-to-crash offset in real traffic before building on it.
+And **repetition across reloads is the cheap significance test**: three crashes at the same offset,
+from one visitor inside half a minute, is a far stronger signal than three crashes spread over a week,
+and it costs one timeline query to see.
+
+**A route correlation and a demographic skew are not competing explanations — check whether they
+compose.** The same run produced both: every crash was on the onboarding wizard *and* the affected
+visitors were in France, Japan, Germany, Italy, Spain and South Africa with **zero** from the US,
+by a wide margin the largest traffic source. Each looks like it explains the other away. The route
+skew has an innocent reading — a page only one cohort ever visits inherits that cohort's geography
+for free — and that reading was written into the issue as "the geography is not the signal". It was
+**wrong**. Both facts were load-bearing: the route said *where* the fragile markup was, and the
+geography said *what the client was doing to the page* (Chrome auto-translates when the browser
+language differs from the page's, and remembers the choice — which is why every reload crashed
+again). A machine translator replaces each bare text node with an element of its own; Blazor holds
+a direct reference to the node it rendered and anchors inserts on it, so the reference detaches and
+`nextSibling.parentNode.insertBefore(...)` throws on `null`. Be precise about *which* node, because
+the obvious reading sends a fix agent to the wrong markup: the anchor is the node **after** the
+insert position — `const nextSibling = parentLogicalChildren[childIndex];
+nextSibling.parentNode.insertBefore(child, nextSibling)` — not the label sitting beside it. That
+matters twice over. It makes the checkable thing a **stale reference**, present the instant the
+translator runs and independent of whether any render follows; and because the framework keeps those
+logical-children arrays on a symbol-keyed expando, a test can walk them from the live page and name
+every detached entry, which is a far tighter guard than asserting on labels a human remembered to
+list. It also explains why only *some* bare labels are fragile: text inside a static markup blob is
+never recorded per-node, so only text the compiler split into its own logical child can ever go
+stale.
+
+So when a finding offers you two independent skews, **do not spend one to explain the other**. Ask
+what mechanism needs both to be true at once. And where a hypothesis is about the client, say
+plainly that server telemetry cannot settle it and hand the fix agent the means to test it —
+here a Playwright test that applied the translator's own `<font>`-wrapping rewrite to the live page
+reproduced the production error verbatim in one run, and scope-narrowing pinned the failure to a
+single 12-text-node region.
+
+**A skew that was load-bearing once is still only evidence, and the recurrence is what tests it.**
+That same key came back 33 hours after its fix deployed — on the route the fix had wrapped, from a
+visitor in the **United States**, the one cohort the original issue had recorded as having *zero*
+occurrences and had used to argue the mechanism. One counter-example retires a screening rule
+outright: a demographic pattern earned from n≈8 tells you what the cohort was doing, not what only
+that cohort can do. When you write a skew into an issue, write the count it rests on beside it, so
+the next run can see how little it takes to break.
+
+**And when a fix ships with tests, ask what the test harness structurally cannot reach — that is
+where the same defect survives.** Here every guard was per-label: an integration test asserting the
+specific rendered labels the fix wrapped, and a browser test that drove translated pages but whose
+test classes all derived from a *signed-in* page fixture. So no test in the suite had ever loaded a
+signed-out page, and the sign-in route — which the fix had edited — went straight back to
+production unexercised in the very state the bug needs. Read the fixtures and base classes, not
+just the test names: a suite can look like it covers a page while being unable to render it in the
+state that fails. The portable form is that a per-instance fix plus per-instance tests closes the
+instances, never the class, and the sweep is what notices the difference — the recurrence is one
+event against a fix's whole verification pass, so it only shows up if you compare `lastSeen`
+against the fix's deploy time on **every** key the ledger calls resolved, not just the open ones.
+
+**A route you deleted on purpose can still be a finding, and the delay before it shows is the trap.**
+When a release removes an integration, the provider on the far side does not know: a webhook push
+subscription, a callback registration, a polling job keyed to your URL all keep firing, and every one
+of them now lands on a route that no longer exists. The failed-request pass sees them as 4xx on a
+route nobody in the codebase can explain, which reads as scanner noise — check whether the route used
+to answer 200 before you dismiss it. On one run `POST /webhooks/strava` had answered 200 fifty times
+and then 404 fifteen times, in bursts of three to six attempts spaced exactly two minutes apart: that
+regular retry ladder from one datacenter city is a provider, not a scanner.
+
+**The first 404 arrived twenty-eight hours after the removal deployed**, because it takes a real
+event on the provider's side to produce one. So the sweep that ran the morning after the removal saw
+a perfectly clean window — the absence proved only that nobody had recorded an activity yet. Read a
+removal deploy's first quiet window as *not yet observed*, not as *clean*.
+
+The classification is the interesting part: this is a defect, and it usually has **no correct fix
+inside the repo**. Restoring a tombstone endpoint contradicts the removal and keeps the provider
+delivering forever; filtering the route out of telemetry hides a real client asking a real route. The
+remediation is an authenticated call to the provider's own API to delete the registration, which
+needs the credentials and is a write against a third party — file the issue, do not spawn a fix
+agent, and say plainly in the report why. Two things worth checking while you are there: whether the
+removal PR also deleted the tooling that could unregister it (it usually did — that admin page was
+part of the same feature), and whether the provider's credentials are still sitting in the live app's
+configuration after the deployment template stopped setting them. Removing a setting from a template
+does not remove it from a running app.
+
+**And the mirror image costs nothing to rule out: a route you have not built *yet*.** Before triaging
+a brand-new 4xx on a route nobody in the codebase can explain, **list the open pull requests**. A
+feature branch's preview environment — a Netlify deploy preview, a staging front end, a locally-run
+UI — routinely points at *production* for its API, so the new page calls an endpoint that exists only
+on that branch. On one run four `OPTIONS /api/preview-plan` 404s from a single city over four minutes
+looked like a probe until the open-PR list showed a PR opened **two minutes after the last one**,
+adding exactly that endpoint plus the marketing page that calls it. The route's only other mention in
+the whole repo was a research document *proposing* it.
+
+Three tells separate this from a scanner, and you want all three: the method is `OPTIONS` (a browser
+CORS preflight, which scanners do not bother with), the hits come from **one** `client_City` in a
+tight burst with nothing else probed alongside, and the path reads like the project's own naming
+rather than a generic `/wp/` or `/.env`. Grep the repo including docs and research notes — a hit in a
+design document is strong evidence that this is your own work in flight.
+
+Classify it **external** (a client asking for a route the app genuinely does not have) and file
+nothing. Two things are still worth writing in the report. First, check the hit count against the
+*filing* workflow's threshold, because preview traffic is bursty and will trip it. Second, when the
+front end and the API deploy on **separate triggers from the same merge** — a static host and an app
+host, say — say so: if the front end publishes first, every real visitor gets this identical 404 until
+the API catches up, and that window is a real outage nobody will be watching for.
+
 ## 5. Cold-instance join — the trick that cracks transients
 
 For any transient that resists explanation, join it against instance first-request time:
@@ -249,6 +483,123 @@ it silently — such a row has a null `instanceAgeSec` and fails the filter, so 
 "up for hours" rule in prose, or a row 61 seconds past `firstSeen` gets two contradictory verdicts.
 It is generous on purpose: a slow request in a boot's first minute is still boot cost, and the pass
 exists to find the row that is not. Raise it if a project boots slowly, but raise it in both places.
+
+**A warm-up that logs success is not evidence that the cold path is warm — read what it warmed, not
+whether it finished.** Apps that pre-compile query shapes at boot usually log one line on the way
+out, and a sweep that finds that line naturally reads the cold-start question as closed. It is not:
+the log says the routine ran, and says nothing about coverage. On one run the instance logged
+`Database warm-up completed in 3691ms`, well inside a 15 s budget, and fifty seconds later the first
+`GET /plan` still paid two 15 s command timeouts — on a query the warm-up had just executed.
+
+The mechanism is worth knowing because it defeats the obvious warm-up design. The warm-up called the
+real repository method for a **user id chosen to match no row**, which is the right instinct: it
+compiles the shape without reading anyone's data. But the query was an EF `AsSplitQuery()` — one SQL
+command for the root and a separate command per collection navigation — and with a zero-row root
+there are no principals to load collections for, so EF never issues the child commands and their SQL
+is never generated or cached. **A sentinel-id warm-up over a split query compiles only the root.**
+Generalize it past EF: any warm-up whose work is *conditional on the data it found* warms less than
+it appears to when it is deliberately pointed at nothing.
+
+So when a cold-start timeout recurs after a warm-up fix, read the failing SQL against the warm-up's
+list before concluding the list is short a shape. If the failing shape is a *child* of one already
+on the list, the list is right and the warming call is wrong. Two tells, both cheap: the warm-up's
+own duration (a few hundred ms of commands where you expected a dozen), and whether the failing
+statement contains the warmed query as a subquery — the child command re-states the root inline, so
+it reads as the same query with one more `INNER JOIN`.
+
+**And the same count is how you *verify* a warm-up fix, without waiting for a natural cold request.**
+This is the useful half. A warm-up fix's success condition is normally a user-visible one — the first
+request on a fresh instance stops being slow — and that row can take days to appear, because it needs
+a restart and a real visitor to coincide. One project waited three sweeps for it while an app that
+had been up 37 hours refused to recycle. Meanwhile the fix's *mechanism* is directly countable: warm-up
+work is dependency telemetry like any other, so count the commands each boot issues and split the
+series on the deploy timestamp.
+
+```kusto
+let boots = traces | where message has '<the warm-up completion message>' | project inst=cloud_RoleInstance, warmEnd=timestamp, msg=message;
+dependencies | where type == 'SQL' | join kind=inner (boots) on $left.cloud_RoleInstance == $right.inst | where timestamp < warmEnd and timestamp > warmEnd - 30s | summarize sqlCommands=count() by inst, warmEnd, msg | order by warmEnd asc
+```
+
+A clean step at the deploy boundary — every boot before it at one count, every boot after it at
+another, holding across several boots — is direct evidence that the warm-up now compiles what it
+did not before. On the run that found this, the series was fifteen pre-deploy boots at **16**
+commands and four post-deploy boots at exactly **23**, and the `+7` matched the fix's diff line for
+line: one root lookup plus the six child-collection commands a split query had been skipping.
+
+Three cautions, all of which cost something to learn:
+
+- **The 30-second lookback is a heuristic, and real traffic contaminates it.** Two pre-deploy boots
+  in that series read 36 and 25 against a mode of 16 — those are ordinary requests overlapping the
+  window, not warm-up work. Read the mode, not the mean, and treat a lone outlier as noise unless the
+  whole post-deploy series moves.
+- **Warm-up duration is not the signal — the count is.** In the same data the post-deploy durations
+  (1545/2306/2442/4860 ms) sat entirely inside the pre-deploy range (642–3691 ms). Duration varies
+  with DTU contention and proves nothing on its own; a run that reaches for it instead of the count
+  will report a fix as unproven, or worse, as proven.
+- **This settles the mechanism, never the timing.** It says the commands are now issued at boot. It
+  does not say the first cold request got faster. Report it as exactly that, keep waiting for the
+  user-visible row, and do not let a clean step promote the entry to "verified".
+
+**Budget for that wait, and do not read its length as a verdict.** The user-visible row needs a fresh
+instance *and* a real visitor inside the same minute, and those two are much less correlated than they
+look: an uptime monitor reaches a new instance within seconds, so a boot can come and go with nothing
+but synthetic `GET /` in its first two minutes. On the project that found this, seven days and eleven
+post-deploy boots produced no qualifying row — three of them on one day, all serving only monitor
+traffic while young — and then **two arrived within ten hours of each other** once ordinary traffic
+happened to land on a boot. So a fresh instance is necessary and not sufficient; count boots *that also
+served a real request while young*, not boots. Two things make the wait cheap rather than anxious: the
+command-count step above already carries the mechanism, and the failure class itself is directly
+checkable in the meantime (`dependencies | where success == false` over the window, plus the per-minute
+dependency max on each new instance's first two minutes), so you can report the defect as absent long
+before you can report the latency as fixed.
+
+The SQL `data` field is often empty on these rows (no command text captured), so the count is
+frequently all you get — which is fine, because the count is what the question needs.
+
+**A cold start has TWO independent costs, and fixing one tells you nothing about the other.** Query
+compilation is the one everybody warms; **connection establishment** — TCP, TLS and the database's own
+login — is the one nobody does, and it is invisible in every query-shaped check. The tell is a
+dependency row whose `resultCode` is **empty** and whose `data` field reads `InternalOpenAsync` (or the
+equivalent open call for your client), sitting just before the command timeouts rather than among them.
+
+This is how a verified warm-up fix can read as regressed when nothing about it regressed. On one run
+two fresh instances each completed the warm-up with the *exact* post-fix command count (23, the step the
+fix introduced, holding across every boot in the window) and then served their first real page request
+in **23 s and 38 s** — because a single `InternalOpenAsync` had taken **29 287 ms** and two commands
+timed out on top of it. The sweep that had earlier written "verified, closed" against that fix was not
+wrong about the fix; it had measured the only cost it knew to look for.
+
+**That row has more than one spelling, so do not key on the one you saw first.** On the same project the
+identical failure later arrived as `resultCode` **`0`** with `data` = **`Open`**, 24 079 ms, where every
+earlier occurrence had read `data` = `InternalOpenAsync` with an **empty** `resultCode`. A ledger note or
+a KQL filter written around either literal silently misses the other. Key the pass on
+`type == 'SQL' and success == false` and *read* `data` and `resultCode` as evidence, never as the
+predicate — the client library chooses that label and is free to change it between versions.
+
+Two checks settle which cost you are looking at, and both are cheap:
+
+- **Read the SQL text of what timed out.** A primary-key lookup on a single table cannot be slow for
+  want of a compiled plan. If the failing statement is trivial, the time is not in compilation.
+- **Grep the repo for a pool minimum** (`Min Pool Size`, `MinPoolSize`, or your driver's spelling) and
+  for an explicit open in the warm-up (`OpenConnection`, `OpenAsync`, `CanConnectAsync`). A warm-up that
+  only runs queries through an ORM leaves pool population to chance: the first real visitor still pays
+  the login, and pays it *concurrently* with the uptime monitor and everyone else who arrived in the
+  same few seconds.
+
+Corroborate with whatever else the boot was doing. In that same window the instance's managed-identity
+token acquisition took **10 923 ms** twenty-six seconds before the stall — the boot was contending for
+everything at once, which is the shape of a resource problem and not of a missing query plan.
+
+**And before filing either a warm slow request or a warm command timeout, check its timestamp against the
+deploy history.** A rolling deploy runs two instances at once: the draining old one and the booting new
+one contend for the same database and the same identity endpoint, so the window manufactures *both*
+shapes within seconds of each other. On one run a 9 024 ms request on a 10-minute-old instance, a
+background-job command timeout on that same instance two minutes later, an 8 790 ms request on a
+*different* old instance an hour on, and a 24 s connection-open failure on its replacement 29 seconds
+after that were all filed against three separate watches — and all four sat inside two deploy windows.
+One `gh run list --workflow <deploy> --json headSha,createdAt,conclusion` separates "the tier is
+contended while we roll" from four independent findings. Read it as a capacity fact, not a defect, and
+say so.
 
 ## 6. Dependencies and traces
 
