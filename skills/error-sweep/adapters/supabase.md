@@ -110,6 +110,7 @@ editing it.**
 | `postgres_logs` | `parsed.error_severity` | `parsed.sql_state_code`, `parsed.query`, `parsed.detail`, `parsed.user_name`, `parsed.command_tag`, `parsed.application_name` |
 | `edge_logs` | `response.status_code` (a **String** — wrap in `toInt32OrZero`) | `request.method`, `request.path`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip`, `request.headers.user_agent` (§8), and — added 2026-09-12, see §13 — `response.origin_time` (origin latency in ms, also a String) plus `request.sb.apikey.apikey.prefix` / `request.sb.apikey.authorization.prefix` (which credential the caller presented) |
 | `auth_logs` | `level` + `status` (these ARE bare) | `msg`, `path`, `component`, `remote_addr`, and — added 2026-09-16 — `error` (GoTrue's own error string, e.g. `error finding flow state: context canceled`), `duration` (**nanoseconds**, not ms), `referer`. `error` is the key that separates two `500`s that share a `msg`, and it is populated on the paired `request completed` row too, so an `error` row and a `request completed` row carrying the SAME `error` string at the same second are **one request**, not two events |
+| ↳ | **A GoTrue request the CLIENT aborted produces NO `edge_logs` row at all** — added 2026-09-17. There was never a response for the gateway to record a status against, so the request exists only in `auth_logs`. Two consequences. (1) A 1:1 `auth_logs` ↔ `edge_logs` reconciliation is *expected* to be short on the `edge_logs` side by exactly the number of aborted requests, and that shortfall is not a collection gap. (2) The §7 `edge_logs` status distribution — the check every other section tells you to run first — **cannot see this class**, so a window reading `{200: n, 101: m}` with no 4xx or 5xx does not mean no auth request failed. Read `auth_logs` on its own terms. Observed on `auxf`: a `500` `unexpected EOF` on `POST /token` at `05:42:52Z` with **one** `edge_logs` row across it and its successful retry (the retry's `200`), against a window carrying zero 5xx over 7554 gateway rows | |
 | ↳ | **`status` is `''` on non-HTTP lines** — 47 of 395 on `auxf` 2026-08-31. Those blank-status rows are where the OAuth outcomes live (`Login`, `Redirecting to external provider`, and `access_denied: The resource owner or authorization server denied the request` when a user cancels the consent screen). A filter of `status >= 500` or `level = 'error'` sees none of them. Group by `log_attributes['msg']` over the blank-status rows once per run. | |
 | `storage_logs` | `level` — and **`warning`, not `error`, is where 4xx live** (§12) | `res.statusCode` seen 2026-08-23; absent from the 2026-08-24 pass. When it is absent, parse `event_message`: it is a fixed pipe-delimited line, `project | METHOD | STATUS | ip | cf-ray | path?token=redacted | user-agent`, so `splitByChar('|', event_message)[3]` is the status |
 | `realtime_logs` | `level` | — |
@@ -458,3 +459,275 @@ together: hourly 504s went to **zero** for 21 consecutive hours, *and* `max(orig
 came off the pin — `5018–5103 ms` during, then scattered `2922–10572 ms`, then `552–1257 ms`. A
 scattered max is recovery; a pinned max is the wall, at any count. Report the pair, never either
 alone.
+
+## 14. `postgrest_logs` is not only the Warp reaper — group the REMAINDER, or you examine a third of it
+
+Found 2026-09-18 on `auxf`. §11 introduces `postgrest_logs` as the home of
+`Warp server error: Thread killed by timeout manager`, and it is: 1657 of 1981 rows that window.
+But every sweep on that project for nine runs had reduced this source to **the Warp count alone**,
+which meant **324 rows a day were enumerated and never examined** — the exact clean-bill-of-health
+failure §7 documents for a wrong key, arriving instead through a filter that was merely too narrow.
+
+The remainder is a repeating fixed-shape cycle, ~19 times in 24h:
+
+```text
+Received a schema cache reload message on the "pgrst" channel     x5
+Successfully connected to PostgreSQL 17.6 on aarch64-...          x2
+Connection Pool initialized with a maximum size of 10 connections x2
+Config reloaded                                                   x2
+Schema cache queried in <n> milliseconds                          x2
+Schema cache loaded 28 Relations, 29 Relationships, 100 Functions x2
+```
+
+**Read the `Schema cache loaded` counts across cycles — that one line decides the triage.** Identical
+relation/relationship/function counts every cycle means **no DDL happened**: this is Supabase
+reloading its own managed PostgREST, and it is `external`. Counts that *move* mean the schema
+changed under the app, which is a different and much more interesting finding — especially on a
+project whose migrations are supposed to arrive only through the repo.
+
+Two more things worth knowing about the shape:
+
+- **Two `Successfully connected` + two `Config reloaded` per cycle is normal**, not a double restart.
+- **It correlates with dashboard and integration activity**, not with app traffic: on that run 9 of
+  the 11 `auth_logs` `Login` rows shared a minute with a reload cycle, and the two
+  `workflow_run_logs` syncs sat inside the same set.
+
+The rule generalises past this source: **for any source you filter down to one known-noise class,
+count the class AND the remainder, and group the remainder at least once.** A source is only examined
+when the buckets sum — the same arithmetic §7 demands of `postgres_logs` and `edge_logs`.
+
+**How to group a level-less source: classify with `multiIf` on substrings, NOT with a
+digit-stripping shape regex.** Found 2026-09-21 on `auxf`. The obvious move on a source with no
+level key is `replaceRegexpAll(substring(event_message,1,N), '[0-9]+', 'N')` — which works on
+`postgrest_logs`, whose lines are fixed prose. It **fails** on `pgbouncer_logs`, where every line
+opens with a per-connection id and a client address (`C-0xbde2e1: postgres/supabase_storage_admin@
+[2600:1f18:…]:20302 login attempt: …`). Digit-stripping leaves the hex and the IPv6 colons intact,
+so each connection becomes its own bucket: a 669-row source came back as dozens of `n=1` groups
+that summed correctly and showed nothing. Widening the regex to eat hex and colons then starts
+eating the message too, and the §17 backslash-escaping trap makes character classes unreliable over
+the MCP hop anyway.
+
+Classify by meaning instead, and keep an explicit catch-all so the buckets still sum:
+
+```sql
+select multiIf(event_message like '%tls_sbufio_recv%', 'tls unexpected eof',
+               event_message like '%closing because%',  'closing (idle/client close)',
+               event_message like '%new connection%',   'new connection',
+               event_message like '%SSL established%',  'SSL established',
+               event_message like '%rror%',             'OTHER-ERROR-SHAPED',
+               'other') as cls,
+       count(*) as n
+from logs where source='pgbouncer_logs' group by cls order by n desc
+```
+
+The `OTHER-ERROR-SHAPED` arm is the load-bearing one — it is what turns "I listed the classes I
+already knew about" into "I checked whether anything else here is an error". Read the `other` bucket
+once with a `limit` to confirm it is what you think it is, then move on.
+
+## 15. `workflow_run_logs` is the GitHub-integration sync, and it reports whether config reached production
+
+§7's table lists `workflow_run_logs` with no level key and `event_message` only, which is correct but
+undersells it. Confirmed 2026-09-18 on `auxf`, where it carried content for the first time: it is
+Supabase's **GitHub integration executor**, and it runs once per push to a connected branch, about a
+minute behind the push. Useful keys beyond `event_message`: `workflow_run`, `branch` (a *Supabase*
+branch uuid, not a git ref), `container_name` (`executor`).
+
+A run on a protected branch reads:
+
+```text
+INFO Cloning git repo... git_ref=main
+WARN Environment variable is unset... name=<NAME>          <- see below
+INFO Checking service health... project_ref=<ref>
+INFO Skipping configuration for protected branch...
+INFO Connecting to database... host=...
+INFO All migrations are up to date.
+INFO No buckets found. Try setting [storage.buckets.name] in config.toml.
+INFO Skipping seed data for protected branch...
+INFO No functions to deploy.
+```
+
+Three reasons to read it every run on a project with the integration connected:
+
+- **`All migrations are up to date.` is a free, authoritative migration check** — the platform's own
+  answer, not an inference from `postgres_logs`. It is also the cheapest disqualifier when a diff
+  touches a file under `supabase/migrations/`: a repo that edits an already-applied migration and
+  still gets this line changed a comment, not DDL.
+- **`Skipping configuration for protected branch...` is what makes the `WARN` lines harmless.** A
+  `config.toml` that reads secrets via `env(...)` will warn on every sync because the executor has no
+  such variable. **Do not file that as a production defect** — the very next line says the config was
+  never applied. It bites only on a Supabase *preview* branch, where the setting resolves empty. That
+  is an integration-settings decision for the owner, never a repo fix.
+- **It dates the deploy from the provider's side**, which is a second clock to reconcile a Netlify
+  `published_at` against.
+
+## 16. Five sources starting at the SAME INSTANT looks like a restart, and is usually just an idle app
+
+Found 2026-09-18 on `auxf`, and it nearly went into a report as a 20.7 h collection gap. The
+§7 source distribution came back with `pgbouncer_logs`, `storage_logs`, `realtime_logs`, `auth_logs`
+and `auth_audit_logs` **all reporting `min(timestamp)` within 1.5 seconds of each other**
+(`13:31:41.891` → `13:31:42.513`), three hours into a 24 h window. Five sources agreeing to the
+second reads as a platform restart, or as retention truncating the low-volume tiers.
+
+It was neither. **Those tiers are driven by human sessions, and the app had none.** `13:31:41Z` was
+simply the first `Login` of the day; storage, pooler and realtime churn begins with a user and stops
+without one. The `edge_logs` stream looked busy throughout only because a minute-cadence cron keeps
+the gateway warm, and cron traffic touches none of those five services.
+
+Two cheap disqualifiers settle it, and both are one query each:
+
+- **Re-query with an explicit EARLIER window.** `iso_timestamp_start` / `iso_timestamp_end` are
+  honoured, so a window over the supposedly-empty stretch either returns rows (the sources were
+  alive; you were reading a quiet period) or does not. Here it returned `auth_logs` rows at
+  `09:08:24` and `realtime_logs` at `09:57:00`, before the "boundary" — which proves no retention
+  cliff and no restart.
+- **Look for the restart's own evidence, not its silhouette.** A GoTrue restart writes a boot
+  sequence (`received graceful shutdown signal`, `GoTrue migrations applied successfully`,
+  `GoTrue API started on: localhost:9999`). None of it was present. Absence of the boot sequence
+  disproves the restart outright.
+
+**Never report a source gap you have not confirmed against an explicit window.** A quiet tier and a
+dead collector look identical in a distribution that only reports `min(timestamp)`, and calling a
+normal overnight lull a collection failure spends the next run's credibility.
+
+## 17. `query_logs` reads the LOG STREAM only — `information_schema` and every app table need `execute_sql`
+
+Found 2026-09-19 on `auxf`. `query_logs` is ClickHouse SQL over the unified `logs` stream and nothing
+else. A perfectly ordinary catalogue read —
+
+```sql
+select column_name from information_schema.columns where table_schema='public' and table_name='matches'
+```
+
+— comes back `Tables "information_schema", "columns" do not exist.` That is the right answer from the
+wrong engine, and it matters more than it looks, because several project cards now carry a standing
+**"read `information_schema.columns` before querying any app table"** rule whose whole purpose is to
+stop the sweep's own guessed column names landing in `postgres_logs` as `mgmt-api` ERRORs. Routed to
+`query_logs`, that rule silently cannot run.
+
+Two engines, two jobs, and they are not interchangeable:
+
+| Tool | Engine | Reads |
+|---|---|---|
+| `query_logs` | ClickHouse | the `logs` stream: `edge_logs`, `postgres_logs`, `auth_logs`, … |
+| `execute_sql` | the project's Postgres | `information_schema`, `pg_catalog`, `public.*`, the damage-test queries |
+
+The consolation is that the failure is **free**: `query_logs` never reaches Postgres, so a
+catalogue read misrouted there produces no ERROR row and no new known-noise entry. Re-issue it
+against `execute_sql` and carry on.
+
+**Two more `query_logs` quirks found the same run, both cheap to avoid.**
+
+- **A `union all` of seven per-source distributions returns `Backend error! Retry your query.`** —
+  not a syntax error, not a timeout, and retrying does not help. Issue one distribution per call.
+  Several small calls also read better in the transcript than one wide result.
+- **Backslash escapes in a regex literal do not survive the MCP hop.**
+  `replaceRegexpAll(event_message, '\s+', ' ')` arrives at ClickHouse as an escaped backslash
+  followed by `s`, so it replaces every literal **`s`** in the message and silently mangles the
+  output (`Warp server error` renders as `Warp  erver error`). Use a POSIX class —
+  `[[:space:]]+` — or avoid whitespace normalisation entirely. The `[0-9]+` half of the same
+  expression works fine, which is what makes this hard to spot: the numbers normalise correctly
+  while the text quietly rots.
+
+## 18. A `520` is a GATEWAY-tier code the storage service never logs — and it is not the 5 s origin wall
+
+Found 2026-09-19 on `auxf`. Cloudflare's `520` ("web server returned an unknown error") arrived on a
+single browser photo upload, `POST /storage/v1/object/<bucket>/<path>`, publishable key. Two things
+separate it from the 504/502/500/525 family of §13, and both are one field each:
+
+- **`response.origin_time` was `10` ms.** The origin answered *immediately* with something the
+  gateway could not turn into a response. A timeout wall pins the latency (§13's `5018–5103 ms`); a
+  520 of this shape has no latency at all. Read `origin_time` before assuming which failure you have.
+- **`storage_logs` carried zero `warning` rows for the window** (`{info: 369}`). §12 establishes that
+  a storage 4xx lands at `warning`; a 520 lands at **neither** level, because the storage service
+  never produced the response that failed. So the tier-level cross-check §12 recommends comes back
+  clean and is *correct* to — the only source that sees this class is `edge_logs`.
+
+**Prove the recovery on the object path, not on the endpoint.** A signed-upload flow touches
+`/object/sign/<bucket>` (issue) and `/object/<bucket>/<path>` (store), and only the second one is
+the upload. Here the identical object path returned `200` 7.7 s later and the signed `GET` on that
+object returned `200` a second after that, so the photo landed and the user saw it. That is
+`external`. A 520 with **no** later success on the same object path is a lost upload and IS a
+finding; so is a run of them.
+
+## 19. The `information_schema`-first rule must read `data_type` too — a name-only read stops name errors and nothing else
+
+Found 2026-09-21 on `auxf`, by the rule failing while being correctly followed.
+
+§17 establishes that the catalogue read must go to `execute_sql`, not `query_logs`. Several project
+cards then carry a standing **"read `information_schema.columns` before querying any app table"**
+rule, whose whole purpose is to stop the sweep's own guessed identifiers landing in `postgres_logs`
+as `mgmt-api` ERRORs. On `auxf` that rule had held for six consecutive windows.
+
+It did not hold on the seventh, and **the run had followed it**: the catalogue read ran first, via
+`execute_sql`, and returned the real column list for all five tables. The column existed. The query
+still failed:
+
+```text
+42883  function length(jsonb) does not exist
+       select ... length(d.brief) ... from season_digests d
+```
+
+`season_digests.brief` is `jsonb`. The read had confirmed `brief` **exists**; it had said nothing
+about what `brief` **is**, because it selected `column_name` only. A name-only catalogue read
+prevents exactly one failure mode — a wrong name — and this was the other one.
+
+**Select the type as well. It is the same call and the same row:**
+
+```sql
+select table_name, column_name, data_type
+from information_schema.columns
+where table_schema='public' and table_name in ('<t1>','<t2>', ...)
+order by table_name, ordinal_position
+```
+
+Then read the types before applying any function to a column: `length()` on `jsonb`, a date
+operator on `text`, a numeric comparison on an enum, and `->>` on a column that is not JSON all fail
+this way, all at ERROR, and all get attributed to the app by the next run unless the query is
+recognised.
+
+**Two consequences worth carrying.**
+
+- **The whole-source distribution runs BEFORE the sweep's own queries, so it cannot see them.** On
+  this run `postgres_logs` came back `{LOG: 205}` — a genuinely clean seventh window — and the
+  self-inflicted ERROR arrived forty minutes later, from the sweep itself. A run that reports the
+  opening distribution as its final word on `postgres_logs` will state a clean window it has since
+  broken. **Re-query `postgres_logs` for ERRORs at the END of the run, over the stretch the sweep
+  was working in**, and say plainly which ERRORs are the sweep's own.
+- **Catching it in the same run is strictly better than inheriting it**, because the query is still
+  in front of you. The class is otherwise found a run later, when only `parsed.query` connects it
+  back — which is why the cards tell you to diff a `mgmt-api` ERROR's `parsed.query` against the
+  previous run's report.
+
+## 20. Measuring `max_gap` with `lagInFrame` puts the EPOCH in your ledger unless you guard the first row
+
+Found 2026-09-21 on `auxf`, while accumulating the `max_gap` figure step 7b's quiet test depends on.
+
+The natural query for "longest gap between consecutive occurrences" is a window function over the
+signature's timestamps. In ClickHouse, `lagInFrame` returns the column's **default** for the first
+row of the frame — for a `DateTime` that is the epoch — so the first row's computed gap is measured
+from 1970 and dominates the `max()`:
+
+```sql
+-- WRONG: returns 497196.88 hours on a class that recurs every few hours
+select max(dateDiff('second', lagInFrame(timestamp) over (order by timestamp), timestamp)/3600.0)
+from logs where source='postgrest_logs' and event_message like '%<the class>%'
+```
+
+```sql
+-- RIGHT: drop the first row, which has no predecessor to measure against
+select max(gap_h) as max_gap_h, min(gap_h) as min_gap_h, count(*) as gaps from (
+  select dateDiff('second', prev, timestamp)/3600.0 as gap_h from (
+    select timestamp, lagInFrame(timestamp) over (order by timestamp) as prev
+    from logs where source='<source>' and event_message like '%<the class>%')
+  where prev > toDateTime('2020-01-01'))
+```
+
+The corrected query answered **5.05 h** where the naive one answered 497196.88.
+
+**This one is worth guarding against specifically, because the damage is silent and permanent.**
+`max_gap` is the only long memory a day-wide collector has, and step 7b test 4 requires the quiet
+span to exceed it. A `max_gap` of 497196 hours is 56 years: that signature's issue can **never**
+pass test 4 again, so the sweep would keep it open forever while reporting, correctly by its own
+rule, that the quiet span was insufficient. Sanity-check any `max_gap` against the collection
+window before writing it — a figure larger than the window itself can only come from a previous
+run's `last_seen`, never from gaps measured inside this one.

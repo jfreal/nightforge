@@ -103,7 +103,8 @@ be a person's issue, and step 7b needs to know.
 **A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
 skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
 re-spawns it. The entry's `note` says which kind it is (step 7): `deferred: …` — over cap, or no
-PR — goes straight back into the queue; `stopped: cause unclear` goes back only when this run
+PR — goes straight back into the queue; `stopped: owner decision` never goes back until the
+owner answers; `stopped: cause unclear` goes back only when this run
 collected new evidence — occurrences with a new shape since `last_seen`, or a comment from a
 person on the issue. Re-spawning a cause-unclear stop on the same evidence is a nightly loop that
 costs a session and produces the same comment.
@@ -256,6 +257,23 @@ WORKING RULES — follow all of these
 
 If a bug has no issue yet, file one first (step 5) so the agent can close it.
 
+**When the agents return, turn PR auto-fix on.** John authorized this standing, for every PR, on
+2026-09-17 — do not ask. The agents open the PRs, but the *session* holds the monitor binding, so
+you do this, not them. Call `mcp__ccd_pr__get_status` to see which PR the app bound, then
+`mcp__ccd_pr__set_monitor(url: "<that PR url>", auto_fix: true, address_comments: true)`. Leave
+`auto_merge` and `auto_archive_on_close` alone.
+
+A session monitors **one** PR, and the binding follows the newest. When a run opens several, only
+one can be watched — step 8 must name the rest as unmonitored rather than implying they are covered.
+
+**BUT IN A SCHEDULED RUN THIS STEP CANNOT BE DONE AT ALL, AND THAT IS NOT A FAILURE TO RETRY.**
+Confirmed 2026-09-18: `mcp__ccd_pr__set_monitor` answers
+`This tool is unavailable in unattended sessions (scheduled-task runs and remote-dispatched trees).`
+`mcp__ccd_pr__get_status` still works, so you can read the binding and name the PRs — you simply
+cannot flip the switch. A fix agent hits the same wall, so do not re-dispatch one to try. **Report
+every PR the run opened as UNMONITORED under *Needs you*, with the one-line reason**, so the standing
+"auto-fix on every PR" authorization is visibly unfulfilled rather than silently assumed.
+
 ## Step 7 — Update the ledger
 
 Write every newly triaged signature back to `seen.json` with:
@@ -278,7 +296,18 @@ Preserve existing entries.
 **A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the reasons
 differently: `deferred: over cap` or `deferred: no PR` (re-spawned next run — or this run, when
 step 3 found it) versus `stopped: cause unclear — analysis on #<n>` (re-spawned only on new
-evidence). A bare null is read as `deferred`.
+evidence) versus `stopped: owner decision — #<n>` (never re-spawned without a word from the
+owner). A bare null is read as `deferred`.
+
+**That third reason exists because the first two both lie about a real and recurring case: the
+cause is fully known, and the only available code change is one the owner already made on
+purpose.** A tuning constant, a pool depth, a tier, a timeout, a log level — where the source
+carries a comment saying *why* it is that value, an agent sent to "fix" it is not fixing a bug,
+it is overruling a documented decision with no new authority to do so. `deferred` would requeue
+it every night; `cause unclear` is simply false and invites a pointless analysis comment. File
+the issue with the measurement that makes the decision reviewable, put the decision under the
+report's *Needs you*, and record `stopped: owner decision`. The sweep's contribution to a
+judgement call is evidence, not a PR.
 
 ## Step 7b — Close an issue only when the code and the telemetry both prove it
 
