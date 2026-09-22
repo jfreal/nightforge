@@ -146,10 +146,20 @@ touch (a feature that looks removed, a key rename — those are decisions, and t
 refuses to make them for you). Remove the worktree after the push; the branch survives it.
 
 Then turn PR auto-fix on — John authorized this standing, for every PR, on 2026-09-17, so do not
-ask: `mcp__ccd_pr__set_monitor(url: "<the PR url>", auto_fix: true, address_comments: true)`. Leave
-`auto_merge` and `auto_archive_on_close` alone. A session monitors **one** PR and the binding
-follows the newest, so on a multi-repo run only the last PR is watched — step 5 names the rest as
-unmonitored.
+ask. Leave `auto_merge` and `auto_archive_on_close` alone. A session monitors **one** PR and the
+binding follows the newest, so on a multi-repo run only the last PR is watched — step 5 names the
+rest as unmonitored.
+
+**Invoke `mcp__ccd_pr__set_monitor` only when the session is attended:**
+`mcp__ccd_pr__set_monitor(url: "<the PR url>", auto_fix: true, address_comments: true)`.
+
+**In a scheduled or otherwise unattended run this step cannot be done at all, and that is not a
+failure to retry.** Confirmed 2026-09-18: `mcp__ccd_pr__set_monitor` answers
+`This tool is unavailable in unattended sessions (scheduled-task runs and remote-dispatched trees).`
+`mcp__ccd_pr__get_status` still works, so you can read the binding and name the PRs — you simply
+cannot flip the switch. Do not re-dispatch a fix to try. **Mark every PR the run opened as
+UNMONITORED in the step 5 report, with the one-line reason**, so the standing "auto-fix on every
+PR" authorization is visibly unfulfilled rather than silently assumed.
 
 ## Step 5 — Report
 
@@ -157,6 +167,7 @@ One report for the whole run, to the card's report path if it names one, and sum
 
 - the roster: swept, skipped (with reason), failed (with the error)
 - per repo: clean in one line, or the PR opened with number and link
+- unattended runs: every PR opened, marked UNMONITORED, with the one-line reason
 - drift found but not fixed: over the cap, or flagged-not-fixed findings a human must decide
 - what failed, loudly — a repo whose audit errored is not a clean repo
 - **every PR this run opened, named as unmonitored** — see below

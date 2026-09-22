@@ -73,14 +73,16 @@ not exceptions** — but note the exit code is not always `2`, so do not grep fo
 | `error_message` | Notes |
 |---|---|
 | `Failed during stage 'building site': Build script returned non-zero exit code: 4` | Same class as `exit code 2`. The number is the tool's, not Netlify's, and it varies |
-| `Timeout` | A bare one-word message with no stage prefix. The build exceeded the host's limit. §14 applies, so the log is unretrievable and there is nothing further to learn from the CLI |
+| `Timeout` | A bare one-word message with no stage prefix. The build exceeded the host's limit. §14 applies, so the build log is unretrievable from the CLI; use deploy metadata and neighboring deploys for recovery analysis |
 
 **Judge a cluster of preview failures by the neighbours before reaching for a shared cause.** On
 2026-09-22 four failures landed inside one 18-minute band across two branches, which reads like
 §18's 2026-09-14 case where a provider incident froze every deploy. It was not: each branch had a
 `ready` deploy *in the middle* of the band, and production was clean throughout. Two branches being
 pushed rapidly, some commits building and some not, is ordinary development. **A `ready` deploy
-interleaved with the failures rules out any site-wide condition in one read of the deploy list.**
+interleaved with the failures rules out only a continuous site-wide failure that would have affected
+that deploy.** An intermittent provider issue, or a condition limited to particular branches or
+commits, remains possible.
 
 There is a **third** shape that is neither of those and is not a code defect either. Seen
 2026-08-27 on mergetel:
@@ -1046,8 +1048,9 @@ minute carries one.
 ```
 
 So the two counts of §20 acquire a third reading. `Invoke Error` ≈ `Duration:` means every invocation
-crashed; `Duration:` lines running at **twice** the cron cadence in the minutes that carry an ERROR
-means the platform is retrying and the schedule is absorbing the failures.
+crashed. Two `Duration:` lines in a minute that carries an ERROR mean two invocations; they can be
+the platform retrying and the schedule absorbing the failures, but they are not proof of a retry.
+Attribute a retry only under the 2026-09-22 correction below.
 
 **Confirm it arithmetically in a downstream log rather than trusting the pairing** — the log is
 truncated (§9) and the pairing is easy to misread. In a complete table (a database gateway log, an
@@ -1114,9 +1117,11 @@ pinned down — B, C and D above arrived 9 s, 11 s and 18 s after A started, and
 succeeded before C and D ran, which no simple "retry until success" rule explains. Treat the depth
 as unknown-but-greater-than-one rather than substituting a new constant.
 
-**Correction, 2026-09-22 on `auxf`: the two-`Duration:` shape is a TELL, not PROOF. The platform
-also fires a scheduled function twice on its own, and the two cases are byte-identical in the log.**
-This matters more than it sounds, because on a project whose card says "a drain non-2xx with no
+**Correction, 2026-09-22 on `auxf`: two `Duration:` lines mean two invocations, not proof of a retry.
+The platform also fires a scheduled function twice on its own, and the two cases are byte-identical
+in the log.** Attribute a retry only after establishing that a non-2xx return was possible and
+checking the downstream latency, reachable non-2xx exits, and contiguous unfiltered logs.
+The double-fire matters more than it sounds, because on a project whose card says "a drain non-2xx with no
 guard ERROR line is a regression" — `auxf` carries exactly that rule for PR #269 — the duplicate
 reads as a *broken guard*, which is a finding, filed against a guard that is working perfectly.
 
