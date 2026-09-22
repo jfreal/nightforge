@@ -51,6 +51,20 @@ For each repo, derive the GitHub slug from `git remote get-url origin` and the d
 `origin/HEAD` is unset, `git remote show origin` names the head branch without needing a config
 write.
 
+**The glob matches things that are not repos. Check `.git` before trusting a hit.**
+
+- **A sibling worktree of another roster repo.** A worktree carries its parent's `.claude/` tree, so
+  it matches the glob *and* derives the same GitHub slug — two "repos" racing to open a PR against
+  one remote. The tell is that `.git` is a **file**, not a directory: it holds a
+  `gitdir: <parent>/.git/worktrees/<name>` pointer. Resolve it to its parent and skip it when the
+  parent is already on the roster.
+- **A directory that was never `git init`ed.** A port can be copied into a folder that is not a repo
+  at all. There `git remote get-url origin` fails with *fatal: not a git repository*. Treat that as
+  "skip and report", not as a failed sweep.
+
+Both belong in the card's excludes once identified, but re-verify them each run rather than trusting
+the exclusion blindly — a folder that gains a remote later should rejoin the sweep.
+
 ## Step 1 — Skip repos with a sweep already in flight
 
 ```
@@ -92,6 +106,33 @@ name only files the repo's sync-docs skill documents as its targets. Then, if th
 verify command for this repo (docs that build — an Eleventy site, a docs generator), run it; a doc
 fix that breaks the docs build is not a fix.
 
+### Refreshing `sources` without eating hand-maintained entries
+
+Every port rebuilds each key's `sources` from the tags it just found, and a blind rebuild **deletes
+what the scan structurally cannot see**. Registries accumulate such entries legitimately: files whose
+format has no comment syntax, and files outside the scan roots.
+
+Apply a test, not a judgement. For each *existing* entry, ask: **could this port's declared scan —
+its roots x the file types it says it reads — have produced this path?**
+
+- **No** → keep it, and say so in the PR body. It is hand-maintained, not drift.
+- **Yes, and the tag is gone** → prune it. That is real drift. Confirm which kind: the file was
+  deleted, the file survives with no tag at all, or the tag moved to another key.
+
+Read "what the scan *can* produce" rather than a literal list — ports state their file types loosely
+("C#, Razor, CSS, JS"), and a real tag can sit in a file type the sentence forgot to name. Only
+nightforge's port has a `"sourcesManual": true` escape hatch; everywhere else this test is the only
+thing standing between a refresh and a silent deletion.
+
+Two related traps:
+
+- **Exclude build output from the scan** — `obj/`, `bin/`, `node_modules/`, `dist/`, `_site/` and
+  `publish/`. One registry had accumulated nine generated copies of a single source under
+  `obj/…/scopedcss/…`.
+- **A registry entry whose doc page no longer exists is a rename, and a rename is the user's call.**
+  Leave the entry byte-for-byte alone, stale `sources` included. Zeroing it out to tidy up destroys
+  the evidence a human needs to decide what the key became.
+
 Commit once — `docs: weekly sync-docs sweep <YYYY-MM-DD>` — push the branch, and open the PR as a
 **draft**:
 
@@ -112,12 +153,30 @@ One report for the whole run, to the card's report path if it names one, and sum
 - per repo: clean in one line, or the PR opened with number and link
 - drift found but not fixed: over the cap, or flagged-not-fixed findings a human must decide
 - what failed, loudly — a repo whose audit errored is not a clean repo
+- **every PR this run opened, named as unmonitored** — see below
 
 **If every repo came back clean, say exactly that in one line per repo.** Open nothing, do not pad
 the report.
+
+**This pipeline cannot switch PR auto-fix on, and must say so rather than implying otherwise.**
+`mcp__ccd_pr__set_monitor` refuses in exactly the context this pipeline runs in:
+
+> This tool is unavailable in unattended sessions (scheduled-task runs and remote-dispatched trees).
+
+A scheduled sweep is always such a session, so **every PR a sweep opens is unmonitored**, not just
+the ones past the one-PR-per-session binding limit. List them all under *Needs you* so the user can
+turn auto-fix on by hand. Do not report a monitor that was never established.
 
 ## When you learn something
 
 A gotcha about a *repo* (its docs build command, a port quirk) belongs in the roster card's per-repo
 overrides. A gotcha about the *pipeline* belongs in this file. Edit it in the same run you learn it —
 nothing reads last week's report.
+
+**A port's own `SKILL.md` is never in its own write set, so a port defect is always flag-only.** When
+a port has drifted from the repo it guards — it names a symbol the code no longer has, or declares
+scan roots narrower than where the tags actually live — the sweep cannot repair it. Do three things
+instead: run that repo audit-only until a human fixes the port, record the defect in the card's
+per-repo overrides so the next run works around it rather than rediscovering it, and say plainly in
+the report that a human must repair it. Name what a blind fix-scope run would have destroyed; that
+number is the argument for the repair.
