@@ -1025,7 +1025,7 @@ filing it wastes a run. Note the prefixing behaviour differs between sites for r
 cannot yet explain — so establish which one you have (`wc -l` against `grep -c '^\['`) before
 reading any count, in either direction.
 
-## 22. Netlify RETRIES a scheduled function that RETURNS a non-2xx — once, immediately
+## 22. Netlify CAN RETRY a scheduled function that RETURNS a non-2xx — more than one extra attempt, with unknown depth and delay
 
 Found 2026-09-12 on `auxf`. §17 establishes that a returned non-2xx is invisible to the log. This is
 the other half of that behaviour, and it is the more consequential half: **the platform treats the
