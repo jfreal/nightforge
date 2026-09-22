@@ -167,10 +167,10 @@ One report for the whole run, to the card's report path if it names one, and sum
 
 - the roster: swept, skipped (with reason), failed (with the error)
 - per repo: clean in one line, or the PR opened with number and link
-- unattended runs: every PR opened, marked UNMONITORED, with the one-line reason
+- **PRs marked UNMONITORED, with the one-line reason — unattended runs: every PR the run opened;
+  attended runs: only the PRs that were not the monitored newest one** — see below
 - drift found but not fixed: over the cap, or flagged-not-fixed findings a human must decide
 - what failed, loudly — a repo whose audit errored is not a clean repo
-- **unattended runs: every opened PR is unmonitored; attended runs: only the PRs that were not the monitored newest one** — see below
 
 **If every repo came back clean, say exactly that in one line per repo.** Open nothing, do not pad
 the report.
