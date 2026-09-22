@@ -1052,9 +1052,9 @@ crashed. Two `Duration:` lines in a minute that carries an ERROR mean two invoca
 the platform retrying and the schedule absorbing the failures, but they are not proof of a retry.
 Attribute a retry only under the 2026-09-22 correction below.
 
-**Confirm it arithmetically in a downstream log rather than trusting the pairing** — the log is
-truncated (§9) and the pairing is easy to misread. In a complete table (a database gateway log, an
-APM), the function's first unconditional call is made once per tick *plus once per retry*, so:
+**Confirm a retry in a downstream log rather than trusting the pairing** — the log is
+truncated (§9) and the pairing is easy to misread. On 2026-09-12 a complete table (a database
+gateway log, an APM) lined up with one extra call per non-2xx return:
 
 ```
 observed calls  =  ticks in the window  +  number of non-2xx the function returned
@@ -1062,10 +1062,11 @@ observed calls  =  ticks in the window  +  number of non-2xx the function return
 
 On `auxf`, `retire_stale_match_narratives` was called **1659** times in 24h against a minute cadence:
 `1440 + 219`, and `219 = 157 + 62` was exactly the count of 502s the drain returned. The quest drain
-gave `1666 = 1440 + 226` against `225`. A downstream count that exceeds the tick count is therefore
-**not** a second caller and not a broken cadence — subtract the failures before reaching for either
-explanation. §19 counts these calls to prove a schedule is *alive*; this is the correction that keeps
-that count honest when the function is also failing.
+gave `1666 = 1440 + 226` against `225`. That is a measurement from that day, not an identity to
+invert: an independent duplicate invocation adds a call with no non-2xx, and one non-2xx can
+produce more than one extra invocation. A count above the tick count does not by itself name the
+failure count, a second caller, or a broken cadence. §19 counts these calls to prove a schedule is
+*alive*; do not subtract inferred failures to correct it.
 
 Two warnings.
 
@@ -1104,13 +1105,12 @@ Two rules replace the "one attempt wide" framing:
   504s on the same path and 1 carried three; every one recovered, both narrative queues were empty,
   and `weekly-digest` completed all 24 hourly reads. Under the old framing each of those 16 would
   have been written up as a lost tick.
-- **The arithmetic identity of §22 still holds, and it is what to trust**:
-  `observed calls = ticks + number of non-2xx returned`, because every non-2xx — including one
-  returned by a retry — produces another invocation. Measured here at 1900 observed against
-  `1440 + 461` predicted for the match drain, and the derived relation
-  `claim calls = retire successes` held **exactly** (1589 = 1589) on both drains. Use the identity
-  to recover the true failure count when the Netlify log is truncated; do not use a fixed retry
-  depth of 1 to do it.
+- **Do not infer non-2xx returns from call counts alone.** An independent duplicate invocation
+  adds a call without a non-2xx return, and one non-2xx can produce more than one additional
+  invocation. The same day's match drain showed 1900 observed against `1440 + 461` predicted, and
+  `claim calls = retire successes` held **exactly** (1589 = 1589) on both drains — a measurement,
+  not a way to recover the failure count from a truncated Netlify log. Attribute a retry only with
+  the downstream-latency, reachable-exit, and contiguous-log checks in the 2026-09-22 correction.
 
 The exact retry policy (how many attempts, on what schedule, whether attempts overlap) is **not**
 pinned down — B, C and D above arrived 9 s, 11 s and 18 s after A started, and B had already
