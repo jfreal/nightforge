@@ -626,7 +626,7 @@ every dependency the request made carries the same `operation_Id`, so listing th
 one opaque number into a timeline you can point at:
 
 ```kusto
-dependencies | where operation_Id == '<the request's operation_Id>'
+dependencies | where operation_Id == '<operation_Id>'
 | project timestamp, type, name, duration, success | order by timestamp asc
 ```
 
@@ -649,7 +649,7 @@ Do this before reaching for any other explanation of a slow-but-successful reque
    and count operations, not just commands:
    `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (...) | summarize
    cmds=count(), ops=dcount(operation_Id), maxMs=max(duration) by bin(timestamp, 10s)`. The run above
-   went from 2 operations per 10 s to **26 and then 41**, with the slowest SQL in those bins at 4 ms.
+   went from 2 operations per 10 s to **26 and then 41**, with the slowest dependency in those bins at 4 ms.
    That is the useful statement: the process was saturated while the database was idle.
 
 **And when you have got that far, stop and say what you still cannot see.** Thread-pool starvation, a

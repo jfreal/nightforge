@@ -64,13 +64,13 @@ was right; nothing installed the tool.
 
 ```
 gh run list --repo <slug> --limit 40 \
-  --json databaseId,name,status,conclusion,headBranch,createdAt
+  --json databaseId,name,status,conclusion,headBranch,event,createdAt
 ```
 
 Read every row whose `headBranch` is the default branch and whose `conclusion` is not `success` — not only the
 deploy workflow's. Then, for any that is red, `gh run view <id> --log-failed` and name the failing step.
-A workflow that is red on the default branch on *every* push is deterministic by definition, so it is never a
-flake and never needs the pass/fail-split analysis below.
+Only skip the pass/fail-split analysis when the failing rows are confirmed as push events and share a stable
+failure cause. Repeated failures in default-branch rows alone do not establish either condition.
 
 **But check the workflow's *schedule* too before you call the default branch blind — and check it every
 run, because it can be added without anyone telling you.** A gate absent from the push triggers may
@@ -173,8 +173,11 @@ itself** that had been sitting behind the guard the whole time. So when you repo
 failure, say explicitly that everything the guard protects is **unverified rather than passing**, and
 do not treat the guard's fix as closing the red.
 
-**And read a step that fails with NO message as a missing-diagnostic bug, not as infrastructure.** That
-same crash reported as exactly two lines — the last thing the script echoed, then
+**And read a step that fails with NO message as a missing-diagnostic bug only when the expected
+diagnostic path is known and execution stopped before it — not from silence alone, and not as
+infrastructure.** Cancellation, a timeout, an action-wrapper failure, or log truncation can print the
+same empty failure, and none of those is grounds for this classification by itself. The case that
+qualifies is that same crash reported as exactly two lines — the last thing the script echoed, then
 `##[error]The process '/usr/bin/sh' failed with exit code 1`. The script's own checks print `FAIL: …`
 lines and an `::error::` summary, and none of them appeared, which is itself the tell: under
 `set -euo pipefail`, a command substitution whose non-zero exit is a *normal expected outcome* aborts

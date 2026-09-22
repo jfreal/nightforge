@@ -110,7 +110,7 @@ editing it.**
 | `postgres_logs` | `parsed.error_severity` | `parsed.sql_state_code`, `parsed.query`, `parsed.detail`, `parsed.user_name`, `parsed.command_tag`, `parsed.application_name` |
 | `edge_logs` | `response.status_code` (a **String** — wrap in `toInt32OrZero`) | `request.method`, `request.path`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip`, `request.headers.user_agent` (§8), and — added 2026-09-12, see §13 — `response.origin_time` (origin latency in ms, also a String) plus `request.sb.apikey.apikey.prefix` / `request.sb.apikey.authorization.prefix` (which credential the caller presented) |
 | `auth_logs` | `level` + `status` (these ARE bare) | `msg`, `path`, `component`, `remote_addr`, and — added 2026-09-16 — `error` (GoTrue's own error string, e.g. `error finding flow state: context canceled`), `duration` (**nanoseconds**, not ms), `referer`. `error` is the key that separates two `500`s that share a `msg`, and it is populated on the paired `request completed` row too, so an `error` row and a `request completed` row carrying the SAME `error` string at the same second are **one request**, not two events |
-| ↳ | **A GoTrue request the CLIENT aborted produces NO `edge_logs` row at all** — added 2026-09-17. There was never a response for the gateway to record a status against, so the request exists only in `auth_logs`. Two consequences. (1) A 1:1 `auth_logs` ↔ `edge_logs` reconciliation is *expected* to be short on the `edge_logs` side by exactly the number of aborted requests, and that shortfall is not a collection gap. (2) The §7 `edge_logs` status distribution — the check every other section tells you to run first — **cannot see this class**, so a window reading `{200: n, 101: m}` with no 4xx or 5xx does not mean no auth request failed. Read `auth_logs` on its own terms. Observed on `auxf`: a `500` `unexpected EOF` on `POST /token` at `05:42:52Z` with **one** `edge_logs` row across it and its successful retry (the retry's `200`), against a window carrying zero 5xx over 7554 gateway rows | |
+| ↳ | **A GoTrue request the CLIENT aborted produces NO `edge_logs` row at all** — added 2026-09-17. There was never a response for the gateway to record a status against, so the request exists only in `auth_logs`. Two consequences. (1) A request-level `auth_logs` ↔ `edge_logs` reconciliation, after collapsing paired `auth_logs` rows (the `error` row and the `request completed` row) for one request, is *expected* to be short on the `edge_logs` side by exactly the number of aborted requests, and that shortfall is not a collection gap. (2) The §7 `edge_logs` status distribution — the check every other section tells you to run first — **cannot see this class**, so a window reading `{200: n, 101: m}` with no 4xx or 5xx does not mean no auth request failed. Read `auth_logs` on its own terms. Observed on `auxf`: a `500` `unexpected EOF` on `POST /token` at `05:42:52Z` with **one** `edge_logs` row across it and its successful retry (the retry's `200`), against a window carrying zero 5xx over 7554 gateway rows | |
 | ↳ | **`status` is `''` on non-HTTP lines** — 47 of 395 on `auxf` 2026-08-31. Those blank-status rows are where the OAuth outcomes live (`Login`, `Redirecting to external provider`, and `access_denied: The resource owner or authorization server denied the request` when a user cancels the consent screen). A filter of `status >= 500` or `level = 'error'` sees none of them. Group by `log_attributes['msg']` over the blank-status rows once per run. | |
 | `storage_logs` | `level` — and **`warning`, not `error`, is where 4xx live** (§12) | `res.statusCode` seen 2026-08-23; absent from the 2026-08-24 pass. When it is absent, parse `event_message`: it is a fixed pipe-delimited line, `project | METHOD | STATUS | ip | cf-ray | path?token=redacted | user-agent`, so `splitByChar('|', event_message)[3]` is the status |
 | `realtime_logs` | `level` | — |
@@ -514,15 +514,16 @@ select multiIf(event_message like '%tls_sbufio_recv%', 'tls unexpected eof',
                event_message like '%closing because%',  'closing (idle/client close)',
                event_message like '%new connection%',   'new connection',
                event_message like '%SSL established%',  'SSL established',
-               event_message like '%rror%',             'OTHER-ERROR-SHAPED',
+               lower(event_message) like '%rror%',     'OTHER-ERROR-SHAPED',
                'other') as cls,
        count(*) as n
 from logs where source='pgbouncer_logs' group by cls order by n desc
 ```
 
 The `OTHER-ERROR-SHAPED` arm is the load-bearing one — it is what turns "I listed the classes I
-already knew about" into "I checked whether anything else here is an error". Read the `other` bucket
-once with a `limit` to confirm it is what you think it is, then move on.
+already knew about" into "I checked whether anything else here is an error". Read both the
+`OTHER-ERROR-SHAPED` and `other` buckets once with a `limit` to review error-shaped rows and confirm
+the catch-all rows, then move on.
 
 ## 15. `workflow_run_logs` is the GitHub-integration sync, and it reports whether config reached production
 
@@ -582,8 +583,11 @@ Two cheap disqualifiers settle it, and both are one query each:
   cliff and no restart.
 - **Look for the restart's own evidence, not its silhouette.** A GoTrue restart writes a boot
   sequence (`received graceful shutdown signal`, `GoTrue migrations applied successfully`,
-  `GoTrue API started on: localhost:9999`). None of it was present. Absence of the boot sequence
-  disproves the restart outright.
+  `GoTrue API started on: localhost:9999`). None of it was present on this run. A missing boot
+  sequence is not proof that no restart happened: an incomplete collector, retention, a window
+  that does not cover the restart, or a changed boot message all produce the same absence. Verify
+  collector completeness, retention, time coverage, and that those messages still exist before
+  using the absence as supporting evidence.
 
 **Never report a source gap you have not confirmed against an explicit window.** A quiet tier and a
 dead collector look identical in a distribution that only reports `min(timestamp)`, and calling a
@@ -646,8 +650,10 @@ separate it from the 504/502/500/525 family of §13, and both are one field each
 `/object/sign/<bucket>` (issue) and `/object/<bucket>/<path>` (store), and only the second one is
 the upload. Here the identical object path returned `200` 7.7 s later and the signed `GET` on that
 object returned `200` a second after that, so the photo landed and the user saw it. That is
-`external`. A 520 with **no** later success on the same object path is a lost upload and IS a
-finding; so is a run of them.
+`external`. Do not classify the upload as lost from missing recovery logs alone. It is lost only
+when the observation window is complete and shows no later success on the same object path, or when
+a client-side failure outcome confirms it; otherwise it is unconfirmed. A run of them follows the
+same rule, per path.
 
 ## 19. The `information_schema`-first rule must read `data_type` too — a name-only read stops name errors and nothing else
 
