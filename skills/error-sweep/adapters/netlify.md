@@ -67,6 +67,21 @@ Parse each deploy's `state` and `error_message`. `state == "error"` is a finding
 | `Canceled build due to no content change` | `netlify.toml`'s `[build] ignore` whitelist working as designed |
 | `Skipped due to account credit usage exceeded` | Billing condition. Mention in the report; file nothing |
 
+Two further `error_message` shapes, both seen 2026-09-22 on mergetel, are **real build failures and
+not exceptions** — but note the exit code is not always `2`, so do not grep for that string:
+
+| `error_message` | Notes |
+|---|---|
+| `Failed during stage 'building site': Build script returned non-zero exit code: 4` | Same class as `exit code 2`. The number is the tool's, not Netlify's, and it varies |
+| `Timeout` | A bare one-word message with no stage prefix. The build exceeded the host's limit. §14 applies, so the log is unretrievable and there is nothing further to learn from the CLI |
+
+**Judge a cluster of preview failures by the neighbours before reaching for a shared cause.** On
+2026-09-22 four failures landed inside one 18-minute band across two branches, which reads like
+§18's 2026-09-14 case where a provider incident froze every deploy. It was not: each branch had a
+`ready` deploy *in the middle* of the band, and production was clean throughout. Two branches being
+pushed rapidly, some commits building and some not, is ordinary development. **A `ready` deploy
+interleaved with the failures rules out any site-wide condition in one read of the deploy list.**
+
 There is a **third** shape that is neither of those and is not a code defect either. Seen
 2026-08-27 on mergetel:
 
@@ -1099,6 +1114,45 @@ pinned down — B, C and D above arrived 9 s, 11 s and 18 s after A started, and
 succeeded before C and D ran, which no simple "retry until success" rule explains. Treat the depth
 as unknown-but-greater-than-one rather than substituting a new constant.
 
+**Correction, 2026-09-22 on `auxf`: the two-`Duration:` shape is a TELL, not PROOF. The platform
+also fires a scheduled function twice on its own, and the two cases are byte-identical in the log.**
+This matters more than it sounds, because on a project whose card says "a drain non-2xx with no
+guard ERROR line is a regression" — `auxf` carries exactly that rule for PR #269 — the duplicate
+reads as a *broken guard*, which is a finding, filed against a guard that is working perfectly.
+
+One minute out of 1440 carried two invocations of `match-narrative-drain`:
+
+```text
+[𝒇 match-narrative-drain] 2026-09-21T23:06:02.020Z INFO Duration: 1014 ms
+[𝒇 match-narrative-drain] 2026-09-21T23:06:18.129Z INFO Duration:   66 ms
+```
+
+Textbook §22: a slow first attempt, a fast second one 16 s later, and no error line anywhere in
+thirteen ladder widths. It was not a retry.
+
+**The discriminator is one field and it is free: compare the first invocation's `Duration` against
+that invocation's own downstream call latency.** The claim RPC at `23:06:02.037` carried
+`response.origin_time = 986 ms` (`adapters/supabase.md` §13) against a `Duration` of `1014 ms` —
+**~28 ms of handler time either side of the call**, which leaves no room for a failure path to have
+run at all. A genuine failing invocation spends time *after* its call failing.
+
+Three corroborators, each cheap, and none of them the ladder's silence:
+
+- **Both attempts' downstream calls returned `200`.** A retry follows a non-2xx *return*, which on
+  most handlers requires a failed call; if every call succeeded, ask what else could have returned
+  one.
+- **Read the handler and enumerate its non-2xx exits.** Here they were a throw in the claim helper
+  and `failed > 0`; the queue was provably empty all window and no other downstream path was touched,
+  so the function returned `200 nothing queued` and neither exit was reachable.
+- **Check a CONTIGUOUS unfiltered `--function` block that contains both lines.** The two sat at
+  lines 56 and 57 of a 100-line one-per-minute block, adjacent, both `INFO` — so nothing was dropped
+  between them. This is worth more than a level-filtered ladder (§9: a pass proves existence, never
+  absence) precisely because it is contiguous.
+
+So the corrected rule: **two `Duration:` lines in a minute mean "something invoked this twice", and
+the retry is only one of the two explanations.** Establish that a non-2xx was *possible* before
+reading the pair as a failure — and never open a missing-guard finding off the pairing alone.
+
 ## 23. A RE-BUNDLED function loses its Netlify log history at the deploy — the ladder cannot reach past it
 
 Found 2026-09-14 on `auxf`, and it is the sharpest limit on the ladder yet recorded, because no number
@@ -1169,3 +1223,48 @@ So the test for a genuine history cut needs a second leg:
 
 Whether the difference is the host, the plan, or the interval between deploy and query is not pinned
 down. Record which you observed rather than assuming either way.
+
+## 24. An APP-SIDE log rollup makes the line count a FLOOR — §21 in the other direction
+
+Found 2026-09-22 on mergetel. §21 warns that one `console.error(msg, obj)` inflates the line count
+by the object's height, so counting prefixed lines overstates occurrences. The opposite failure
+exists too, and it arrives the moment a project fixes its own log flooding.
+
+mergetel's watchdog now de-duplicates its own repeats in process:
+
+```text
+[𝒇 publish-scheduled] 2026-09-21T19:16:04.559Z ERROR [cron-watch] staleness sweep failed
+publish-scheduled TimeoutError: The operation was aborted due to timeout
+(3 times since 2026-09-21T17:26:10.458Z)
+```
+
+That suffix is **not** a platform feature, and the first instinct that it is one costs a wrong
+write-up. It is `logBoundedFailure` (`src/lib/cron-watch.ts:792-822`): a module-scope
+`Map` keyed on `what\0name\0message`, a `count` incremented per repeat, and a re-log only once per
+`REPEAT_SUMMARY_MS`. It shipped as PR #215 closing issue #214, whose title is the giveaway —
+"identical ERROR logged every tick floods the error channel and hides other classes".
+
+**Check the repo before attributing any log shape to Netlify.** One `git grep` settles it:
+
+```bash
+git grep -n -i -E "times since" <deployed-sha> -- src/ netlify/
+```
+
+Three things follow, and the third is the useful one.
+
+- **The line count becomes a FLOOR on occurrences.** On this run 17 lines were at least 19 real
+  failures. Sum the `(N times …)` counts per `(key, firstAt)` run and take the maximum per run,
+  because the counts are cumulative within a warm process rather than incremental.
+- **Strip the suffix in step 2's normalization.** `(3 times since <ts>)` carries a timestamp and a
+  digit run, so an unstripped suffix makes every rollup line its own signature and files one issue
+  per rollup. Add it to the strip list alongside timestamps and bare digit runs.
+- **The suffix's `firstAt` NAMES AN OCCURRENCE THE LADDER DID NOT RETURN, which is free proof of
+  §9 truncation from inside a single run.** On 2026-09-22 a line at `21:05:09.137Z` read
+  `(2 times since 2026-09-21T20:15:22.900Z)`, and no `20:15:22` line existed anywhere in the
+  thirteen-window union. Normally establishing truncation costs a second ladder or a narrow
+  follow-up; here one line did it. Look for a `firstAt` with no matching line in the union whenever
+  a project logs this way.
+
+**And the same shape is positive evidence that a log-flooding fix is live**, which is worth
+recording in the ledger rather than only noticing. §11's bundle timestamp tells you a function was
+re-bundled; a rollup suffix tells you a specific PR's behaviour is actually running in production.

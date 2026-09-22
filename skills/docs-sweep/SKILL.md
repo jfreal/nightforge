@@ -145,6 +145,12 @@ disagreed), the pages rewritten, and anything the audit flagged that the fix del
 touch (a feature that looks removed, a key rename — those are decisions, and the repo's skill
 refuses to make them for you). Remove the worktree after the push; the branch survives it.
 
+Then turn PR auto-fix on — John authorized this standing, for every PR, on 2026-09-17, so do not
+ask: `mcp__ccd_pr__set_monitor(url: "<the PR url>", auto_fix: true, address_comments: true)`. Leave
+`auto_merge` and `auto_archive_on_close` alone. A session monitors **one** PR and the binding
+follows the newest, so on a multi-repo run only the last PR is watched — step 5 names the rest as
+unmonitored.
+
 ## Step 5 — Report
 
 One report for the whole run, to the card's report path if it names one, and summarized to the chat:
