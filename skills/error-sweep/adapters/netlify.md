@@ -1118,8 +1118,8 @@ succeeded before C and D ran, which no simple "retry until success" rule explain
 as unknown-but-greater-than-one rather than substituting a new constant.
 
 **Correction, 2026-09-22 on `auxf`: two `Duration:` lines mean two invocations, not proof of a retry.
-The platform also fires a scheduled function twice on its own, and the two cases are byte-identical
-in the log.** Attribute a retry only after establishing that a non-2xx return was possible and
+The platform also fires a scheduled function twice on its own, so two `Duration:` lines alone do not
+distinguish the cases.** Attribute a retry only after establishing that a non-2xx return was possible and
 checking the downstream latency, reachable non-2xx exits, and contiguous unfiltered logs.
 The double-fire matters more than it sounds, because on a project whose card says "a drain non-2xx with no
 guard ERROR line is a regression" — `auxf` carries exactly that rule for PR #269 — the duplicate
