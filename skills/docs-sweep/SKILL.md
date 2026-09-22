@@ -170,19 +170,20 @@ One report for the whole run, to the card's report path if it names one, and sum
 - unattended runs: every PR opened, marked UNMONITORED, with the one-line reason
 - drift found but not fixed: over the cap, or flagged-not-fixed findings a human must decide
 - what failed, loudly — a repo whose audit errored is not a clean repo
-- **every PR this run opened, named as unmonitored** — see below
+- **unattended runs: every opened PR is unmonitored; attended runs: only the PRs that were not the monitored newest one** — see below
 
 **If every repo came back clean, say exactly that in one line per repo.** Open nothing, do not pad
 the report.
 
-**This pipeline cannot switch PR auto-fix on, and must say so rather than implying otherwise.**
+**An unattended run cannot switch PR auto-fix on, and must say so rather than implying otherwise.**
 `mcp__ccd_pr__set_monitor` refuses in exactly the context this pipeline runs in:
 
 > This tool is unavailable in unattended sessions (scheduled-task runs and remote-dispatched trees).
 
-A scheduled sweep is always such a session, so **every PR a sweep opens is unmonitored**, not just
+A scheduled sweep is always such a session, so **every PR that run opens is unmonitored**, not just
 the ones past the one-PR-per-session binding limit. List them all under *Needs you* so the user can
-turn auto-fix on by hand. Do not report a monitor that was never established.
+turn auto-fix on by hand. Do not report a monitor that was never established. An attended run is
+the exception in step 4: the newest PR is monitored, and this step names only the rest.
 
 ## When you learn something
 
