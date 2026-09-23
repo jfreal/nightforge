@@ -63,12 +63,18 @@ dependency on the runner (a tool a smoke script correctly refused to run without
 was right; nothing installed the tool.
 
 ```
-gh run list --repo <slug> --limit 40 \
+gh run list --repo <slug> --branch <default branch> --limit 40 \
   --json databaseId,name,status,conclusion,headBranch,event,createdAt
 ```
 
-Read every row whose `headBranch` is the default branch and whose `conclusion` is not `success` — not only the
-deploy workflow's. Then, for any that is red, `gh run view <id> --log-failed` and name the failing step.
+**Filter with `--branch`, do not fetch 40 rows and filter them yourself.** `--limit` is the maximum
+number of runs *fetched*, so on a busy repo an unfiltered 40 can be 40 pull-request runs and the
+default-branch failure this section exists to find never reaches you — a green-collector result of
+exactly the kind §9 of the netlify adapter warns about. Then check the coverage: if the result hits
+the limit, or its oldest `createdAt` is newer than the start of the sweep's window, raise `--limit`
+or page into older dates until the window is covered.
+
+Read every row whose `conclusion` is not `success` — not only the deploy workflow's. Then, for any that is red, `gh run view <id> --log-failed` and name the failing step.
 Only skip the pass/fail-split analysis when the failing rows are confirmed as push events and share a stable
 failure cause. Repeated failures in default-branch rows alone do not establish either condition.
 
@@ -165,8 +171,9 @@ assuming it is current — a PR opened days ago and never rebased carries whatev
 
 A pass/fail split across PRs is a *hint*, not a verdict — the same split is what a real defect in one PR looks like. Before blaming the base branch, check three things: the PRs sit on the same base commit, the failing PR changed nothing the test touches, and a re-run on the *identical* head commit flips the result. Nondeterminism on one commit is the only direct evidence of a flake; everything else is circumstantial.
 
-**A step that fails at its own PREREQUISITE has tested nothing downstream of it — and the first green
-prerequisite will surface a new failure, not a pass.** On one project a release job refused to run its
+**A step that fails at its own PREREQUISITE has tested nothing downstream of it — so the first green
+prerequisite may surface a new failure rather than a pass, and everything behind the guard stays
+unverified until those checks actually run.** On one project a release job refused to run its
 launch smoke because an image-comparison tool was missing from the runner. Two sweeps reported that
 accurately, the missing tool was installed, and the very next run found a **fatal crash in the app
 itself** that had been sitting behind the guard the whole time. So when you report a guard-level

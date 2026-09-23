@@ -1263,12 +1263,17 @@ Three things follow, and the third is the useful one.
 - **Strip the suffix in step 2's normalization.** `(3 times since <ts>)` carries a timestamp and a
   digit run, so an unstripped suffix makes every rollup line its own signature and files one issue
   per rollup. Add it to the strip list alongside timestamps and bare digit runs.
-- **The suffix's `firstAt` NAMES AN OCCURRENCE THE LADDER DID NOT RETURN, which is free proof of
-  §9 truncation from inside a single run.** On 2026-09-22 a line at `21:05:09.137Z` read
-  `(2 times since 2026-09-21T20:15:22.900Z)`, and no `20:15:22` line existed anywhere in the
-  thirteen-window union. Normally establishing truncation costs a second ladder or a narrow
-  follow-up; here one line did it. Look for a `firstAt` with no matching line in the union whenever
-  a project logs this way.
+- **The suffix's `firstAt` can NAME AN OCCURRENCE THE LADDER DID NOT RETURN, which is free proof of
+  §9 truncation from inside a single run — but only when that `firstAt` is inside the window you
+  queried.** The counts are cumulative within a warm process, so a long-lived instance carries a
+  `firstAt` from before the ladder's widest rung, and the union is *correct* not to hold it.
+  **Check the timestamp against the widest window before calling it truncation**; outside the
+  window it proves only that the process has been warm a while. On 2026-09-22 a line at
+  `21:05:09.137Z` read `(2 times since 2026-09-21T20:15:22.900Z)` — 24.8 h earlier, inside the 26 h
+  rung — and no `20:15:22` line existed anywhere in the thirteen-window union, so that one did
+  establish truncation. Normally establishing it costs a second ladder or a narrow follow-up; here
+  one line did it. Look for an in-window `firstAt` with no matching line in the union whenever a
+  project logs this way.
 
 **And the same shape is positive evidence that a log-flooding fix is live**, which is worth
 recording in the ledger rather than only noticing. §11's bundle timestamp tells you a function was
