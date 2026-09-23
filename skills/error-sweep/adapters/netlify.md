@@ -1258,8 +1258,10 @@ git grep -n -i -E "times since" <deployed-sha> -- src/ netlify/
 Three things follow, and the third is the useful one.
 
 - **The line count becomes a FLOOR on occurrences.** On this run 17 lines were at least 19 real
-  failures. Sum the `(N times …)` counts per `(key, firstAt)` run and take the maximum per run,
-  because the counts are cumulative within a warm process rather than incremental.
+  failures. **The counts are cumulative within a warm process, not incremental, so take the MAXIMUM
+  `N` per `(key, firstAt)` pair and then sum those maxima across distinct pairs.** Summing every
+  rollup line for one pair counts the same early failures again on each later line — a `(2 times …)`
+  followed by a `(3 times …)` is three failures, not five.
 - **Strip the suffix in step 2's normalization.** `(3 times since <ts>)` carries a timestamp and a
   digit run, so an unstripped suffix makes every rollup line its own signature and files one issue
   per rollup. Add it to the strip list alongside timestamps and bare digit runs.

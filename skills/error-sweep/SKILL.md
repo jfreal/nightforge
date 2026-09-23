@@ -96,6 +96,19 @@ you move on, depends on the issue's state:
 - **Open, no PR:** record `bug`, `pr: null`, `note: deferred: no PR`. That is the deferred case
   below, and it goes into **this run's** step 6 queue, not the next run's. A tracker hit that only
   says "seen" turns an open bug into a permanent skip.
+  **Except when the issue itself says it was stopped for an owner decision — check that FIRST.**
+  This pass exists because the ledger was lost, and the ledger is where `stopped: owner decision`
+  normally lives (step 7). Classifying such an issue `deferred: no PR` sends a fix agent to overrule
+  a decision the owner made on purpose, which is the one outcome that rule was written to prevent —
+  and losing the ledger is precisely when it would happen. So read the issue before deciding:
+
+  ```
+  gh issue view <n> --repo <slug> --json labels,comments \
+    --jq '{labels:[.labels[].name], stops:[.comments[]|select(.body|test("sweep-stop: owner decision"))|.createdAt]}'
+  ```
+
+  A `sweep-stop:owner-decision` label or such a comment means record `stopped: owner decision — #<n>`
+  and do **not** queue it. Nothing else on an open issue carries that state once `seen.json` is gone.
 
 Whichever it is, record `filed_by` from the issue's author (step 7) — a hit found this way may
 be a person's issue, and step 7b needs to know.
@@ -306,7 +319,21 @@ carries a comment saying *why* it is that value, an agent sent to "fix" it is no
 it is overruling a documented decision with no new authority to do so. `deferred` would requeue
 it every night; `cause unclear` is simply false and invites a pointless analysis comment. File
 the issue with the measurement that makes the decision reviewable, put the decision under the
-report's *Needs you*, and record `stopped: owner decision`. The sweep's contribution to a
+report's *Needs you*, and record `stopped: owner decision`.
+
+**Write that stop where the TRACKER can see it too, not only in `seen.json`.** The ledger is the
+one piece of this pipeline that has actually gone missing, and step 3's recovery pass reads an
+open issue with no PR as `deferred: no PR` — which would queue a fix agent against a decision the
+owner made deliberately. A label is the cheapest durable copy, and it is an additive write, so the
+sweep may do it itself:
+
+```
+gh issue edit <n> --repo <slug> --add-label sweep-stop:owner-decision
+```
+
+Create the label once if it does not exist, and fall back to a comment containing
+`sweep-stop: owner decision` if labelling fails — step 3 looks for either. Remove neither; only the
+owner retires this state, by acting on the decision. The sweep's contribution to a
 judgement call is evidence, not a PR.
 
 ## Step 7b — Close an issue only when the code and the telemetry both prove it
