@@ -647,8 +647,10 @@ slow-but-successful request.
 **Two traps come with it, and the first one nearly produced a false root cause.**
 
 1. **Do not substitute a time window for the correlation.** Querying
-   `dependencies | where timestamp between (<start> .. <end>)` over the same seconds returns
-   everything the *instance* was doing, and on a busy process that includes long unrelated work. In
+   `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (<start> .. <end>)`
+   over the same seconds returns everything the *instance* was doing — and drop the
+   `cloud_RoleInstance` filter and it returns everything **every** instance was doing, which is
+   worse again. On a busy process that includes long unrelated work. In
    the run above, a 4 186 ms outbound email send sat squarely inside the gap and looked exactly like
    the answer. It belonged to a different `operation_Id` — a background pass — and explained nothing.
    The `operation_Id` query is what separates "this request waited on that" from "that also happened".
@@ -656,12 +658,15 @@ slow-but-successful request.
    and count operations, not just commands:
    `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (...) | summarize
    cmds=count(), ops=dcount(operation_Id), maxMs=max(duration) by bin(timestamp, 10s)`. The run above
-   went from 2 operations per 10 s to **26 and then 41**, with the slowest dependency in those bins at 4 ms.
-   **Report that as the measurement it is: concurrent operations rose 20-fold while every dependency
-   the app instruments stayed under 4 ms.** `dcount(operation_Id)` counts distinct operations in the
-   dependency rows; it is not a utilisation figure, so it cannot on its own say the process was
-   saturated. Concurrency that high beside a fast database is a strong pointer at the process, and
-   naming it saturation needs the process-level counters the next paragraph asks for.
+   went from 2 to **26 and then 41 distinct operation IDs with dependency rows per 10 s bin**, with the
+   slowest dependency in those bins at 4 ms.
+   **Report that as the measurement it is: distinct operation IDs with dependency rows per bin rose
+   20-fold while every dependency the app instruments stayed under 4 ms.** That is a count per bucket,
+   not a concurrency figure and not a utilisation figure — `dcount()` estimates distinct values within
+   each `bin()`, and two operations in the same ten seconds need not have overlapped at all. So it
+   cannot say the process was saturated, and it cannot say the operations were concurrent. What it
+   does is motivate reading the process-level counters the next paragraph asks for; it does not
+   identify the cause.
 
 **And when you have got that far, stop and say what you still cannot see.** Thread-pool starvation, a
 GC pause, lock contention and a synchronous CPU burst all produce the identical shape, and an app

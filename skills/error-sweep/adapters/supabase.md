@@ -479,11 +479,22 @@ Schema cache queried in <n> milliseconds                          x2
 Schema cache loaded 28 Relations, 29 Relationships, 100 Functions x2
 ```
 
-**Read the `Schema cache loaded` counts across cycles — that one line decides the triage.** Identical
-relation/relationship/function counts every cycle means **no DDL happened**: this is Supabase
-reloading its own managed PostgREST, and it is `external`. Counts that *move* mean the schema
-changed under the app, which is a different and much more interesting finding — especially on a
-project whose migrations are supposed to arrive only through the repo.
+**Read the `Schema cache loaded` counts across cycles — that one line is the cheap first cut.**
+Counts that *move* mean the schema changed under the app, which is a finding, and an interesting one
+on a project whose migrations are supposed to arrive only through the repo.
+
+**But identical counts do NOT establish that no DDL happened, and this is the trap.** They are
+object *totals* — relations, relationships, functions — not object *definitions*. An
+`alter table … alter column … type`, a `create or replace function` with the same signature, a
+changed default, a new constraint, a renamed column: every one of those is DDL that leaves all three
+totals exactly where they were. So unchanged counts rule out objects being **added or dropped**, and
+nothing else.
+
+Before classifying the reload `external`, pair the counts with something that sees definitions:
+whether the window carried a `workflow_run_logs` sync at all (§15), and whether any diff in the
+window touches `supabase/migrations/` — and read §15's warning about what the migration line does
+and does not compare. On a repo-only-migrations project the combination is usually conclusive; the
+counts alone never are.
 
 Two more things worth knowing about the shape:
 
@@ -549,10 +560,16 @@ INFO No functions to deploy.
 
 Three reasons to read it every run on a project with the integration connected:
 
-- **`All migrations are up to date.` is a free, authoritative migration check** — the platform's own
-  answer, not an inference from `postgres_logs`. It is also the cheapest disqualifier when a diff
-  touches a file under `supabase/migrations/`: a repo that edits an already-applied migration and
-  still gets this line changed a comment, not DDL.
+- **`All migrations are up to date.` is a free, authoritative migration-STATUS check — and status is
+  not content.** It is the platform's own answer rather than an inference from `postgres_logs`, and
+  what it answers is that no migration *version* is pending. Supabase tracks applied migrations by
+  **timestamp** (`supabase_migrations.schema_migrations`), so editing the body of a file that has
+  already been applied leaves this line reading exactly the same — the edit is simply never compared
+  and never re-run.
+  **So it cannot settle what an edit to an already-applied migration did.** When a diff touches
+  `supabase/migrations/`, read that file's diff before calling the change comment-only; the sync line
+  tells you only that nothing new is waiting to be applied. (It remains a real disqualifier for the
+  other question: a *pending* migration would show up here.)
 - **`Skipping configuration for protected branch...` is what makes the `WARN` lines harmless.** A
   `config.toml` that reads secrets via `env(...)` will warn on every sync because the executor has no
   such variable. **Do not file that as a production defect** — the very next line says the config was
@@ -579,8 +596,12 @@ Two cheap disqualifiers settle it, and both are one query each:
 - **Re-query with an explicit EARLIER window.** `iso_timestamp_start` / `iso_timestamp_end` are
   honoured, so a window over the supposedly-empty stretch either returns rows (the sources were
   alive; you were reading a quiet period) or does not. Here it returned `auth_logs` rows at
-  `09:08:24` and `realtime_logs` at `09:57:00`, before the "boundary" — which proves no retention
-  cliff and no restart.
+  `09:08:24` and `realtime_logs` at `09:57:00`, before the "boundary".
+  **Read that for exactly what it is: those sources were producing rows at those two times.** It
+  disproves a retention cliff that would have cut everything before `13:31` — rows survive earlier
+  than the boundary, so nothing truncated them. It does **not** establish that collection was
+  continuous through `13:31`, and it does not rule out a restart between `09:57` and the boundary.
+  Two rows are two observations, not a covered interval.
 - **Look for the restart's own evidence, not its silhouette.** A GoTrue restart writes a boot
   sequence (`received graceful shutdown signal`, `GoTrue migrations applied successfully`,
   `GoTrue API started on: localhost:9999`). None of it was present on this run. A missing boot
