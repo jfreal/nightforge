@@ -626,16 +626,23 @@ every dependency the request made carries the same `operation_Id`, so listing th
 one opaque number into a timeline you can point at:
 
 ```kusto
-dependencies | where operation_Id == '<operation_Id>'
-| project timestamp, type, name, duration, success | order by timestamp asc
+dependencies | where operation_Id == '<operation_Id>' | project timestamp, type, name, duration, success | order by timestamp asc
 ```
+
+One line, deliberately — §2 above: a multi-line `--analytics-query` runs only line 1 on this Windows
+`az`, so a wrapped version of this query would drop the `project` and the `order by` and hand back a
+plausible wrong table.
 
 On one run a `GET /<image route>` answered **200 after 5 986 ms** on an instance warm for 99 minutes.
 Its 11 SQL commands totalled **56 ms**, and they arrived in two clusters — eight inside the first
 51 ms, then **5.915 seconds with no dependency, no trace and no exception**, then three more. That
 single listing did what three previous runs' aggregates could not: it put a wall around the missing
-time and proved it was spent inside the process rather than waiting on anything the app instruments.
-Do this before reaching for any other explanation of a slow-but-successful request.
+time. **State that as what it is — no dependency telemetry was recorded for those 5.915 seconds.**
+It does not prove the time was spent inside the process: uninstrumented I/O produces the identical
+gap, and the app's instrumentation is the only thing being measured. What the gap does is narrow the
+candidates to "inside the process, or in something this app does not instrument", which is worth a
+great deal and is still not a cause. Do this before reaching for any other explanation of a
+slow-but-successful request.
 
 **Two traps come with it, and the first one nearly produced a false root cause.**
 
@@ -650,7 +657,11 @@ Do this before reaching for any other explanation of a slow-but-successful reque
    `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (...) | summarize
    cmds=count(), ops=dcount(operation_Id), maxMs=max(duration) by bin(timestamp, 10s)`. The run above
    went from 2 operations per 10 s to **26 and then 41**, with the slowest dependency in those bins at 4 ms.
-   That is the useful statement: the process was saturated while the database was idle.
+   **Report that as the measurement it is: concurrent operations rose 20-fold while every dependency
+   the app instruments stayed under 4 ms.** `dcount(operation_Id)` counts distinct operations in the
+   dependency rows; it is not a utilisation figure, so it cannot on its own say the process was
+   saturated. Concurrency that high beside a fast database is a strong pointer at the process, and
+   naming it saturation needs the process-level counters the next paragraph asks for.
 
 **And when you have got that far, stop and say what you still cannot see.** Thread-pool starvation, a
 GC pause, lock contention and a synchronous CPU burst all produce the identical shape, and an app
