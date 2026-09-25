@@ -54,6 +54,30 @@ A fix PR sitting open for days with one red job is a finding in its own right, a
 
 **The trap that hides this: a job that only runs on pull requests.** A green deploy history proves nothing about it. Check which workflows actually run on pushes to the default branch — if `e2e` (or lint, or any gate) is PR-only, a break on the default branch is invisible until the next PR trips over it, and then it looks like that PR's fault. 
 
+**Before any of that, read the conclusions of the workflows that DO run on pushes to the default branch —
+a red one is a finding sitting in plain sight, and the PR-only reasoning below trains you to look past it.**
+Every project has some: a deploy, a release job, a scheduled-triage job. On one run the PR-only rule had been
+internalised so thoroughly that a release workflow failing on *every* push to the default branch for two days
+went unread for a full sweep — it was in `gh run list` the whole time. The failure was a one-line missing
+dependency on the runner (a tool a smoke script correctly refused to run without), and the script's own guard
+was right; nothing installed the tool.
+
+```
+gh run list --repo <slug> --branch <default branch> --limit 40 \
+  --json databaseId,name,status,conclusion,headBranch,event,createdAt
+```
+
+**Filter with `--branch`, do not fetch 40 rows and filter them yourself.** `--limit` is the maximum
+number of runs *fetched*, so on a busy repo an unfiltered 40 can be 40 pull-request runs and the
+default-branch failure this section exists to find never reaches you — a green-collector result of
+exactly the kind §9 of the netlify adapter warns about. Then check the coverage: if the result hits
+the limit, or its oldest `createdAt` is newer than the start of the sweep's window, raise `--limit`
+or page into older dates until the window is covered.
+
+Read every row whose `conclusion` is not `success` — not only the deploy workflow's. Then, for any that is red, `gh run view <id> --log-failed` and name the failing step.
+Only skip the pass/fail-split analysis when the failing rows are confirmed as push events and share a stable
+failure cause. Repeated failures in default-branch rows alone do not establish either condition.
+
 **But check the workflow's *schedule* too before you call the default branch blind — and check it every
 run, because it can be added without anyone telling you.** A gate absent from the push triggers may
 still run on `main`/`master` on a cron, which changes the reading of a red PR job completely: with a
@@ -146,5 +170,30 @@ Resolve the base commit explicitly (`gh pr view <n> --json baseRefOid,headRefOid
 assuming it is current — a PR opened days ago and never rebased carries whatever the branch was then.
 
 A pass/fail split across PRs is a *hint*, not a verdict — the same split is what a real defect in one PR looks like. Before blaming the base branch, check three things: the PRs sit on the same base commit, the failing PR changed nothing the test touches, and a re-run on the *identical* head commit flips the result. Nondeterminism on one commit is the only direct evidence of a flake; everything else is circumstantial.
+
+**A step that fails at its own PREREQUISITE has tested nothing downstream of it — so the first green
+prerequisite may surface a new failure rather than a pass, and everything behind the guard stays
+unverified until those checks actually run.** On one project a release job refused to run its
+launch smoke because an image-comparison tool was missing from the runner. Two sweeps reported that
+accurately, the missing tool was installed, and the very next run found a **fatal crash in the app
+itself** that had been sitting behind the guard the whole time. So when you report a guard-level
+failure, say explicitly that everything the guard protects is **unverified rather than passing**, and
+do not treat the guard's fix as closing the red.
+
+**And read a step that fails with NO message as a missing-diagnostic bug only when the expected
+diagnostic path is known and execution stopped before it — not from silence alone, and not as
+infrastructure.** Cancellation, a timeout, an action-wrapper failure, or log truncation can print the
+same empty failure, and none of those is grounds for this classification by itself. The case that
+qualifies is that same crash reported as exactly two lines — the last thing the script echoed, then
+`##[error]The process '/usr/bin/sh' failed with exit code 1`. The script's own checks print `FAIL: …`
+lines and an `::error::` summary, and none of them appeared, which is itself the tell: under
+`set -euo pipefail`, a command substitution whose non-zero exit is a *normal expected outcome* aborts
+the script before the `if` that would explain it (`PID="$(… pidof …)"` — `pidof` exits 1 precisely
+when the process is gone, which is the condition the check exists to detect). Two habits follow.
+**Download the run's artifacts before concluding anything** — `gh api
+repos/<slug>/actions/runs/<id>/artifacts` then `gh run download <id> -n <name>`; a logcat, a
+screenshot or a test log routinely names the cause the log never printed. And **when a script's own
+diagnosis is missing from a failure, file that as its own bug**: the gate still failed correctly, but
+every future failure of it costs the same manual excavation.
 
 When you find one, read the failing job's log (`gh run view <id> --repo <slug> --log-failed`) and name the failing test before filing. "e2e is red" is not a finding; "this named test races a 2 s self-clearing UI flag" is.
