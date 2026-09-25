@@ -55,6 +55,24 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
   (`Microsoft.EntityFrameworkCore.Query`, `Microsoft.AspNetCore.*`) means nothing of the app's caught
   it; an application category means something did — go read that class's handler before classifying
   it a bug.
+- **And the complement of the rule above is a whole blind spot of its own: a `LogError` that carries NO
+  exception object stays in `traces` and never reaches `exceptions`.** The provider routes on the presence
+  of the exception argument, not on the level — so `_logger.LogError("Provider rejected X: {Status} {Body}",
+  ...)` is an Error-level row in `traces` and nothing at all in `exceptions`. An exceptions-only sweep, or
+  one that reaches for `exceptions` first and treats `traces` as corroboration, cannot see it.
+  This is how one run's most serious finding presented. A provider rejected a message, the app logged the
+  rejection at Error with no exception object, fell back to a second provider, and answered the owning
+  request **200**. So: nothing in `exceptions`; nothing in `requests | where success == 'False'`; nothing
+  in the dependency passes. The **only** pass that could see it was `traces | where severityLevel >= 3`,
+  and what it revealed was a circuit breaker misclassifying a per-recipient rejection as a provider
+  outage and degrading every user on the instance for five minutes at a time.
+  Two habits fall out. **Run the trace passes on their own merits, not as corroboration for something an
+  exception pass already found** — they are the only window onto handled failures that the app chose to
+  log without an exception. And when a trace names a *provider* rejection, read the surrounding rows for a
+  **state transition** (a circuit opening, a mode switching, a cache being dropped): the rejection is
+  usually benign and the transition it triggers is the finding. A count of rejections tells you about one
+  recipient; a count of transitions tells you about everyone else.
+
 - **The same category rule applies to `traces`, and it cuts the other way: a framework Warning can
   describe a path the app deliberately handles.** A framework component often logs its own complaint
   *before* handing control to the app's hook, and the app's handler may then log at Information —
@@ -600,6 +618,63 @@ after that were all filed against three separate watches — and all four sat in
 One `gh run list --workflow <deploy> --json headSha,createdAt,conclusion` separates "the tier is
 contended while we roll" from four independent findings. Read it as a capacity fact, not a defect, and
 say so.
+
+**When a warm request is slow and the database is not, the cheapest proof is the GAP BETWEEN ITS OWN
+DEPENDENCY ROWS — and the query has to be scoped by `operation_Id`, not by a time window.** A slow
+`duration` on a request row tells you how long it took and nothing about where the time went. But
+every dependency the request made carries the same `operation_Id`, so listing them in order turns
+one opaque number into a timeline you can point at:
+
+```kusto
+dependencies | where operation_Id == '<operation_Id>' | project timestamp, type, name, duration, success | order by timestamp asc
+```
+
+One line, deliberately — §2 above: a multi-line `--analytics-query` runs only line 1 on this Windows
+`az`, so a wrapped version of this query would drop the `project` and the `order by` and hand back a
+plausible wrong table.
+
+On one run a `GET /<image route>` answered **200 after 5 986 ms** on an instance warm for 99 minutes.
+Its 11 SQL commands totalled **56 ms**, and they arrived in two clusters — eight inside the first
+51 ms, then **5.915 seconds with no dependency, no trace and no exception**, then three more. That
+single listing did what three previous runs' aggregates could not: it put a wall around the missing
+time. **State that as what it is — no dependency telemetry was recorded for those 5.915 seconds.**
+It does not prove the time was spent inside the process: uninstrumented I/O produces the identical
+gap, and the app's instrumentation is the only thing being measured. What the gap does is narrow the
+candidates to "inside the process, or in something this app does not instrument", which is worth a
+great deal and is still not a cause. Do this before reaching for any other explanation of a
+slow-but-successful request.
+
+**Two traps come with it, and the first one nearly produced a false root cause.**
+
+1. **Do not substitute a time window for the correlation.** Querying
+   `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (<start> .. <end>)`
+   over the same seconds returns everything the *instance* was doing — and drop the
+   `cloud_RoleInstance` filter and it returns everything **every** instance was doing, which is
+   worse again. On a busy process that includes long unrelated work. In
+   the run above, a 4 186 ms outbound email send sat squarely inside the gap and looked exactly like
+   the answer. It belonged to a different `operation_Id` — a background pass — and explained nothing.
+   The `operation_Id` query is what separates "this request waited on that" from "that also happened".
+2. **The time-window query is still worth running, but as a measure of LOAD, not of cause.** Bin it
+   and count operations, not just commands:
+   `dependencies | where cloud_RoleInstance == '<inst>' and timestamp between (...) | summarize
+   cmds=count(), ops=dcount(operation_Id), maxMs=max(duration) by bin(timestamp, 10s)`. The run above
+   went from 2 to **26 and then 41 distinct operation IDs with dependency rows per 10 s bin**, with the
+   slowest dependency in those bins at 4 ms.
+   **Report that as the measurement it is: distinct operation IDs with dependency rows per bin rose
+   20-fold while every dependency the app instruments stayed under 4 ms.** That is a count per bucket,
+   not a concurrency figure and not a utilisation figure — `dcount()` estimates distinct values within
+   each `bin()`, and two operations in the same ten seconds need not have overlapped at all. So it
+   cannot say the process was saturated, and it cannot say the operations were concurrent. What it
+   does is motivate reading the process-level counters the next paragraph asks for; it does not
+   identify the cause.
+
+**And when you have got that far, stop and say what you still cannot see.** Thread-pool starvation, a
+GC pause, lock contention and a synchronous CPU burst all produce the identical shape, and an app
+that emits no process-level counters cannot distinguish them — so the correct next step is a
+**diagnostic PR, not a fix PR**: capture `ThreadPool.PendingWorkItemCount`, available versus max
+worker/IO threads, `GC.CollectionCount(0/1/2)` deltas and the `GC.GetTotalPauseDuration()` delta as
+custom dimensions on any request past a threshold. That is the pipeline's "cause unclear, approach
+clear" row, and this is the shape that most often lands in it.
 
 ## 6. Dependencies and traces
 

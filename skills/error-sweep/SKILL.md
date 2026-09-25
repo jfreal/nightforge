@@ -96,6 +96,19 @@ you move on, depends on the issue's state:
 - **Open, no PR:** record `bug`, `pr: null`, `note: deferred: no PR`. That is the deferred case
   below, and it goes into **this run's** step 6 queue, not the next run's. A tracker hit that only
   says "seen" turns an open bug into a permanent skip.
+  **Except when the issue itself says it was stopped for an owner decision — check that FIRST.**
+  This pass exists because the ledger was lost, and the ledger is where `stopped: owner decision`
+  normally lives (step 7). Classifying such an issue `deferred: no PR` sends a fix agent to overrule
+  a decision the owner made on purpose, which is the one outcome that rule was written to prevent —
+  and losing the ledger is precisely when it would happen. So read the issue before deciding:
+
+  ```
+  gh issue view <n> --repo <slug> --json labels,comments \
+    --jq '{labels:[.labels[].name], stops:[.comments[]|select(.body|test("sweep-stop: owner decision"))|.createdAt]}'
+  ```
+
+  A `sweep-stop:owner-decision` label or such a comment means record `stopped: owner decision — #<n>`
+  and do **not** queue it. Nothing else on an open issue carries that state once `seen.json` is gone.
 
 Whichever it is, record `filed_by` from the issue's author (step 7) — a hit found this way may
 be a person's issue, and step 7b needs to know.
@@ -103,7 +116,8 @@ be a person's issue, and step 7b needs to know.
 **A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
 skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
 re-spawns it. The entry's `note` says which kind it is (step 7): `deferred: …` — over cap, or no
-PR — goes straight back into the queue; `stopped: cause unclear` goes back only when this run
+PR — goes straight back into the queue; `stopped: owner decision` never goes back until the
+owner answers; `stopped: cause unclear` goes back only when this run
 collected new evidence — occurrences with a new shape since `last_seen`, or a comment from a
 person on the issue. Re-spawning a cause-unclear stop on the same evidence is a nightly loop that
 costs a session and produces the same comment.
@@ -256,6 +270,23 @@ WORKING RULES — follow all of these
 
 If a bug has no issue yet, file one first (step 5) so the agent can close it.
 
+**When the agents return, turn PR auto-fix on.** John authorized this standing, for every PR, on
+2026-09-17 — do not ask. The agents open the PRs, but the *session* holds the monitor binding, so
+you do this, not them. Call `mcp__ccd_pr__get_status` to see which PR the app bound, then
+`mcp__ccd_pr__set_monitor(url: "<that PR url>", auto_fix: true, address_comments: true)`. Leave
+`auto_merge` and `auto_archive_on_close` alone.
+
+A session monitors **one** PR, and the binding follows the newest. When a run opens several, only
+one can be watched — step 8 must name the rest as unmonitored rather than implying they are covered.
+
+**BUT IN A SCHEDULED RUN THIS STEP CANNOT BE DONE AT ALL, AND THAT IS NOT A FAILURE TO RETRY.**
+Confirmed 2026-09-18: `mcp__ccd_pr__set_monitor` answers
+`This tool is unavailable in unattended sessions (scheduled-task runs and remote-dispatched trees).`
+`mcp__ccd_pr__get_status` still works, so you can read the binding and name the PRs — you simply
+cannot flip the switch. A fix agent hits the same wall, so do not re-dispatch one to try. **Report
+every PR the run opened as UNMONITORED under *Needs you*, with the one-line reason**, so the standing
+"auto-fix on every PR" authorization is visibly unfulfilled rather than silently assumed.
+
 ## Step 7 — Update the ledger
 
 Write every newly triaged signature back to `seen.json` with:
@@ -278,7 +309,32 @@ Preserve existing entries.
 **A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the reasons
 differently: `deferred: over cap` or `deferred: no PR` (re-spawned next run — or this run, when
 step 3 found it) versus `stopped: cause unclear — analysis on #<n>` (re-spawned only on new
-evidence). A bare null is read as `deferred`.
+evidence) versus `stopped: owner decision — #<n>` (never re-spawned without a word from the
+owner). A bare null is read as `deferred`.
+
+**That third reason exists because the first two both lie about a real and recurring case: the
+cause is fully known, and the only available code change is one the owner already made on
+purpose.** A tuning constant, a pool depth, a tier, a timeout, a log level — where the source
+carries a comment saying *why* it is that value, an agent sent to "fix" it is not fixing a bug,
+it is overruling a documented decision with no new authority to do so. `deferred` would requeue
+it every night; `cause unclear` is simply false and invites a pointless analysis comment. File
+the issue with the measurement that makes the decision reviewable, put the decision under the
+report's *Needs you*, and record `stopped: owner decision`.
+
+**Write that stop where the TRACKER can see it too, not only in `seen.json`.** The ledger is the
+one piece of this pipeline that has actually gone missing, and step 3's recovery pass reads an
+open issue with no PR as `deferred: no PR` — which would queue a fix agent against a decision the
+owner made deliberately. A label is the cheapest durable copy, and it is an additive write, so the
+sweep may do it itself:
+
+```
+gh issue edit <n> --repo <slug> --add-label sweep-stop:owner-decision
+```
+
+Create the label once if it does not exist, and fall back to a comment containing
+`sweep-stop: owner decision` if labelling fails — step 3 looks for either. Remove neither; only the
+owner retires this state, by acting on the decision. The sweep's contribution to a
+judgement call is evidence, not a PR.
 
 ## Step 7b — Close an issue only when the code and the telemetry both prove it
 
