@@ -78,9 +78,12 @@ skills/ci-cost-sweep/
   SKILL.md                      the CI-minutes pipeline — measure, profile, apply levers, prove
   adapters/github-actions.md    billing model, jobs-API measurement, cache inspection
   adapters/test-runners.md      per-test timings and parallelism, per runner
+skills/pr-test/
+  SKILL.md                      the per-PR test run — plan, check out, drive, tick, report
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
+docs/pr-test-card-template.md   the pr-test project card, and how to fill it in
 docs/sync-docs.md               how this repo keeps its own docs from drifting
 .claude/skills/sync-docs/       the audit that enforces it (repo-local, not published)
 ```
@@ -260,6 +263,55 @@ specified* when it does not, so the `mkdir` matters on a machine with no skills 
 harmless when the folder is already there — same reason the ELI10 block above carries one.
 
 No card — the repo you point it at is the input.
+
+## `pr-test`
+
+Tests a pull request the way a person would, rather than the way CI does: check out the head branch,
+start the app, use the feature, write down what you saw. User-invokable — `/pr-test <n>` — because
+testing a PR is something you ask for, not something that should run at 3am against a machine nobody
+is watching.
+
+The plan is the contract. If the PR body carries a test plan it is used as written; if it does not,
+one is derived from the diff and **written into the PR body before anything is tested**, so a run
+that dies halfway still leaves behind which items were reached. Each checkbox is set the moment its
+item resolves — checked for pass, unchecked for fail, regardless of what a previous run left there.
+Batching the edits to the end is how a killed run reports nothing, and inheriting a stale tick is how
+a PR ends up claiming a pass that never happened.
+
+Two constraints carry most of the weight:
+
+- **A box may only be ticked from something observed.** Reading the diff and concluding it works is
+  review, not testing. When the app cannot be started, the run says so, traces the code by hand,
+  leaves every box unchecked, and applies no label — a read-only verdict is a different claim and is
+  never reported as a tested one.
+- **The checkout is worktree-aware and always pulled.** A branch sitting in a worktree from last week
+  serves the old code, passes the test plan, and looks exactly like a clean run. `git worktree list
+  --porcelain` finds it, `git pull` fixes it, and the head commit is confirmed against the PR before
+  a single service starts.
+
+Screenshots at every step that carries evidence, uploaded under a per-run prefix so re-runs never
+overwrite each other, embedded in a collapsed block. That upload is a publish — whatever is in frame
+becomes readable by anyone with the link, forever — so the host is optional and the images get looked
+at before they go anywhere.
+
+The write set is deliberately tiny: test-plan checkboxes, one comment per run, and the pass label on
+the PR and the issues it closes — applied only when every item passed *and* the head is still the
+commit that was tested, because a push landing mid-run would otherwise get vouched for by a label
+nobody earned. Body edits are read-modify-write for the same reason the rest of this is careful:
+`gh pr edit --body-file` replaces the whole description, so a file holding only the plan silently
+deletes the author's prose. It never pushes, commits,
+merges, or closes anything. Checking out a branch to run it is not a licence to change it.
+
+### Install
+
+```bat
+mkdir "%USERPROFILE%\.claude\skills" 2>nul
+cmd /c mklink /J "%USERPROFILE%\.claude\skills\pr-test" "<clone>\skills\pr-test"
+```
+
+Then write one card per repo — the slug, the services and how to start them, the test account, the
+env vars holding the login, where screenshots go (see
+[docs/pr-test-card-template.md](docs/pr-test-card-template.md)). Everything else is the pipeline.
 
 ## `sync-docs`
 
