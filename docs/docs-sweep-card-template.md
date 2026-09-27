@@ -40,7 +40,9 @@ description: Weekly docs sweep across every repo carrying a sync-docs skill; ope
 ### Per-repo overrides
 
 <one line per repo that needs one — GitHub slug when the remote lies, default
- branch when origin/HEAD is unset, and the verify command for docs that build:>
+ branch when origin/HEAD is unset, the verify command for docs that build, and
+ any port defect the sweep found, which keeps that repo audit-only until a human
+ repairs the port:>
 
 | Repo | Override |
 |---|---|
