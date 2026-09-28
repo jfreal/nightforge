@@ -7,6 +7,11 @@ wrong, when you need the worked example behind one, or before changing a rule yo
 Archived 2026-08-26T22:40Z from an 84KB pipeline that took ~22k tokens to read every hour.
 Everything below is verbatim as it stood then.
 
+Repos are named by stable aliases (`alpha`, `bravo`, `charlie`, `delta`, `foxtrot`, `golf`) rather
+than their real names; `nightforge` is this repo. PR numbers, SHAs and timestamps are unchanged, so
+the arithmetic in every entry still checks out. New entries follow the same rule: reuse an alias, or
+write `owner/repo#N`. Never a private repo's real name.
+
 ---
 
 ---
@@ -61,7 +66,7 @@ runs — each run starts fresh with no knowledge of the last one. Shape:
 {
   "throttledUntil": "2026-08-23T18:15:00Z",
   "fired": [
-    {"repo": "jfreal/pheidi", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed"}
+    {"repo": "owner/alpha", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed"}
   ]
 }
 ```
@@ -97,7 +102,7 @@ Drop:
 carry last run's draft list forward.** CodeRabbit fires an *automatic* review on the
 `ready_for_review` event, and on a throttled fleet that attempt loses immediately and leaves a
 rate-limit block on the new head — a PR with no review of any kind, which is the top of the
-oldest-first queue. Observed 2026-08-25: `jfreal/pheidi#613` was un-drafted at **10:02:19Z** and its
+oldest-first queue. Observed 2026-08-25: `owner/alpha#613` was un-drafted at **10:02:19Z** and its
 automatic attempt was blocked **10 seconds later** at 10:02:29Z; the 10:12Z run found it as the
 fleet's only never-reviewed PR and bought it its first review in 4m11s. The previous run had it in
 the board's draft footnote, correctly. The step 1 search re-reads `isDraft` every run, which is what
@@ -113,19 +118,19 @@ whichever you checked first.** Step 5 writes `throttledUntil` = fire + 60 minute
 losing attempt inside that hour writes its own block, and that block's reset is later still. On a
 fleet with fix agents this is routine: the fired PR gets its review, the agent pushes over it, and
 the new head's automatic review loses and leaves a block. Observed 2026-08-24T17:11Z:
-`colchesterctbudget#61` fired 16:14:51Z (ledger window 17:14:51Z), head pushed twice past the
+`delta#61` fired 16:14:51Z (ledger window 17:14:51Z), head pushed twice past the
 reviewed SHA, and its new head drew a block at 16:25:07Z saying 50 minutes → **17:15:07Z**, 16
 seconds past the ledger's. Cheap to get right and it costs a burned slot to get wrong, so scan the
 blocks on every run — gated or not — and take the later of the two.
 **And the `max` is load-bearing in *both* directions — neither source is reliably the
 later one.** Observed 2026-08-25T16:12Z, the exact mirror of the case above: the ledger window
-(15:18:10Z fire + 60min = **16:18:10Z**) beat the newest block (`mergetel#138`, updated
+(15:18:10Z fire + 60min = **16:18:10Z**) beat the newest block (`bravo#138`, updated
 15:25:37Z, +52 minutes → **16:17:37Z**) by **33 seconds**. One day the block wins by 16
 seconds, the next the ledger wins by 33. Taking whichever source you happened to check first
 would have opened the gate early on one of those two days and burned the slot, so always
 compute the `max` — never shortcut to the block scan because it won last time.
 Third instance, 2026-08-25T19:12Z, same shape again: ledger (18:14:28Z fire + 60min = **19:14:28Z**)
-beat the newest block (`mergetel#138`, updated 18:21:41Z, +52 minutes → **19:13:41Z**) by **47
+beat the newest block (`bravo#138`, updated 18:21:41Z, +52 minutes → **19:13:41Z**) by **47
 seconds**. Three recorded disagreements, both directions, margins of 16–47 seconds — small enough
 that neither source is ever safely skipped, and large enough to burn a slot.
 
@@ -135,8 +140,8 @@ from the moment **CodeRabbit accepts the command**, which lags the trigger comme
 several seconds of queue and webhook latency. The derived gate is therefore systematically *early*,
 and firing at it loses the slot outright. Observed 2026-08-26T02:12Z — the sweep's **first burned
 slot in 30 fires**: the gate was computed as `02:15:12Z` from three sources agreeing to within 36
-seconds (ledger = previous trigger comment `01:15:12Z` + 60min; newest fleet block `auxf#264`
-`01:19:36Z` + 55min = `02:14:36Z`; newest completed review `auxf#264` `01:18:10Z`, whose attempt was
+seconds (ledger = previous trigger comment `01:15:12Z` + 60min; newest fleet block `charlie#264`
+`01:19:36Z` + 55min = `02:14:36Z`; newest completed review `charlie#264` `01:18:10Z`, whose attempt was
 that same `01:15:12Z` trigger). The trigger went out at `02:15:04Z`, 8 seconds short, and CodeRabbit
 answered with an *Action not completed / Review rate limited* reply whose own wording gave the real
 reset: *"your next included review will be available in **10 seconds**"* from `02:15:12Z` →
@@ -150,8 +155,8 @@ that waits retries an hour later while a run that fires early spends the allowan
 into an hour the sweep itself spent.** A block says "N units from now"; subtracting N from the block
 comment's `updated_at` gives the moment the hour began — and when the hour was started by *this
 routine's own trigger*, that arithmetic dates CodeRabbit's acceptance of a comment whose `created_at`
-you already know exactly. Observed 2026-08-26T20:12Z: the sweep fired `mergetel#142` at `19:15:07Z`;
-fifteen minutes later `mergetel#143` opened (`19:30:07Z`) and drew a block 12 seconds after that
+you already know exactly. Observed 2026-08-26T20:12Z: the sweep fired `bravo#142` at `19:15:07Z`;
+fifteen minutes later `bravo#143` opened (`19:30:07Z`) and drew a block 12 seconds after that
 reading **45 minutes** from `19:30:19Z` → `20:15:19Z`, which puts the spent hour's start at
 **`19:15:19Z` — exactly 12 seconds after the trigger comment**. Previously the ~10-second figure came
 only from the vendor's prose during the 02:12Z burn. So `fire + 60min`, which is what step 5 writes,
@@ -182,14 +187,14 @@ bought nothing — is gated out of the next run too, and the earliest retry is t
 says "the next run retries this same PR after the window", which reads as intending the opposite.
 Until a human resolves it, follow the cooldown as written and flag the conflict in the report.
 **Played out as predicted one tick later, and the real cost is smaller than "two idle ticks" makes it
-sound.** At 2026-08-26T03:12Z the burned PR (`pheidi#617`, throttled 02:15:04Z, cooldown to 03:45:04Z)
+sound.** At 2026-08-26T03:12Z the burned PR (`alpha#617`, throttled 02:15:04Z, cooldown to 03:45:04Z)
 was gated out of the candidate set exactly as written, but the fleet had a *second* stale PR
-(`auxf#264`) whose own cooldown had lapsed at 02:45:07Z, so the run fired that instead and the hour
+(`charlie#264`) whose own cooldown had lapsed at 02:45:07Z, so the run fired that instead and the hour
 was not idle at all. Following the cooldown therefore costs the burned PR a two-tick delay, not the
 sweep an idle hour — as long as the fleet has anything else starved. Only on a one-candidate fleet do
 the two costs coincide, which is a further reason not to improvise around the rule.
 **Closed out at the next tick: the conflict is not a conflict, and no change is needed.** The 04:12Z
-run took `pheidi#617` the moment its cooldown lapsed (03:45:04Z, thirty minutes before the tick) and
+run took `alpha#617` the moment its cooldown lapsed (03:45:04Z, thirty minutes before the tick) and
 bought it a review at 04:21:21Z — 5 actionable comments at the fired head. So the whole cost of the
 burn was **one PR delayed two ticks and zero idle sweep hours**, and step 6's "the next run retries
 this same PR after the window" is satisfied by the *cooldown's* window rather than the throttle's —
@@ -199,7 +204,7 @@ the PR's place in the meantime. Read the two rules as complementary and stop fla
 **The ledger's window is a *floor*, not the truth — it is stamped before the comment is posted.**
 Step 5 reserves the entry at `now + 60min` and only then calls `gh pr comment`, so the recorded
 window ends earlier than the real one by however long the reservation-to-post gap was. Observed
-2026-08-24: the `auxf#258` entry reads `at: 18:12:40Z` (window `19:12:40Z`) while the trigger comment
+2026-08-24: the `charlie#258` entry reads `at: 18:12:40Z` (window `19:12:40Z`) while the trigger comment
 actually landed `18:14:10Z`, so the true hour ran to `19:14:10Z` — 90 seconds past what the ledger
 claimed. A run ticking inside that gap reads "expired" on a window that is still live. The entry's
 `note` usually records the real fire time; when it does, gate on that instead, and otherwise treat a
@@ -208,7 +213,7 @@ ledger window that expired **within the last few minutes** as still closed.
 **An expired ledger window is not an open slot — always re-derive.** The allowance is account-wide,
 and *automatic* reviews on newly opened PRs compete for it against this sweep. On 2026-08-24 the
 `23:13:17Z` fire's hour ran out at `00:13Z` and an automatic review took the freed slot at ~`00:26Z`
-(`colchesterctbudget#64`, review object at `268544fc`), so the `01:11Z` run found the fleet throttled
+(`delta#64`, review object at `268544fc`), so the `01:11Z` run found the fleet throttled
 until `01:54Z` despite a ledger window that had expired 58 minutes earlier. Treat an expired
 `throttledUntil` exactly like a missing one: derive from the fleet before firing.
 
@@ -235,12 +240,12 @@ one PR's live window goes unseen. Put a character class that accepts both spaces
 between every token — `[Nn]ext[\s*]+(?:included[\s*]+)?review available[\s*:in]*?[\s*]*(\d+)[\s*]*(minutes?|seconds?|hours?)`
 — and **assert one match per PR carrying the `rate limited` marker**; a count mismatch is a parse
 bug. Observed 2026-08-24T06:12Z: 8 markers fleet-wide, the narrow pattern found 7, and the missed
-one was `colchesterctbudget#57` — the very PR the run went on to fire.
+one was `delta#57` — the very PR the run went on to fire.
 
 **Capture the unit, never assume minutes.** CodeRabbit also counts down in **seconds**, and a
 pattern ending in `minutes?` fails in the worst possible way: `(\d+)` still matches, so the block
 parses, the count assertion passes, and the number is silently read in the wrong unit. Observed
-2026-08-25T12:12Z on `jfreal/mergetel#138`: `> **Next included review available in 43 seconds.**`
+2026-08-25T12:12Z on `owner/bravo#138`: `> **Next included review available in 43 seconds.**`
 would have become a **43-minute** window ending 12:57Z instead of 11:14:43Z — a phantom gate 42
 minutes too long, blocking the next several runs for nothing. Match `minutes?|seconds?|hours?`,
 convert on the captured unit, and treat a countdown whose unit does not match any of the three as a
@@ -251,9 +256,9 @@ whole unit early.** A block reading "53 minutes" means 53m00s–53m59s remaining
 minutes, so `updated_at + interval` lands anywhere in a one-minute band and always at its *early*
 edge. This is invisible until two blocks are back-computed against a third source and come out
 *before* the event that started the hour. Observed 2026-08-26T22:12Z: the hour was taken at
-`21:21:11Z` by an automatic review on `mergetel#143` whose head commit `030f263e` was pushed at that
-moment, yet the two live blocks back-computed the start to `21:20:28Z` (`mergetel#144`, 36 minutes
-from `21:44:28Z`) and `21:20:38Z` (`mergetel#143`, 53 minutes from `21:27:38Z`) — both ~40 seconds
+`21:21:11Z` by an automatic review on `bravo#143` whose head commit `030f263e` was pushed at that
+moment, yet the two live blocks back-computed the start to `21:20:28Z` (`bravo#144`, 36 minutes
+from `21:44:28Z`) and `21:20:38Z` (`bravo#143`, 53 minutes from `21:27:38Z`) — both ~40 seconds
 *before* the push that won the slot, which is impossible. Reading the minute counts as floors
 reconciles all three to a true reset of ~`22:21:11Z`. Two consequences: never treat a block-derived
 gate as exact, and note that this compounds with the acceptance lag above in the same direction —
@@ -267,7 +272,7 @@ countdown at all.** CodeRabbit writes
 `> [!IMPORTANT] ## Review skipped` block when the PR is simply too big to review:
 *"Too many files! This PR contains 1135 files, which is 835 over the limit of 300. … Usage-priced
 reviews support at most 300 files."* No allowance was spent and there is nothing to wait for.
-Observed 2026-08-25T13:12Z on `jfreal/colchesterctbudget#69` (created 13:10:25Z, merged 51 seconds
+Observed 2026-08-25T13:12Z on `owner/delta#69` (created 13:10:25Z, merged 51 seconds
 later), picked up by the closed-PR sweep. This is the one legitimate exception to the zero-match
 alarm above: **a `rate limited` marker with no countdown is not automatically a parse bug** — check
 the body for `Review skipped` / `Too many files` first, and only treat a countdown-less block as a
@@ -300,7 +305,7 @@ walkthrough and a review, not a *Next review available in* line. Derive-from-rat
 therefore reads the fleet as open moments after a successful fire, and the next run burns its
 trigger on a slot that is not there. So: whenever a run fires, write `throttledUntil` = **fire time
 + 60 minutes** on every outcome, and let a `throttled` outcome overwrite it with the vendor's own
-number. Observed 2026-08-23: `jfreal/ordo#41` was fired at 20:13:34Z and reviewed at 20:24:24Z,
+number. Observed 2026-08-23: `owner/foxtrot#41` was fired at 20:13:34Z and reviewed at 20:24:24Z,
 while the newest rate-limit block in the fleet had already expired at 19:54:53Z.
 
 **That cuts both ways: a winning *automatic* review leaves no block either — so derive from the
@@ -310,7 +315,7 @@ the slot may still have been taken seconds ago. Alongside the block scan, take t
 CodeRabbit review across the fleet whose body starts with `**Actionable comments posted:`, and
 treat **its head commit's push time + 60 minutes** as a throttle window. Observed 2026-08-24T02:11Z:
 all seven blocks in the fleet resolved to `01:54:1xZ` or earlier and the ledger window had expired
-17 minutes prior, yet `jfreal/pheidi#606` was pushed at `02:07:03Z` and auto-reviewed at `02:12:32Z`
+17 minutes prior, yet `owner/alpha#606` was pushed at `02:07:03Z` and auto-reviewed at `02:12:32Z`
 — the run was one step from firing into a spent hour. Gate on `max(newest block reset, newest
 review's attempt + 60min)`.
 
@@ -320,14 +325,14 @@ allowance by hand: a person or agent commenting `@coderabbitai full review` on a
 same account-wide slot this sweep is waiting for, and CodeRabbit answers with a *Full review
 triggered.* reply and swaps the summary comment's body to the in-progress marker. Nothing about
 that looks like a throttle. Observed 2026-08-25T01:11Z: the ledger window had expired 56 minutes
-earlier and both surviving rate-limit blocks in the fleet were long stale, but `jfreal/pheidi#609`
+earlier and both surviving rate-limit blocks in the fleet were long stale, but `owner/alpha#609`
 carried a live in-progress marker from a manual trigger at **00:37:48Z** — the run was one step
 from firing into a spent hour. So scan step 3's comments for the marker too, and treat **the
 triggering comment's timestamp + 60 minutes** as a throttle window.
 
 **Cap that window at 60 minutes — an in-progress marker can stall and never resolve.** The marker is
 not a promise that a review is coming, only that an attempt was accepted. Observed
-2026-08-25T02:11Z: `jfreal/pheidi#609` still read *"Currently processing new changes in this PR"*
+2026-08-25T02:11Z: `owner/alpha#609` still read *"Currently processing new changes in this PR"*
 (run `b138337a`, base `83fd2222` → head `f58da318`) **1h41m** after its 00:37:48Z manual trigger,
 with the summary comment untouched since 00:39:12Z and no review object or `recent_review` block
 ever appearing — against a fleet record fire-to-review of 8m33s. Treating a live marker as "wait
@@ -337,7 +342,7 @@ Confirmed on the next run: at 2026-08-25T03:11Z that same marker was **2h34m** o
 still no review object. A stalled marker does not clear itself — never wait on one.
 
 **A fresh trigger *does* clear it, and the PR stays an ordinary candidate while it sits there.** Same
-marker, 2026-08-25T05:14:08Z: the sweep fired `@coderabbitai full review` at `pheidi#609` with its
+marker, 2026-08-25T05:14:08Z: the sweep fired `@coderabbitai full review` at `alpha#609` with its
 00:37:48Z marker **4h37m** stale, and CodeRabbit answered with a *Full review triggered.* reply 6
 seconds later and **replaced** the stalled marker with a fresh `review in progress` naming a new run
 at 05:14:30Z. So a stale marker neither blocks a fire on that PR nor survives one — it is dead state,
@@ -349,7 +354,7 @@ coderabbit.ai -->` marker into the summary comment with a `> [!CAUTION] ## Revie
 the reason. It leaves **no rate-limit block, no review object, and no `recent_review` block**, so all
 four sources above read expired while the hour is in fact spent. The PR stays classified *never
 reviewed* — the failure is not completion evidence — which makes it a tier-1 candidate on a fleet
-whose slot it just consumed. Observed 2026-08-26T10:12Z on `jfreal/colchesterctbudget#70`: opened
+whose slot it just consumed. Observed 2026-08-26T10:12Z on `owner/delta#70`: opened
 `10:04:36Z`, and by `10:09:15Z` its summary read *"The head commit changed during the review from
 `ae4388e2` to `bcad1004`."* Nothing else in the fleet had spent the hour — ledger expired 58 minutes
 earlier, zero blocks and zero in-progress markers fleet-wide, newest completed review from the
@@ -367,9 +372,9 @@ it is the cheapest way to check a gate that rests on one novel source.** A block
 now"; subtracting N from the block comment's `updated_at` gives the moment the hour began, which is
 the moment something else took the slot. That arithmetic is independent of whatever the winner left
 behind — and in the failed-attempt case the winner leaves nothing at all. Observed 2026-08-26T11:12Z,
-one tick after the failed-attempt source was first discovered: `jfreal/mergetel#142` opened `10:39:52Z`
+one tick after the failed-attempt source was first discovered: `owner/bravo#142` opened `10:39:52Z`
 and drew a block ten seconds later reading **25 minutes** from `10:40:02Z` → `11:05:02Z`, which puts
-the spent hour's start at **10:05:02Z** — **27 seconds** after `colchesterctbudget#70` opened at
+the spent hour's start at **10:05:02Z** — **27 seconds** after `delta#70` opened at
 `10:04:35Z` and took the slot with the attempt that then failed. Two unrelated PRs, two unrelated
 mechanisms, the same hour, agreeing to within half a minute. Whenever a run's gate rests on a source
 it has not used before, look for a block elsewhere in the fleet and back-compute its start; if the two
@@ -379,7 +384,7 @@ disagree by more than a minute or two, re-read before trusting either.
 against the tick.** Every rule above treats the gate as something that already existed when the run
 started. It need not. A PR that opens moments before the tick can win an automatic review while the
 run is still enumerating, so the fleet is genuinely open at tick time and genuinely spent a minute
-later, and nothing about the step-1 search shows it. Observed 2026-08-26T14:12Z: `jfreal/pheidi#618`
+later, and nothing about the step-1 search shows it. Observed 2026-08-26T14:12Z: `owner/alpha#618`
 opened at `14:10:57Z` — **85 seconds before the tick** — and its clean automatic review landed
 `14:12:47Z`, **25 seconds into the run's own step-3 pass**, taking the hour to `15:10:57Z`. The run
 found it because step 3 classifies every open PR anyway and this one was in the list; had the review
@@ -408,15 +413,15 @@ gh api repos/<slug>/commits/<reviewed-sha> --jq '.commit.committer.date'
 `createdAt`)`.** A branch is usually pushed some minutes before the PR that opens on it, and the
 event that spends the allowance is the *PR-open* (or `ready_for_review`, or push-to-open-PR), not
 the commit. When the branch was pushed first, the commit date understates the window by exactly
-that gap. Observed 2026-08-25T21:12Z: `jfreal/auxf#260`'s automatic review at 20:52:21Z covered head
+that gap. Observed 2026-08-25T21:12Z: `owner/charlie#260`'s automatic review at 20:52:21Z covered head
 `5e098a88`, whose committer date is **20:21:31Z** → 21:21:31Z, while the PR itself was created
 **20:46:12Z** → **21:46:12Z**, 24m41s later — and the same PR's own rate-limit block independently
 resolved to 21:46:03Z, corroborating the PR-open reading to within 9 seconds. The commit-derived
 figure would have opened the gate 25 minutes early. Cheap to fix: the `pulls/<n>` call in step 3
 already returns `created_at`.
 **Corroborated again the next hour, and this time all four gate sources were derivable at once and agreed
-to within 42 seconds.** At 2026-08-25T23:12Z the ledger said 22:56:42Z, the newest open-fleet block (`pheidi#617`)
-said 22:56:00Z, a closed-PR block (`auxf#263`) said 22:56:30Z, and the newest completed review (`auxf#262`, a clean
+to within 42 seconds.** At 2026-08-25T23:12Z the ledger said 22:56:42Z, the newest open-fleet block (`alpha#617`)
+said 22:56:00Z, a closed-PR block (`charlie#263`) said 22:56:30Z, and the newest completed review (`charlie#262`, a clean
 pass at 21:58:55Z) resolved to 22:56:42Z on the PR-open reading — its head commit's committer date was 21:55:03Z,
 1m39s earlier, which would have been the only outlier of the four. Four independent sources landing inside one
 minute is the signature of a correctly-derived gate; a single source disagreeing by more than a minute or two is
@@ -433,14 +438,14 @@ gh search prs --owner <owner> --limit 30 --json repository,number,state,updatedA
 ```
 
 and check any PR not already classified for a CodeRabbit review. Observed 2026-08-24T14:11Z:
-`jfreal/pheidi#611` was created `13:32:38Z` and merged `13:32:41Z` — three seconds later — and had
+`owner/alpha#611` was created `13:32:38Z` and merged `13:32:41Z` — three seconds later — and had
 **no CodeRabbit comment or review object at all**, so it never touched the allowance and the fire
 went ahead. That is the cheap, common case; the expensive one is a PR that *was* reviewed and then
 merged, which this check is here to catch.
 
 **Collect that sweep's *rate-limit blocks* too, not only its reviews.** A merged PR carries its
 whole comment history out of the open-fleet scan, and a block sitting on it is a live window like
-any other. Observed 2026-08-25T11:12Z: `jfreal/ww#37` merged at ~11:10Z holding a block from
+any other. Observed 2026-08-25T11:12Z: `owner/golf#37` merged at ~11:10Z holding a block from
 `10:36:33Z` saying 38 minutes → **11:14:33Z**, which tied the ledger window for latest and beat
 every block in the open fleet by 44 seconds. It agreed that hour, so nothing was lost — but a
 merge landing a few minutes later in its window would have hidden the fleet's true gate entirely.
@@ -452,26 +457,26 @@ leaves no trace anywhere.** A findings-bearing review leaves a review object; a 
 a rate-limit block; a clean pass leaves **only** a `recent_review` block inside that PR's summary
 comment, and when the PR merges minutes later it carries that comment out of the open-fleet scan.
 Every one of the three open-fleet gate sources then reads expired while the hour is in fact spent.
-Observed 2026-08-25T22:12Z: `jfreal/auxf#262` opened `21:56:42Z`, won a clean automatic review at
+Observed 2026-08-25T22:12Z: `owner/charlie#262` opened `21:56:42Z`, won a clean automatic review at
 `21:58:55Z` at head `4987168e`, and **merged at `22:01:46Z`** — 5m04s start to finish. The open
-fleet's newest block (`auxf#261`, → 21:45:23Z), the ledger (→ 21:46:12Z) and every open-PR review
+fleet's newest block (`charlie#261`, → 21:45:23Z), the ledger (→ 21:46:12Z) and every open-PR review
 were all long expired at the tick; the gate, `21:56:42Z + 60min = 22:56:42Z`, existed only on a
 merged PR. So the closed-PR sweep must run the **full step-3 classification** on each PR it returns —
 review objects *and* `recent_review` blocks *and* rate-limit blocks — not a block scan with a review
 check bolted on.
 
 That makes three consecutive hours in which the closed-PR sweep supplied the fleet's real gate
-(21:12Z `auxf#260`'s block, 20:12Z-era `auxf#259`'s block, and now `auxf#262`'s clean review), on a
+(21:12Z `charlie#260`'s block, 20:12Z-era `charlie#259`'s block, and now `charlie#262`'s clean review), on a
 fleet whose PRs increasingly open, get reviewed and merge inside a single hour. **Treat the
-closed-PR sweep as a first-class gate source, not a safety net.** `auxf#262` also set two fleet
+closed-PR sweep as a first-class gate source, not a safety net.** `charlie#262` also set two fleet
 records worth calibrating against: open→merge **5m04s**, and open→review **2m13s** — the latter
-since beaten by `jfreal/pheidi#618` at **1m50s** (opened 2026-08-26T14:10:57Z, clean automatic review
+since beaten by `owner/alpha#618` at **1m50s** (opened 2026-08-26T14:10:57Z, clean automatic review
 14:12:47Z). Read those two numbers together: a PR can be reviewed inside two minutes of opening and
 gone inside five, which is why the open-fleet scan alone can never establish that the slot is free.
 
 **The hour runs from the attempt, not the completion.** Two rate-limit blocks on 2026-08-23
-(`nightforge#7` at 19:11:53Z saying 43 minutes, `colchesterctbudget#59` at 19:14:41Z saying 40) both
-resolve to ~19:54:5xZ — exactly 60 minutes after `colchesterctbudget#58` was *opened* at 18:54:59Z,
+(`nightforge#7` at 19:11:53Z saying 43 minutes, `delta#59` at 19:14:41Z saying 40) both
+resolve to ~19:54:5xZ — exactly 60 minutes after `delta#58` was *opened* at 18:54:59Z,
 not 60 minutes after its review landed at 18:57Z. Count from the trigger comment, not the review.
 
 ## Step 3 — Classify each PR
@@ -519,7 +524,7 @@ those must aggregate the pages first.
 fails. The obvious fix — a non-greedy `re.findall(r'\[.*?\]\s*(?=\[|$)', body, re.S)` — is wrong:
 `.*?` stops at the first `]` *inside* a nested object or string, the decode throws, and if the
 throw is swallowed per chunk the result is an **empty list**. Observed 2026-08-25T12:12Z: that
-splitter returned zero reviews for `jfreal/colchesterctbudget#45`, which has carried a 36-finding
+splitter returned zero reviews for `owner/delta#45`, which has carried a 36-finding
 review at head since 08-22, so it classified as **never reviewed** — the oldest PR in the fleet by
 three days and the run's would-be candidate. The same pass found 6 of `nightforge#8`'s 12 review
 objects. Decode properly instead:
@@ -545,7 +550,7 @@ block** as a parse bug rather than a candidate.
 **That assertion must exclude the `recent_review` case, or it false-positives on every clean-pass
 PR.** An earlier version of this line read "a `walkthrough` **or** `recent_review` marker", which
 flags exactly the state a healthy clean pass leaves behind: no review object at all, plus both
-markers. Observed 2026-08-26T21:12Z on `jfreal/pheidi#616` — `pulls/616/reviews` returned literally
+markers. Observed 2026-08-26T21:12Z on `owner/alpha#616` — `pulls/616/reviews` returned literally
 `[]` while the summary comment's `recent_review` block named current head `e46e6d88`, i.e. fully
 reviewed. The two markers are not interchangeable here: a `walkthrough` with no completion evidence
 anywhere is suspicious, while a `recent_review` block **is** the completion evidence (step 3), so it
@@ -593,13 +598,13 @@ Both halves matter:
 
 - Reviews with an **empty body** are CodeRabbit replying to a comment thread, not a review pass.
   A PR can carry six of them at head SHA and still have never been reviewed. Observed again
-  2026-08-26T04:12Z and this time it decided the run: `jfreal/pheidi#617` carried exactly six
+  2026-08-26T04:12Z and this time it decided the run: `owner/alpha#617` carried exactly six
   empty-bodied reviews at current head `0f5cd26f` (`00:43:23Z`–`00:43:38Z`) against one real pass at
   the superseded `91c60fe1`. A `commit_id`-only completeness test would have called it *current* and
   the run would have reported a clean fleet while its only starved PR went unfired. The body test is
   not a refinement — on a fleet whose PRs carry comment threads it is the whole test.
-  **And it is not a `pheidi` quirk — it reached `mergetel` on 2026-08-26T15:12Z in its worst form.**
-  `jfreal/mergetel#142` was pushed to a new head at ~14:22Z; the summary comment was rewritten
+  **And it is not an `alpha` quirk — it reached `bravo` on 2026-08-26T15:12Z in its worst form.**
+  `owner/bravo#142` was pushed to a new head at ~14:22Z; the summary comment was rewritten
   14:22:32Z with the walkthrough regenerated and **no marker of any kind** — no rate-limit block, no
   `review in progress`, no `review paused`, no `failure` — while an **empty-bodied review object
   appeared at that new head** at 14:23:02Z. So every summary-comment signal said "nothing happened
@@ -611,7 +616,7 @@ Both halves matter:
   markers is not evidence a head was left alone** — classify on the review objects and the
   `recent_review` block, never on the summary's silence.
   **It recurred on the same PR three hours later with *four* empty bodies at head, so do not read the count as one.**
-  Observed 2026-08-26T16:12Z: `jfreal/mergetel#142` picked up a third head `cdeb2f51` (committed 15:26:30Z, 6m11s after
+  Observed 2026-08-26T16:12Z: `owner/bravo#142` picked up a third head `cdeb2f51` (committed 15:26:30Z, 6m11s after
   the review it outran) carrying **four** empty-bodied bot reviews, 15:27:21Z-15:27:33Z, against one real pass at the
   superseded `ef0f9919` - seven bot review objects on the PR, two of them real. The number of thread replies at a head
   grows with the PR's comment traffic, so a test that tolerates "an empty review or two" is no test at all; filter on the
@@ -649,7 +654,7 @@ count of `0` should never appear here.
 say, it does *not* post an `Actionable comments posted: 0` review — `pulls/<n>/reviews` stays `[]`
 and `pulls/<n>/comments` stays empty. On the review-object test alone such a PR reads as
 *never reviewed* forever, so the sweep re-fires it every cooldown and burns a slot re-reviewing work
-already done. Observed on `jfreal/auxf#182` and `jfreal/colchesterctbudget#58`, 2026-08-23.
+already done. Observed on `owner/charlie#182` and `owner/delta#58`, 2026-08-23.
 
 **A clean pass instead writes a `recent_review` block into the summary comment**, naming the exact
 SHAs it reviewed:
@@ -669,13 +674,13 @@ review object: never reviewed.
 **The two completion signals are alternatives, not a pair — a findings-bearing pass leaves NO
 `recent_review` block at all.** An earlier version of this file said every finished pass writes one
 "findings or not"; that is wrong, and getting it wrong the other way is just as expensive as the
-clean-pass case above. Observed 2026-08-25T18:19Z on `jfreal/mergetel#138`: the pass completed with a
+clean-pass case above. Observed 2026-08-25T18:19Z on `owner/bravo#138`: the pass completed with a
 review object at head carrying 2 actionable comments, and the summary comment — rewritten at
 18:19:38Z, **three seconds before** the review object appeared — came back carrying **only**
 `walkthrough_start`: no `recent_review_start`, no rate-limit block, no in-progress marker. The same
-held fleet-wide that hour: `mergetel#136`, `colchesterctbudget#45` and `ordo#41` each had a review
+held fleet-wide that hour: `bravo#136`, `delta#45` and `foxtrot#41` each had a review
 object at head and no `recent_review` block, and the *only* PR in the fleet carrying one was
-`pheidi#616`, whose pass was clean. So read the block as what CodeRabbit writes **instead of** a
+`alpha#616`, whose pass was clean. So read the block as what CodeRabbit writes **instead of** a
 review object when there is nothing to post inline. Test for `review object at head` **OR**
 `recent_review block at head`, never for both — a check that requires the block classifies every
 findings-bearing pass as never reviewed and re-fires finished work every cooldown.
@@ -690,7 +695,7 @@ trace in the summary at all — which is the same reason a bought slot leaves no
 block quotes the same `Reviewing files that changed … between <base> and <head>.` sentence to say
 what it *would have* reviewed, as a `> `-prefixed blockquote. A body-wide regex therefore reads a
 throttled PR as reviewed at head. Slice `recent_review_start … recent_review_end` first, then match
-inside the slice. `jfreal/pheidi#606` on 2026-08-23 carried exactly this quoted line for head
+inside the slice. `owner/alpha#606` on 2026-08-23 carried exactly this quoted line for head
 `e6ec2c40` while its only real review sat at `a7703a02`.
 
 The `<!-- walkthrough_start -->` marker is **not** a completion signal either — a walkthrough is a
@@ -709,7 +714,7 @@ report needs and the ranking uses:
 | `<!-- walkthrough_start -->` | A summary was produced. Says nothing about whether the *review* ran. |
 | `<!-- recent_review_start -->` | A review pass finished. The SHAs named inside it say *which code* it covered — this is the completeness test. |
 | `<!-- This is an auto-generated comment: review in progress by coderabbit.ai -->` | A pass is **running right now** on the SHAs named in its Commits block. The trigger was accepted and the slot was spent - it replaces the rate-limit block in the same comment. Not a completion signal; classify the PR on the `recent_review` block once the pass lands. |
-| `<!-- This is an auto-generated comment: review paused by coderabbit.ai -->` | Automatic reviews are paused for **future** pushes (`auto_pause_after_reviewed_commits`). It says nothing about the current head — classify on the `recent_review` block. A paused PR whose head is already reviewed is complete, not starved. **A manual trigger still works on a paused PR** — the pause suppresses *automatic* attempts only. Confirmed 2026-08-26T08:14:29Z on `jfreal/pheidi#617`, whose summary had carried a paused marker since 06:56:39Z: the marker was replaced by `review in progress` 22 seconds after the trigger and the review landed 08:19:38Z at the fired head. Never skip a candidate for carrying this marker, and never read it as "nothing can review this head" — on a paused repo the sweep is the *only* thing that can. |
+| `<!-- This is an auto-generated comment: review paused by coderabbit.ai -->` | Automatic reviews are paused for **future** pushes (`auto_pause_after_reviewed_commits`). It says nothing about the current head — classify on the `recent_review` block. A paused PR whose head is already reviewed is complete, not starved. **A manual trigger still works on a paused PR** — the pause suppresses *automatic* attempts only. Confirmed 2026-08-26T08:14:29Z on `owner/alpha#617`, whose summary had carried a paused marker since 06:56:39Z: the marker was replaced by `review in progress` 22 seconds after the trigger and the review landed 08:19:38Z at the fired head. Never skip a candidate for carrying this marker, and never read it as "nothing can review this head" — on a paused repo the sweep is the *only* thing that can. |
 | `<!-- This is an auto-generated comment: failure by coderabbit.ai -->` | A review **started and then aborted** — the block under it names the reason, e.g. *"The head commit changed during the review from `<a>` to `<b>`."* Not a completion signal and **not** a throttle: the PR is still never-reviewed (or stale). But the attempt was **accepted**, so it **spent the account-wide hour** — see the gate note in step 2. |
 | No CodeRabbit comment at all | The app is not installed on that repo, or the PR predates it. Not a candidate. |
 
@@ -756,8 +761,8 @@ Oldest-first is deliberate: a starved PR that keeps getting pushed to would othe
 its place to whatever landed most recently, which is exactly how PRs rot unreviewed for weeks.
 
 **The tier comes before the age — a brand-new never-reviewed PR outranks an old stale one, and that
-is correct.** Age only orders *within* a tier. Observed 2026-08-26T11:12Z: `mergetel#142`, opened 32
-minutes before the tick, took the slot over `pheidi#617`, stale and **12h43m** older with its cooldown
+is correct.** Age only orders *within* a tier. Observed 2026-08-26T11:12Z: `bravo#142`, opened 32
+minutes before the tick, took the slot over `alpha#617`, stale and **12h43m** older with its cooldown
 long lapsed. A stale PR has been looked at; a never-reviewed one has not, and on this fleet nothing
 but the sweep will ever retry it. `#617` simply became the next run's candidate.
 
@@ -765,7 +770,7 @@ but the sweep will ever retry it. `#617` simply became the next run's candidate.
 caps usage-priced reviews at 300 files and answers anything larger with *Too many files!* under a
 `rate limited` marker (step 2) — a refusal that spends nothing but buys nothing either. `pulls/<n>`
 already returns `changed_files`, so this is free to check before firing. Two observed:
-`jfreal/colchesterctbudget#69` at **1,135 files**, refused outright; and `#70` at **5,185 files**
+`owner/delta#69` at **1,135 files**, refused outright; and `#70` at **5,185 files**
 (2026-08-26), which is 17× the limit and whose walkthrough GitHub rejected twice with
 *"Body is too long (maximum is 65536 characters)"* — a PR so large CodeRabbit cannot even write its
 summary comment. Do not silently skip such a PR: it is a real starved PR and a human may want to
@@ -829,7 +834,7 @@ walkthrough, not a *"Full review finished."* reply. Those are corroboration for 
 fix agents the branch can move while the review is running, so a result naming the step 5 baseline
 SHA while the PR's head has advanced is a **delivered** review, not a failure — the slot was bought
 and spent. Judge the outcome against `baseline.head`; judge the *board* against live head. Observed
-2026-08-24: `colchesterctbudget#61` fired 16:14:51Z, head moved `5b18aa7e` → `510dd8be` at 16:16:55Z,
+2026-08-24: `delta#61` fired 16:14:51Z, head moved `5b18aa7e` → `510dd8be` at 16:16:55Z,
 review landed 16:21:04Z at `5b18aa7e`. Scoring that `pending` or `throttled` would re-fire a PR whose
 review already arrived and burn the next hour on it.
 
@@ -847,7 +852,7 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
   entry (step 3) and clear nothing; the slot may or may not have been spent, so do not fire again
   this run.
 - **`pending`** — nothing new yet within the poll. Normal, and not only on large PRs — the fleet's
-  **longest** fire-to-review, 9m33s (`mergetel#136`, 2026-08-25T04:13:38Z → 04:23:11Z), was its
+  **longest** fire-to-review, 9m33s (`bravo#136`, 2026-08-25T04:13:38Z → 04:23:11Z), was its
   *smallest* diff at 2 files / +205. Queue latency sets the floor, not file count; the review lands later.
   Keep step 5's `throttledUntil` — a pending trigger is an *accepted* one, so the hour is spent even
   though the review has not landed. Clearing it here would let the next run fire a second PR inside
@@ -856,13 +861,13 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
   **A `review in progress by coderabbit.ai` marker plus a fresh “Full review triggered.” reply is a
   *bought* pending, not a lost one** — the rate-limit block is gone from the summary comment and the
   pass is running. Say so in the report; do not re-fire, and do not read the missing review object as
-  `throttled`. Observed on `jfreal/ordo#41`, 2026-08-23.
+  `throttled`. Observed on `owner/foxtrot#41`, 2026-08-23.
 
   **But a pending can also be *silent*, and that is a different reading again — no reply, no marker,
   nothing.** The acknowledgement above is normally the fastest signal a run gets: CodeRabbit answers
   a trigger with *"Action performed — Full review triggered."* within **6–7 seconds**, and on a
-  paused `pheidi` PR the summary's marker swap follows ~20 seconds later. Observed
-  2026-08-26T17:12Z on `jfreal/mergetel#142` — the same PR that had been answered in 6s at 11:15:19Z
+  paused `alpha` PR the summary's marker swap follows ~20 seconds later. Observed
+  2026-08-26T17:12Z on `owner/bravo#142` — the same PR that had been answered in 6s at 11:15:19Z
   and in 6s at 15:15:16Z — the 17:14:45Z trigger drew **nothing at all** for **11m24s**: no reply
   comment (the issue-comment count never moved off our own trigger), **no `eyes` reaction on the
   trigger comment**, no `review in progress` marker, no `review paused`, no `failure`, and **no
@@ -884,7 +889,7 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
 
   **But the `eyes` reaction is *transient* — it is removed when the pass completes, so an empty
   `/reactions` result only means something *during* the poll.** Observed 2026-08-26T19:12Z on
-  `jfreal/mergetel#142`: the trigger comment (`issuecomment-5429950607`, posted 19:15:07Z) carried
+  `owner/bravo#142`: the trigger comment (`issuecomment-5429950607`, posted 19:15:07Z) carried
   the reaction at **19:15:19Z**, 12 seconds after the fire — and by 19:20Z, after the review object
   landed at 19:19:39Z, the same endpoint returned `[]`. It returns `[]` today for that successful
   trigger, for the successful 15:15:10Z one, and for the lost 17:14:45Z one alike. So the reaction
@@ -897,7 +902,7 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
   **Corrected 2026-08-26T22:12Z — the reaction is worthless *inside* the poll too, so drop it as a
   diagnostic entirely.** The note above assumed it is present for the duration of the pass and
   removed on completion. It is not: it **toggles while the pass is running**. Measured on
-  `jfreal/mergetel#144` (fired 22:23:03Z, reviewed 22:28:55Z), polling the reactions endpoint
+  `owner/bravo#144` (fired 22:23:03Z, reviewed 22:28:55Z), polling the reactions endpoint
   throughout — `['eyes']` at 22:23:29Z and 22:24:19Z, **`[]` at 22:25:07Z, 22:26:46Z and 22:27:35Z
   while the summary's `review in progress` marker was live and no review object existed yet**,
   `['eyes']` again at 22:28:47Z (8 seconds before the review landed), `[]` after. So an empty
@@ -909,7 +914,7 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
   landed 19 seconds after this fire and is the earliest reliable proof a trigger was accepted.
 
   **Reconciled one tick later: a silent pending is a *lost trigger*, and it stays silent forever.**
-  The 18:12Z run re-read `jfreal/mergetel#142` **58 minutes** after that 17:14:45Z trigger and found
+  The 18:12Z run re-read `owner/bravo#142` **58 minutes** after that 17:14:45Z trigger and found
   the state completely unchanged — comment list still ending with our own trigger, `/reactions` still
   `[]`, no marker of any kind, no rate-limit block, summary still `15:36:31Z`, review objects still
   the same 7 with the newest pass at `15:20:19Z`, head still `cdeb2f51`, PR still open. So the
@@ -933,7 +938,7 @@ Four outcomes, each written to the ledger's `fired` entry (which step 5 already 
 
 **Make the poll's *last* act a fetch, not a sleep.** A loop shaped `for i in 1..6; do fetch; sleep 55; done`
 spends its final 55 seconds asleep and reports whatever the *fifth-from-last* fetch saw. Observed
-2026-08-26T00:12Z on `jfreal/pheidi#617`: the last fetch ran 00:19:27Z, the loop exited 00:20:24Z, and the
+2026-08-26T00:12Z on `owner/alpha#617`: the last fetch ran 00:19:27Z, the loop exited 00:20:24Z, and the
 review object appeared **00:20:23Z** - one second before the loop ended and 56 seconds after the only fetch
 that could have seen it. The poll scored `pending` on a review that had already landed inside its own
 window. Costless to fix (drop the trailing sleep, or fetch once more after the loop) and it saves the next
@@ -943,7 +948,7 @@ run a reconcile. This is a reason to *reshape* the poll, not to lengthen it - th
 for free.** Reshaping the poll so its last act is a fetch (above) narrows the gap but does not close
 it: the fire-to-review tail runs past any poll short enough to fit inside the hourly tick. Steps 7's
 writes take a few minutes anyway, and the outcome check is two API calls, so fold one in before
-publishing the board. Twice in a row now: 2026-08-26T00:12Z (`pheidi#617`, review 1s after the loop
+publishing the board. Twice in a row now: 2026-08-26T00:12Z (`alpha#617`, review 1s after the loop
 exited, caught by a watcher) and 04:12Z (same PR, poll's last fetch 04:20:02Z, review landed
 **04:21:21Z — 1m19s later**, caught while the ledger was being written and upgraded `pending` →
 `reviewed` in-run). **Three in a row as of 06:12Z**, same PR again: poll's last fetch
@@ -954,12 +959,12 @@ every one for two API calls. **Four in a row at 08:12Z**, same PR a fourth time:
 08:19:08Z, review landed **08:19:38Z — 30 seconds later**. Note the gaps are not converging in either
 direction (1s, 1m19s, 3m23s, 30s) — there is no "just a bit longer" poll length that would have
 covered them, which is the whole argument for the re-check.
-**Five in a row at 11:12Z, and the first on a *different* PR**: `jfreal/mergetel#142`, poll's last
+**Five in a row at 11:12Z, and the first on a *different* PR**: `owner/bravo#142`, poll's last
 fetch 11:21:01Z, review landed **11:21:30Z — 29 seconds later**, caught by a second re-check at
-11:22:23Z while the board was being written. That retires any reading of this as a `pheidi#617`
+11:22:23Z while the board was being written. That retires any reading of this as a `alpha#617`
 quirk: the gap is a property of CodeRabbit's queue, not of one PR. Five gaps — 1s, 1m19s, 3m23s,
 30s, 29s — spanning two orders of magnitude with no trend.
-**Six in a row at 12:12Z** (`jfreal/pheidi#617`, poll's last fetch 12:21:08Z, first re-check 12:21:20Z,
+**Six in a row at 12:12Z** (`owner/alpha#617`, poll's last fetch 12:21:08Z, first re-check 12:21:20Z,
 review landed **12:23:20Z — 2m12s later**, caught by a second re-check at 12:23:33Z), and that one
 also supplies the **tell that says a re-check is worth running right now**: the summary comment's
 `review in progress` marker **clears ~4 seconds *before* the review object posts**. At 12:23:26Z the
@@ -968,7 +973,7 @@ rate-limit block and no `Review skipped` block in its place — which is a revie
 lost slot. So when a poll or board scan sees the marker disappear into an otherwise empty summary,
 re-check immediately instead of writing `pending`. Six gaps — 1s, 1m19s, 3m23s, 30s, 29s, 2m12s.
 **The streak of re-check upgrades ran to seven and then ended on its own at 19:12Z, which is the
-point: the re-check is insurance, not the mechanism.** `jfreal/mergetel#142` was fired 19:15:07Z and
+point: the re-check is insurance, not the mechanism.** `owner/bravo#142` was fired 19:15:07Z and
 its review object landed **19:19:39Z — 4m32s, caught by the poll's sixth fetch** with no re-check
 needed. Seven consecutive upgrades followed by an ordinary in-poll landing is exactly what a
 2m00s–15m14s fire-to-review distribution looks like against a ~5-minute poll. Do not read a run of
@@ -1074,7 +1079,7 @@ must not be shown — it makes reviewed work look starved.
 **Naming current head is necessary but not sufficient — the block must also be newer than the newest
 completed review at that head.** A losing attempt and a later winning one can both target the same
 SHA, and the block stays in the comment body afterwards (above), so "block names head" alone still
-shows a notice on code that has since been reviewed. Observed 2026-08-26T01:18Z: `jfreal/auxf#264`
+shows a notice on code that has since been reviewed. Observed 2026-08-26T01:18Z: `owner/charlie#264`
 carried a block from 00:02:05Z naming head `e4dcf2a9` — still current at board time — and the fire
 this run bought a review of that exact SHA at 01:18:10Z. The SHA test passes; the notice is wrong.
 Compare timestamps as well: show the notice only when the block's `updated_at` is **later** than the

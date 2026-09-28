@@ -52,11 +52,11 @@ Read the card, then the ledger JSON at the card's ledger path. It is the only me
 {
   "boardUrl": "https://claude.ai/code/artifact/<id>",
   "throttledUntil": "2026-08-23T18:15:00Z",
-  "barren": {"jfreal/pheidi#651": 2},
+  "barren": {"owner/alpha#651": 2},
   "refusals": {},
   "gaveUp": [],
   "fired": [
-    {"repo": "jfreal/pheidi", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed",
+    {"repo": "owner/alpha", "pr": 601, "at": "2026-08-23T17:04:00Z", "outcome": "reviewed",
      "findings": 3}
   ]
 }
@@ -247,9 +247,9 @@ hour; erring the other way burns the trigger.
 There is an irreducible window between the last scan and the comment landing, and a PR opening
 inside it wins the automatic review with no warning of any kind. Observed 2026-08-27T11:37Z, the 2nd
 burned slot on record: the run derived its gate to `11:54:11Z` with **four-way agreement** (ledger,
-`pheidi#619`'s block back-computing to 10:53:55Z, `mergetel#151`'s pass at 10:54:11Z, and a
-closed-PR sweep catching `mergetel#147`), waited a full 60-second margin, re-scanned at `11:55:20Z`,
-and fired at `11:55:50Z` — 99 seconds past a correctly-derived gate. It still lost: `pheidi#620`
+`alpha#619`'s block back-computing to 10:53:55Z, `bravo#151`'s pass at 10:54:11Z, and a
+closed-PR sweep catching `bravo#147`), waited a full 60-second margin, re-scanned at `11:55:20Z`,
+and fired at `11:55:50Z` — 99 seconds past a correctly-derived gate. It still lost: `alpha#620`
 opened at `11:55:31Z`, **11 seconds after the re-scan and 19 seconds before the trigger**, and took
 the hour; CodeRabbit refused at 11:56:01Z. Nothing was wrong with the gate, the margin, or the
 re-scan — *the claimant did not exist when the run last looked*. So when a fire is refused despite a
@@ -456,7 +456,7 @@ keep losing its place to whatever landed most recently — which is how PRs rot 
 
 **Oldest-first also has a failure mode, and these two guards are its price.** A PR goes stale on
 every push, so an old branch someone is actively pushing to re-enters the stale tier and wins it
-again, every time. Observed on `jfreal/pheidi#651`: six reviews across 34 hours, four of which found
+again, every time. Observed on `owner/alpha#651`: six reviews across 34 hours, four of which found
 nothing, taking a third of the fleet's whole budget for one PR.
 
 - **Hold a paused branch until the churn stops.** When the summary carries
@@ -702,7 +702,8 @@ runs must not produce hourly walls of text, and a finished run has nothing left 
 tokens on every run, forever. It reached 84KB and cost ~22k tokens an hour before it was split.
 
 - A dated observation, a worked example, a "first time we saw X", an "Nth in a row" → append to
-  **`EVIDENCE.md`**, not here.
+  **`EVIDENCE.md`**, not here. Name repos by the aliases its header lists, never by a private repo's
+  real name: this file and that one ship in a shared plugin.
 - Only edit this file when a **rule changes**: a new rule, a rule proven wrong, or a mechanism
   behaving differently. Rewrite the rule in place; never append a fresh paragraph beside the old one
   saying the same thing with a newer date.
