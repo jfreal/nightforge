@@ -50,6 +50,11 @@ The checks a config can switch on:
 | `status` | A page marked planned whose feature has tagged code gets marked built. A page marked built with no code is flagged, never downgraded |
 | `tests` | Every feature has a tagged spec file, and features marked built have a test that is not skipped |
 | `inventory` | A list that restates disk (a README file tree, a roster line) names exactly the files that exist |
+| `references` | Files that wire a page into the app (a route table, a sitemap, a nav link) contain the strings they should, per key. Flag-only: those files are code, not docs |
+
+A config can also replace the kebab-case key grammar with its own regex (`keys`), for a repo whose
+keys predate the skill. Its pages can declare their key with a `@doc-page:<key>` comment when the
+pages are code rather than Markdown.
 
 The full config reference is in `skills/sync-docs/SKILL.md`.
 
