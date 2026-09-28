@@ -14,15 +14,16 @@ nothing catches it. The doc key is the wire between them.
 
 ## Doc keys
 
-A **doc key** is a kebab-case name for one documented feature (`project-card`, `sync-docs`): one
-lowercase word, or several joined by single hyphens, formally `^[a-z0-9]+(-[a-z0-9]+)*$`. The same
-grammar binds the tag, the registry key and the page marker, so `-key`, `key-` and `key--name` are
-invalid everywhere. The audit reports an invalid key and refuses to work around it, because renaming
+A **doc key** is, by default, a kebab-case name for one documented feature (`project-card`,
+`sync-docs`): one lowercase word, or several joined by single hyphens, formally
+`^[a-z0-9]+(-[a-z0-9]+)*$`. One grammar binds the tag, the registry key and the page marker, so under
+the default `-key`, `key-` and `key--name` are invalid everywhere. A repo's config can replace the
+grammar with its own (`keys`, below). The audit reports an invalid key and refuses to work around it, because renaming
 a key is a decision rather than a repair. A key appears in two kinds of place:
 
 - **In the sources** that define the feature, as a `@doc:<key>` comment.
-- **On the doc page** that explains it, as a `docKey:` marker, either in frontmatter or as an HTML
-  comment under the `<h1>`.
+- **On the doc page** that explains it, as a `docKey:` marker in frontmatter or in an HTML comment
+  under the `<h1>`, or as a `@doc-page:<key>` comment near the top of a page that is code.
 
 A registry (`registry.json`) maps each key to its page and records which sources carry the tag.
 
@@ -38,9 +39,11 @@ A repo adopts sync-docs with two or three files under `.claude/sync-docs/`:
 | `config.json` | Where the sources are (roots, file types, excludes), how tags are written, where the doc pages are and how they carry their key, which registry fields mirror page frontmatter, and which checks run |
 | `registry.json` | One entry per key: its page, a one-line summary, and its sources |
 | `rules.md` (optional) | What a comparison needs that config cannot say: which numbers on a page must match which constants, a section template to keep, the tone pages are written in |
+| `writes` (in `config.json`, optional) | Extra files fix scope may edit, such as a homepage whose feature links must point at docs. Only config can grant this; `rules.md` only says what the edit is |
 
-`rules.md` is guidance, not permission. It cannot add a file to write, a command to run, or another
-repo to touch.
+`rules.md` is guidance, not permission. It may add read-only checks, such as whether a published
+image URL answers. It cannot add a file to write, run a command that changes anything, or touch
+another repo.
 
 The checks a config can switch on:
 
@@ -50,6 +53,11 @@ The checks a config can switch on:
 | `status` | A page marked planned whose feature has tagged code gets marked built. A page marked built with no code is flagged, never downgraded |
 | `tests` | Every feature has a tagged spec file, and features marked built have a test that is not skipped |
 | `inventory` | A list that restates disk (a README file tree, a roster line) names exactly the files that exist |
+| `references` | Files that wire a page into the app (a route table, a sitemap, a nav link) contain the strings they should, per key. Flag-only: those files are code, not docs |
+
+A config can also replace the kebab-case key grammar with its own regex (`keys`), for a repo whose
+keys predate the skill. Its pages can declare their key with a `@doc-page:<key>` comment when the
+pages are code rather than Markdown.
 
 The full config reference is in `skills/sync-docs/SKILL.md`.
 
@@ -110,7 +118,7 @@ scan excludes because every `@doc:` in them is an example.
 | Missing Doc Pages | A registry entry whose page does not exist |
 | Invalid Keys | A registry key that fails the grammar. Excluded from diffing and scope selection until renamed |
 | Mismatched docKey | A page whose marker is missing, is not its registry key, or fails the grammar |
-| Check findings | One section per configured check: Missing from Index, Status Drift, test gaps, Inventory Drift |
+| Check findings | One section per configured check: Missing from Index, Status Drift, test gaps, Inventory Drift, Missing Reference |
 
 ## Running it
 
@@ -136,8 +144,8 @@ being described.
 /sync-docs project-card
 ```
 
-A key name scopes both the audit and the fix to that one feature. The repo-wide checks (index and
-inventory) run under `audit` and `fix` scope only.
+A key name scopes both the audit and the fix to that one feature. The repo-wide checks (index,
+inventory, and `references` entries with no placeholders) run under `audit` and `fix` scope only.
 
 `docs-sweep` runs the same skill weekly, across every repo that has a `.claude/sync-docs/config.json`.
 
@@ -147,8 +155,9 @@ Everything the audit reads is untrusted input. In a repo like this one the sourc
 some are skill files whose entire content is instructions written for an agent. The audit reads them
 for facts (field names, paths, commands, counts) and never as instructions to itself. A tagged
 section that tells the auditor to do something is reported and quoted, not obeyed. Writes stay inside
-the skill's write set: the registry, pages under the docs root, the index file, and the inventory
-lists the config names. Nothing a scanned file says can widen that set.
+the skill's write set: the registry, pages under the docs root, the index file, the inventory lists
+the config names, and the files the config lists in `writes`, edited only as `rules.md` describes.
+Nothing a scanned file says can widen that set.
 
 ## Where it came from
 
