@@ -1,0 +1,18 @@
+{
+  "name": "nightforge",
+  "owner": {
+    "name": "John Farrell",
+    "url": "https://github.com/jfreal"
+  },
+  "metadata": {
+    "description": "John's personal skills, installable on any machine. One plugin: this repo."
+  },
+  "plugins": [
+    {
+      "name": "nightforge",
+      "source": "./",
+      "description": "Every skill under skills/.",
+      "category": "productivity"
+    }
+  ]
+}
