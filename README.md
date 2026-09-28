@@ -105,6 +105,8 @@ skills/ci-cost-sweep/
   adapters/test-runners.md      per-test timings and parallelism, per runner
 skills/pr-test/
   SKILL.md                      the per-PR test run — plan, check out, drive, tick, report
+skills/sync-docs/
+  SKILL.md                      the docs-drift audit — one engine, a config per repo
 skills/onboarding-sweep/
   SKILL.md                      the hourly onboarding sweep: dogfood board to fix PRs
 skills/unslop/
@@ -119,8 +121,8 @@ docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
 docs/pr-test-card-template.md   the pr-test project card, and how to fill it in
-docs/sync-docs.md               how this repo keeps its own docs from drifting
-.claude/skills/sync-docs/       the audit that enforces it (repo-local, not published)
+docs/sync-docs.md               how sync-docs works, and how this repo configures it
+.claude/sync-docs/              this repo's own sync-docs config and registry
 ```
 
 **The split:** the pipeline is identical everywhere, collection is per-stack, and only identifiers
@@ -198,14 +200,14 @@ Mechanical traps the adapters document, each of which fails *quietly*:
 
 The weekly counterpart to `sync-docs` (below): where sync-docs keeps *one* repo's docs honest when
 you remember to run it, `docs-sweep` runs it for you, across every repo that has it. It discovers
-each local repo carrying a repo-local `.claude/skills/sync-docs/` port, runs that repo's own audit
-in a fresh worktree off the default branch, and where the docs drifted, runs that port's fix scope
-and opens a **draft PR** for review. Clean repos get one line in the report; nothing is pushed to a
+each local repo carrying a `.claude/sync-docs/config.json` (or, until it migrates, an old repo-local
+`.claude/skills/sync-docs/` port), runs that repo's audit in a fresh worktree off the default branch,
+and where the docs drifted, runs the fix scope and opens a **draft PR** for review. Clean repos get one line in the report; nothing is pushed to a
 default branch and nothing is merged.
 
 The split mirrors error-sweep, one level up: the pipeline is identical everywhere, and the per-repo
-knowledge is not in a card — it is the target repo's own sync-docs port, versioned beside the docs
-it guards. A repo joins the sweep by carrying the port; there is no registration step. The one
+knowledge is not in a card — it is the target repo's own sync-docs config, versioned beside the docs
+it guards. A repo joins the sweep by carrying the config; there is no registration step. The one
 roster card (see `docs/`) only says where to scan, what to exclude, the PR cap, and per-repo
 overrides like a docs build command.
 
@@ -374,17 +376,20 @@ Comes with the plugin (see [Install](#install)).
 
 ## `sync-docs`
 
-Repo-local tooling, not a published skill: it lives in `.claude/skills/sync-docs/` and runs *on*
-nightforge. It keeps the pages under `docs/` honest about the files they describe.
+Keeps a repo's doc pages honest about the files they describe. Sources carry a `@doc:<key>` comment,
+the page that explains them carries a matching `docKey:` marker, and a registry ties the two
+together. The audit finds pages whose sources changed, tags nobody registered, pages no index links
+to, and lists that no longer match disk. Fix scope repairs them, and never deletes a page or invents
+a detail.
 
-Most of this repo documents itself — `skills/error-sweep/SKILL.md` explains the pipeline it also
-defines, so it cannot drift. The exceptions are the pages that describe something living elsewhere:
-`docs/project-card-template.md` documents a card that the pipeline and every adapter *read*, so a
-new required field in an adapter silently makes that page wrong. `sync-docs` ties the two together
-with a **doc key** — a name that appears as a `@doc:<key>` comment in each source and as a
-`docKey:` marker on the page — and audits the pair. It also checks that every doc page is linked
-from this README, that this README's file tree matches disk, and that the adapter roster inside
-`skills/error-sweep/SKILL.md` matches the adapter files that actually exist.
+It is one skill for every repo. Each repo adds `.claude/sync-docs/config.json`, which says where its
+sources and docs are and which checks apply (index, status, tests, inventory), plus its
+`registry.json` and, if needed, a `rules.md`. This repo uses it on itself: `docs/project-card-template.md`
+documents a card that the pipeline and every adapter *read*, so a new required field in an adapter
+would otherwise make that page silently wrong.
 
-Run `/sync-docs` to audit, `/sync-docs fix` to repair. Full mechanism:
-[docs/sync-docs.md](docs/sync-docs.md).
+### Install
+
+Comes with the plugin (see [Install](#install)). Then give a repo its config and registry (see
+[docs/sync-docs.md](docs/sync-docs.md)). Run `/nightforge:sync-docs` to audit,
+`/nightforge:sync-docs fix` to repair. Full mechanism: [docs/sync-docs.md](docs/sync-docs.md).

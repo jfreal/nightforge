@@ -1,0 +1,20 @@
+{
+  "registry": ".claude/sync-docs/registry.json",
+  "sources": {
+    "roots": ["."],
+    "exclude": [".git/**", ".claude/sync-docs/**", "skills/sync-docs/**", "docs/**", "README.md"],
+    "tagForm": "line",
+    "entryFormat": "path"
+  },
+  "docs": {
+    "root": "docs",
+    "marker": "comment"
+  },
+  "checks": {
+    "index": { "file": "README.md", "match": "link-or-tree" },
+    "inventory": [
+      { "file": "README.md", "tree": true, "paths": ["skills/", "docs/"] },
+      { "file": "skills/error-sweep/SKILL.md", "line": "Adapters available today:", "glob": "skills/error-sweep/adapters/*.md" }
+    ]
+  }
+}

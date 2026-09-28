@@ -7,7 +7,8 @@
       "skills/error-sweep/adapters/netlify.md",
       "skills/error-sweep/adapters/supabase.md",
       "skills/error-sweep/adapters/app-insights.md",
-      "skills/error-sweep/adapters/github-auto-issues.md"
+      "skills/error-sweep/adapters/github-auto-issues.md",
+      "skills/onboarding-sweep/SKILL.md"
     ]
   },
   "docs-sweep-card": {
@@ -27,11 +28,12 @@
   },
   "sync-docs": {
     "doc": "docs/sync-docs.md",
-    "summary": "The doc-key mechanism itself: what a doc key is, how to tag a source, how to add and register a doc page, what the audit reports, and how to run it in audit vs fix scope.",
+    "summary": "The doc-key mechanism and the shared sync-docs skill: what a doc key is, how to tag a source, how to register a page, what config.json and rules.md hold, what each check reports, how a repo adopts the skill, and how to run it in audit vs fix scope.",
     "sourcesManual": true,
     "sources": [
-      ".claude/skills/sync-docs/SKILL.md",
-      ".claude/skills/sync-docs/registry.json"
+      "skills/sync-docs/SKILL.md",
+      ".claude/sync-docs/config.json",
+      ".claude/sync-docs/registry.json"
     ]
   },
   "pr-test-card": {
