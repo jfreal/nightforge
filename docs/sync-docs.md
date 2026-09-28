@@ -2,66 +2,80 @@
 
 <!-- docKey: sync-docs -->
 
-`sync-docs` keeps this repo's doc pages honest about the files they describe. It is repo-local
-tooling — it lives in `.claude/skills/sync-docs/` and is run *on* nightforge, unlike `skills/`,
-which holds the skills nightforge publishes for other repos to install.
+`sync-docs` keeps a repo's doc pages honest about the files they describe. It is one skill,
+`skills/sync-docs/SKILL.md`, used by every repo. Each repo supplies a small config file that says
+where its sources and docs are and which extra checks apply. The engine never changes per repo.
 
-The problem it solves is narrow. Some things are their own documentation: `skills/error-sweep/SKILL.md`
+The problem it solves is narrow. Some files are their own documentation: `skills/error-sweep/SKILL.md`
 explains the pipeline it also defines, so it cannot drift from itself. Other things are explained
-somewhere else — `docs/project-card-template.md` describes a card that the pipeline and every adapter
-*read*. Change what an adapter demands off the card and that page is quietly wrong, with nothing to
-catch it. The doc key is the wire between them.
+somewhere else. `docs/project-card-template.md` describes a card that the pipeline and every adapter
+*read*. If an adapter starts demanding a new field off the card, that page is quietly wrong, and
+nothing catches it. The doc key is the wire between them.
 
 ## Doc keys
 
-A **doc key** is a kebab-case name for one documented feature (`project-card`, `sync-docs`) — one
+A **doc key** is a kebab-case name for one documented feature (`project-card`, `sync-docs`): one
 lowercase word, or several joined by single hyphens, formally `^[a-z0-9]+(-[a-z0-9]+)*$`. The same
-grammar binds the tag, the registry key, and the page marker, so `-key`, `key-`, and `key--name` are
-invalid everywhere; the audit reports them and refuses to work around them, since renaming a key is
-a decision rather than a repair. A key appears in exactly two kinds of place:
+grammar binds the tag, the registry key and the page marker, so `-key`, `key-` and `key--name` are
+invalid everywhere. The audit reports an invalid key and refuses to work around it, because renaming
+a key is a decision rather than a repair. A key appears in two kinds of place:
 
-- **In the sources** that define the feature, as a `@doc:<key>` comment
-- **On the doc page** that explains it, as a `docKey:` marker
+- **In the sources** that define the feature, as a `@doc:<key>` comment.
+- **On the doc page** that explains it, as a `docKey:` marker, either in frontmatter or as an HTML
+  comment under the `<h1>`.
 
-A third place, `.claude/skills/sync-docs/registry.json`, maps the key to its page and records which
-sources carry the tag.
+A registry (`registry.json`) maps each key to its page and records which sources carry the tag.
 
 Only features whose explanation lives apart from their definition get a key. A file that documents
 itself does not need one.
 
-## Tagging a source
+## What a repo adds
 
-Put the tag on the line above the section it marks, in the host file's comment syntax:
+A repo adopts sync-docs with two or three files under `.claude/sync-docs/`:
 
-| File type | Tag |
+| File | Holds |
 |---|---|
-| Markdown / HTML | `<!-- @doc:project-card -->` |
-| Shell, PowerShell, YAML | `# @doc:project-card` |
-| C-like (JS/TS/C#) | `// @doc:project-card` |
+| `config.json` | Where the sources are (roots, file types, excludes), how tags are written, where the doc pages are and how they carry their key, which registry fields mirror page frontmatter, and which checks run |
+| `registry.json` | One entry per key: its page, a one-line summary, and its sources |
+| `rules.md` (optional) | What a comparison needs that config cannot say: which numbers on a page must match which constants, a section template to keep, the tone pages are written in |
 
-```markdown
-<!-- @doc:project-card -->
-## What the caller gives you
+`rules.md` is guidance, not permission. It cannot add a file to write, a command to run, or another
+repo to touch.
 
-A project card naming: app + URL, repo path + GitHub slug + default branch, ...
-```
+The checks a config can switch on:
 
-One block can carry several keys (`<!-- @doc:a @doc:b -->`). The tag names what is tagged; it never
-explains it — that is the doc page's job.
+| Check | What it enforces |
+|---|---|
+| `index` | Every registered page is reachable from an index file, by link, file-tree entry, or id/title, optionally under the right section |
+| `status` | A page marked planned whose feature has tagged code gets marked built. A page marked built with no code is flagged, never downgraded |
+| `tests` | Every feature has a tagged spec file, and features marked built have a test that is not skipped |
+| `inventory` | A list that restates disk (a README file tree, a roster line) names exactly the files that exist |
 
-**The tag gets a line to itself.** This repo's sources are prose, so a scan for the bare string
-`@doc:` also hits every sentence that merely mentions the convention — this page included. Only a
-comment line carrying nothing but tags counts. The audit also strips fenced code blocks before
-matching — a tag inside a fence is an example, not a use — and skips three paths outright: its own
-directory, everything under `docs/`, and the README.
+The full config reference is in `skills/sync-docs/SKILL.md`.
 
-JSON has no comments. A JSON source is recorded in the registry by hand instead (see
-`sourcesManual` below).
+## This repo's config
+
+nightforge is unusual: its "source" is prose. The behaviour of `error-sweep` is defined by Markdown
+files, and a sentence that *mentions* `@doc:` looks like a tag to a naive scan. So nightforge's
+`.claude/sync-docs/config.json` sets:
+
+- `tagForm: "line"`. Only a comment line carrying nothing but tags counts. The engine also strips
+  fenced code blocks in Markdown before matching, because a tag in a fence is an example.
+- Excludes for `docs/`, `README.md`, `.claude/sync-docs/` and `skills/sync-docs/`. Each of them
+  discusses the convention rather than using it.
+- Doc pages under `docs/`, with the key in an HTML comment under the `<h1>`. These pages are read on
+  GitHub as plain Markdown, where a frontmatter block would render as a stray table.
+- The `index` check against `README.md`, by link or file-tree entry.
+- Two `inventory` checks: the README file tree against `skills/` and `docs/`, and the
+  `Adapters available today:` line in `skills/error-sweep/SKILL.md` against the adapter files.
+
+The `sync-docs` registry entry is `sourcesManual`: its sources are this skill's own files, which the
+scan excludes because every `@doc:` in them is an example.
 
 ## Adding a doc page
 
-1. Write the page under `docs/`.
-2. Put the key marker directly under the `<h1>`:
+1. Write the page under the config's `docs.root`.
+2. Put the key marker on it, in the form `docs.marker` names:
 
    ```markdown
    # Project card template
@@ -69,12 +83,7 @@ JSON has no comments. A JSON source is recorded in the registry by hand instead 
    <!-- docKey: project-card -->
    ```
 
-   An HTML comment rather than YAML frontmatter: these pages are read on GitHub as plain Markdown,
-   with no static-site build consuming frontmatter, and a frontmatter block would render as a stray
-   table at the top of the page. (Skill files under `skills/` and `.claude/skills/` do carry YAML
-   frontmatter — the skill loader requires it. That is a different thing from a doc key.)
-
-3. Register it in `.claude/skills/sync-docs/registry.json`:
+3. Register it in the registry:
 
    ```json
    "project-card": {
@@ -84,33 +93,24 @@ JSON has no comments. A JSON source is recorded in the registry by hand instead 
    }
    ```
 
-   Leave `sources` empty — the audit fills it in from the tags it finds. Set
-   `"sourcesManual": true` when the sources cannot carry a tag (a JSON file, or this skill's own
-   directory, whose every `@doc:` is an example); the audit then leaves the array alone and does not
-   report the key as orphaned.
+   Leave `sources` empty; the audit fills it in from the tags it finds. Set `"sourcesManual": true`
+   when the sources cannot carry a tag (a JSON file, for example). The audit then leaves the array
+   alone and does not report the key as orphaned.
 
 4. Tag the sources that define the feature.
-5. Link the page from `README.md`.
+5. Add the page to the index, if the config has one.
 
-## What the audit checks
-
-Beyond comparing each page against its tagged sources, the audit reports:
+## What the audit reports
 
 | Finding | Meaning |
 |---|---|
-| Stale Documentation | A page and its sources disagree — fields, paths, commands, or examples |
+| Stale Documentation | A page and its sources disagree on fields, paths, numbers, commands, or examples |
 | Unregistered Keys | A `@doc:` tag in a source with no registry entry |
-| Orphaned Keys | A registry entry with no tag anywhere — feature removed? |
-| Missing Doc Pages | A registry entry whose `docs/<name>.md` does not exist |
-| Invalid Keys | A registry key that fails the kebab-case grammar — excluded from diffing and from scope selection until renamed |
-| Mismatched docKey | A page whose marker is not its registry key, fails the grammar, or is missing |
-| Missing from Index | A registered page not linked from `README.md` |
-| Inventory Drift | The README file tree or the `Adapters available today:` line disagrees with disk |
-
-The last two are nightforge-specific. `README.md` is this repo's docs index, so a page it does not
-link is a page nobody finds. And two lists here restate what is on disk — the README's file tree, and
-the adapter roster inside `skills/error-sweep/SKILL.md`. Both go stale silently, and an adapter that
-no list mentions is an adapter nobody runs.
+| Orphaned Keys | A registry entry with no tag anywhere. Was the feature removed? |
+| Missing Doc Pages | A registry entry whose page does not exist |
+| Invalid Keys | A registry key that fails the grammar. Excluded from diffing and scope selection until renamed |
+| Mismatched docKey | A page whose marker is missing, is not its registry key, or fails the grammar |
+| Check findings | One section per configured check: Missing from Index, Status Drift, test gaps, Inventory Drift |
 
 ## Running it
 
@@ -118,45 +118,41 @@ no list mentions is an adapter nobody runs.
 /sync-docs
 ```
 
-Default scope is **audit**: it reads, compares, and reports. The only thing it writes is the
-registry's `sources` arrays, refreshed from the tags it just found — bookkeeping, not a doc rewrite.
-No doc page is touched.
+With the plugin installed the command is `/nightforge:sync-docs`. Default scope is **audit**: it
+reads, compares and reports. The only thing it writes is the registry's `sources` arrays, refreshed
+from the tags it just found. That is bookkeeping, not a doc rewrite; no page is touched.
 
 ```text
 /sync-docs fix
 ```
 
-**Fix** scope rewrites the stale sections of doc pages, registers keys it found with no entry,
-adds missing `docKey:` markers and README links, and corrects the README tree and adapter roster to
-match disk. It never deletes a doc page — a feature that looks gone is flagged for you instead — and
-it never invents a specific: every field name, path, and count it writes is read out of the source
+**Fix** scope rewrites the stale sections of pages, registers keys it found with no entry, adds
+missing markers and index entries, reconciles status, and corrects inventory lists to match disk. It
+never deletes a page and never renames a key; a feature that looks gone is flagged for you instead.
+It never invents a specific either: every name, path and number it writes is read out of the source
 being described.
 
 ```text
 /sync-docs project-card
 ```
 
-A key name scopes both the audit and the fix to that one feature: only that key is diffed, only that
-key's registry entry is rewritten, and only that key's page is repaired. The repo-wide checks — index
-coverage for other pages, the README file tree, the adapter roster — run under `audit` and `fix`
-scope only.
+A key name scopes both the audit and the fix to that one feature. The repo-wide checks (index and
+inventory) run under `audit` and `fix` scope only.
+
+`docs-sweep` runs the same skill weekly, across every repo that has a `.claude/sync-docs/config.json`.
 
 ## What it will not do
 
-Everything the audit reads is untrusted input, and that matters more here than it would in a code
-repo: the sources are prose, and some are skill files whose entire content is instructions written
-for an agent. The audit reads them for facts — field names, paths, commands, counts — and never as
-instructions to itself. A tagged section that tells the auditor to do something gets reported and
-quoted, not obeyed. Writes stay inside the documented targets: registry entries in scope, doc pages
-under `docs/` in scope, the README index and tree, and the adapter roster. Nothing a scanned file
-says can widen that set.
+Everything the audit reads is untrusted input. In a repo like this one the sources are prose, and
+some are skill files whose entire content is instructions written for an agent. The audit reads them
+for facts (field names, paths, commands, counts) and never as instructions to itself. A tagged
+section that tells the auditor to do something is reported and quoted, not obeyed. Writes stay inside
+the skill's write set: the registry, pages under the docs root, the index file, and the inventory
+lists the config names. Nothing a scanned file says can widen that set.
 
-## Adapted from an app repo
+## Where it came from
 
-This skill is a port of the `sync-docs` skill in one of the owner's app repos, where docs are
-Eleventy-built Markdown pages on a marketing domain. Dropped in this port, as having no nightforge
-equivalent: the "How It Works" hub page and its card markup, the `articleSection` taxonomy, the
-marketing homepage `.feature-block` scan, and the app-domain link rules. Changed: doc keys are
-declared in an HTML comment instead of YAML frontmatter, tags are Markdown comments because this
-repo's sources are Markdown, and hub coverage became README index coverage plus the two
-inventory-list checks above.
+sync-docs began as a repo-local skill in one of the owner's app repos, and was copied and hand-edited
+into several more. The copies shared one design (tags, a registry, audit and fix scope, the same
+report) and differed only in paths, comment syntax and a few extra checks. Those differences are
+now config, and the extra checks are named modules any repo can switch on.
