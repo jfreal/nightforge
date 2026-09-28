@@ -42,7 +42,7 @@ scan `info`/`warn` for error-shaped text the level filter cannot see.
 100 lines, `--since` was not the binding constraint and that function's slice is truncated —
 and the lines you keep are the **oldest** in the window, not the newest (§9), so its newest
 timestamp is an artifact and proves nothing about liveness. **A level-filtered run that returned fewer than 100 lines has NOT necessarily seen the whole
-window** — see the 2026-08-27 refinement in §9, where a 10-line error pass silently dropped both
+window** — see the level-filtered refinement in §9, where a 10-line error pass silently dropped both
 of the window's real error bursts. Collect errors as a LADDER of overlapping windows and union the
 result; a single pass is not a collection. Say in the report which passes were truncated.
 
@@ -67,7 +67,7 @@ Parse each deploy's `state` and `error_message`. `state == "error"` is a finding
 | `Canceled build due to no content change` | `netlify.toml`'s `[build] ignore` whitelist working as designed |
 | `Skipped due to account credit usage exceeded` | Billing condition. Mention in the report; file nothing |
 
-Two further `error_message` shapes, both seen 2026-09-22 on mergetel, are **real build failures and
+Two further `error_message` shapes, both seen 2026-09 on one site, are **real build failures and
 not exceptions** — but note the exit code is not always `2`, so do not grep for that string:
 
 | `error_message` | Notes |
@@ -76,16 +76,21 @@ not exceptions** — but note the exit code is not always `2`, so do not grep fo
 | `Timeout` | A bare one-word message with no stage prefix. The build exceeded the host's limit. §14 applies, so the build log is unretrievable from the CLI; use deploy metadata and neighboring deploys for recovery analysis |
 
 **Judge a cluster of preview failures by the neighbours before reaching for a shared cause.** On
-2026-09-22 four failures landed inside one 18-minute band across two branches, which reads like
-§18's 2026-09-14 case where a provider incident froze every deploy. It was not: each branch had a
+one run (2026-09) four failures landed inside one 18-minute band across two branches, which reads like
+§18's running-site case where a provider incident froze every deploy. It was not: each branch had a
 `ready` deploy *in the middle* of the band, and production was clean throughout. Two branches being
 pushed rapidly, some commits building and some not, is ordinary development. **A `ready` deploy
 interleaved with the failures rules out only a continuous site-wide failure that would have affected
 that deploy.** An intermittent provider issue, or a condition limited to particular branches or
 commits, remains possible.
 
+A close cousin, seen 2026-09: `Failed during stage 'preparing repo': git ref pull/<n>/head
+does not exist`. It fires on the first preview of a brand-new PR, before GitHub has published the PR ref.
+A retrigger built `ready` 77 s later. It is a PR-creation race, not the clone failure below, and it needs
+no pending-key bookkeeping.
+
 There is a **third** shape that is neither of those and is not a code defect either. Seen
-2026-08-27 on mergetel:
+2026-08 on one site:
 
 ```text
 Failed during stage 'preparing repo': ... remote: Repository not found.
@@ -189,9 +194,9 @@ newest line can be many hours stale, so it is not even "newest first" in practic
 still proves the pipe works, which is its real job. Say so in the report.
 
 **But do not skip reading it, either.** The error/fatal pass structurally cannot see a
-`warn`, and this app logs real config gaps at warn — 2026-08-21's run found `/updates`
-serving its empty state in production to every visitor because `CHANGELOG_FEED_URL` was
-never set, and the only trace anywhere was two WARN lines in the unfiltered pass. Scan the
+`warn`, and some apps log real config gaps at warn — on one site (2026-08) a public page was
+serving its empty state in production to every visitor because a feed-URL environment variable
+was never set, and the only trace anywhere was two WARN lines in the unfiltered pass. Scan the
 unfiltered output for error-shaped text before writing it off as chrome. Beware the false
 positives: structured `INFO` ticks carry fields like `"failed":0`, so grep for the word and
 then read the line.
@@ -251,7 +256,7 @@ exactly 100 lines tells you nothing about any timestamp**, earliest or latest. O
 does.
 
 **Refinement, 2026-08-26: a count BELOW 100 is not proof the slice covered the window either.**
-A 26h `--source functions` pass returned 43 lines for `generate-background` — well under the cap,
+A 26h `--source functions` pass returned 43 lines for a background function — well under the cap,
 so by the rule above it should have been complete. It was not: every line fell between
 `08-25T13:19` and `08-25T20:02`, and the pass contained **zero** lines dated `08-26` at all. A 15m
 pass taken minutes later on the same source showed that function invoked at `10:15`, `10:20` and
@@ -264,8 +269,8 @@ Widening the window to reach further back actively *hides* recent data. Never di
 "function stopped running" from a wide-window pass — narrow the window instead, and
 compare like-for-like windows across runs.
 
-**Refinement, 2026-08-27: the LEVEL-FILTERED pass is truncated the same way, at counts nowhere
-near 100 — and that is how a live error hides from a sweep entirely.** On mergetel, thirteen
+**Refinement, 2026-08: the LEVEL-FILTERED pass is truncated the same way, at counts nowhere
+near 100 — and that is how a live error hides from a sweep entirely.** On one site, thirteen
 overlapping `--level error --level fatal --source functions` passes taken minutes apart returned
 mutually inconsistent subsets of the same window:
 
@@ -278,7 +283,7 @@ mutually inconsistent subsets of the same window:
 | 12h | 2 | no | **no** — though 09:30 is inside it |
 | 10h / 8h / 6h / 4h / 2h | 4 / 2 / 2 / 2 / 2 | no | yes |
 
-Twelve ERROR lines at `08-26T17:54` are visible only at 18h–24h. Two at `08-27T09:30` are visible
+Twelve ERROR lines at `17:54` the previous day are visible only at 18h–24h. Two at `09:30` that morning are visible
 only at 2h–10h. **No single window shows both**, and the nominal 26h window the card asks for shows
 neither — it returned 10 lines and looked like a clean, uncapped, complete result. A third finding
 (one line at `21:45`) appeared in exactly one window of the thirteen.
@@ -301,13 +306,18 @@ Thirteen invocations cost a couple of minutes and no build credits. Dedupe on
 the union, not from any one pass, and say in the report that the union is what you used — a future
 run comparing "10 lines" against "23 lines" would otherwise read a collection artifact as a trend.
 
-**Refinement, 2026-09-11 on `auxf`: an incomplete union is a property of one RUN, not a ceiling — and
-the yield can split across SEVERAL windows.** Two consecutive runs had their entire error yield in a
-single window (`12h`, then `18h`), which invites the shortcut "find the window that has them". On
-2026-09-11 the three error lines came back as **2 in the `18h` window and 1 in the `22h` window**,
-with the nominal `26h` pass a clean zero for the third run running. Worse for the shortcut: the
-09-10 union was *incomplete* against an independent count (4 lines against 5 known failures) while
-the 09-11 union was *exact* (3 against 3) — same site, same ladder, two days apart.
+**Run the ladder passes in PARALLEL, not in a loop.** Seen 2026-09: a sequential 41-pass script took
+about 1.5 min per pass and had finished 14 after 20 min. The same passes launched as background jobs
+(`&` then `wait`) finished in a few minutes each batch, with no zero-byte files. Each `netlify logs`
+call is independent.
+
+**Refinement, 2026-09: an incomplete union is a property of one RUN, not a ceiling — and
+the yield can split across SEVERAL windows.** On one site two consecutive runs had their entire error
+yield in a single window (`12h`, then `18h`), which invites the shortcut "find the window that has
+them". On the next run the three error lines came back as **2 in the `18h` window and 1 in the `22h`
+window**, with the nominal `26h` pass a clean zero for the third run running. Worse for the shortcut:
+one day's union was *incomplete* against an independent count (4 lines against 5 known failures) while
+the next day's was *exact* (3 against 3) — same site, same ladder, consecutive runs.
 
 So completeness is not a property you can establish once and rely on:
 
@@ -318,12 +328,12 @@ So completeness is not a property you can establish once and rely on:
 - A count on the Netlify side that **exceeds** the independent source is the only direction that
   is anomalous.
 
-**Refinement, 2026-08-28: ladder the WARN pass too — the truncation is not specific to `--level
-error`.** On mergetel a single `--since 26h --level warn --source functions` pass returned 11 log
+**Refinement, 2026-08: ladder the WARN pass too — the truncation is not specific to `--level
+error`.** On one site a single `--since 26h --level warn --source functions` pass returned 11 log
 lines. A seven-window warn ladder (`2h 6h 10h 14h 18h 22h 26h`) on the same site minutes later
 returned **16** deduped, including five `___netlify-server-handler` lines the 26h pass could not
-see at all — four `.marketing.yml` 404s and a `CHANGELOG_FEED_URL is not set` at `06:08`. §7 makes
-the warn tier load-bearing on this project (that is where a real config gap surfaced), so a single
+see at all — four 404s for a config file and a missing-env-var warning. §7 makes the warn tier
+load-bearing on a site like that (that is where a real config gap surfaced), so a single
 warn pass has the same blind spot the single error pass does.
 
 The rule generalises: **ladder every level-filtered pass you intend to draw a conclusion from.**
@@ -343,7 +353,7 @@ Showing logs from functions for the last 26h:
 
   𝒇   Function
 
-[𝒇 publish-scheduled] 2026-08-19T09:48:04.000Z INFO …
+[𝒇 <function>] 2026-08-19T09:48:04.000Z INFO …
 ```
 
 So a **healthy zero-error result on a source that has functions is 4 lines of header and
@@ -360,7 +370,7 @@ banner and the `No logs found`
 one-liner as chrome.
 
 **There is a THIRD zero shape, and it is a lie: a completely EMPTY file — zero bytes, no
-banner at all.** Confirmed 2026-09-01 on `auxf`. `netlify logs --since 26h --source functions`
+banner at all.** Confirmed 2026-09 on one site. `netlify logs --since 26h --source functions`
 exited **0** and wrote **0 bytes**; two identical re-runs seconds later each wrote 22028 bytes
 and 228 log lines. Nothing on stderr, and the *level-filtered* passes taken in the same minute
 all carried their normal 4-line banner, so the CLI and the login were plainly fine.
@@ -372,8 +382,8 @@ the command produced no output at all, which is a transient CLI/API failure, not
 Read as "the unfiltered cross-check came back empty" it convicts a perfectly healthy error pass
 of being the §6/§8 green-collector bug.
 
-**Recurred 2026-09-05 on `auxf`, identically — so it is a standing property of this CLI, not a
-one-off.** Same command, same site: **0 bytes** on the first invocation, then 22637 bytes and 226
+**Recurred four days later on the same site, identically — so it is a standing property of this CLI,
+not a one-off.** Same command, same site: **0 bytes** on the first invocation, then 22637 bytes and 226
 log lines on each of two re-runs seconds later, while all 26 level-filtered passes taken minutes
 earlier carried their normal 4-line banner. Two sightings four days apart on one site mean the byte
 check below is not a defensive nicety — budget for the re-run.
@@ -391,17 +401,17 @@ bytes=$(wc -c < out.txt); lines=$(grep -c '^\[' out.txt)
 ## 11. Prove a scheduled function is alive with a NARROW window, always
 
 The §9 oldest-end cap means a 26h unfiltered pass reports a chatty cron function's newest
-line as many hours stale — 2026-08-19's run showed `publish-scheduled` newest at
-`08-18T09:17` (25h old) purely from truncation. A 90m pass on the same source showed it
-running at `09:48`, one minute-cadence tick behind now.
+line as many hours stale — one run (2026-08) showed a minute-cadence cron's newest line
+25h old purely from truncation. A 90m pass on the same source showed it running one
+minute-cadence tick behind now.
 
 Make the narrow re-run a standing step, not a debugging afterthought: after the 26h passes,
 run a narrow `--source functions` pass and list the newest timestamp per function. It is the
 only cheap evidence that every function is still firing, and a silently dead cron is a real
 bug that the error-level pass structurally cannot see.
 
-**90m is NOT narrow enough — go to 15m.** Confirmed 2026-08-21: a 90m pass still returned
-exactly 100 lines for `publish-scheduled`, so it was capped, so its "newest" (10:34) was a
+**90m is NOT narrow enough — go to 15m.** Confirmed 2026-08: a 90m pass still returned
+exactly 100 lines for a minute-cadence cron, so it was capped, so its "newest" (10:34) was a
 truncation artifact and proved nothing. A 15m pass on the same source returned 30 lines for
 it, newest 11:31:04 against a wall clock of 11:31:52 — one minute-cadence tick behind, which
 is the actual proof. **The rule: if the function you are vouching for came back with exactly
@@ -417,20 +427,19 @@ narrow pass at all — compare its last run against its schedule instead.
 
 **Enumerate the schedules before you call any function missing.** Read every
 `export const config` in `netlify/functions/*.ts` and note its `schedule` cron. A function
-whose interval is longer than the window is *supposed* to be absent from every pass:
-mergetel's `flush-batches-scheduled` runs `0 15 * * 1` (Mondays 15:00 UTC), so a 26h sweep
-sees five functions plus `___netlify-server-handler` and that is the correct, healthy
-result. Counting log-visible functions against the directory listing without reading the
+whose interval is longer than the window is *supposed* to be absent from every pass: on one
+site a batch-flush cron runs `0 15 * * 1` (Mondays 15:00 UTC), so a 26h sweep sees five
+functions plus `___netlify-server-handler` and that is the correct, healthy result. Counting log-visible functions against the directory listing without reading the
 crons manufactures a dead-cron finding every run.
 
 **`--function <name>` removes the whole truncation problem for liveness — use it.** Discovered
-2026-09-03 on mergetel; `netlify logs --help` in 26.2.0 lists it and no earlier section had
+2026-09; `netlify logs --help` in 26.2.0 lists it and no earlier section had
 noticed. It filters the stream to one function *before* the cap applies, so a chatty
 minute-cadence cron can no longer eat the window:
 
 ```bash
-netlify logs --since 26h --source functions --function digest-scheduled   # 6 lines, uncapped
-netlify logs --since 26h --source functions                               # 420 lines, 4 functions capped at 100
+netlify logs --since 26h --source functions --function <hourly-cron>   # 6 lines, uncapped
+netlify logs --since 26h --source functions                            # 420 lines, 4 functions capped at 100
 ```
 
 That is what everything above is working around. The narrow-window ladder of §9/§11 exists
@@ -439,17 +448,17 @@ pass usable for the quiet function, which is exactly the one you cannot vouch fo
 
 Make it the standing liveness check: **one `--function` pass per name in
 `netlify/functions/*.ts`**, at a window comfortably wider than that function's cron interval, and
-read the newest timestamp. Six invocations on this site, no build credits.
+read the newest timestamp. One invocation per function, no build credits.
 
-**Refinement, 2026-09-04 on `auxf`: `--function` lifts the cap CONTENTION, not the cap.** It stops
+**Refinement, 2026-09: `--function` lifts the cap CONTENTION, not the cap.** It stops
 a chatty neighbour eating the window, but the ~100-line limit still binds on the filtered stream, so
 a function chatty enough on its own is capped just the same:
 
 | `--source functions --function <name> --since <w>` | lines |
 |---|---|
-| `weekly-digest` (hourly), `26h` | **24** — uncapped, complete, and 24/24 is the liveness proof |
-| `quest-narrative-drain` (per minute), `2h` | **100** — capped; its "newest" `09:55` was 20 min stale at a `10:15` wall clock |
-| `quest-narrative-drain` (per minute), `15m` | **15** — uncapped, newest `10:14:02` one tick behind now |
+| an hourly function, `26h` | **24** — uncapped, complete, and 24/24 is the liveness proof |
+| a per-minute queue drain, `2h` | **100** — capped; its "newest" `09:55` was 20 min stale at a `10:15` wall clock |
+| the same drain, `15m` | **15** — uncapped, newest `10:14:02` one tick behind now |
 
 So §11's own rule survives `--function` unchanged: **count the lines first — exactly 100 means you
 have proven nothing about any timestamp, and the window must be halved.** What `--function` buys is
@@ -458,16 +467,16 @@ that the *quiet* function's wide pass is now uncapped and its newest timestamp r
 `15m` at ~1/min is 15 lines, comfortably clear of the cap.
 
 **Prove a STOPPED cron with a WIDE `--function` pass — this is the cheap version of §19.** §19
-found the same failure class on `auxf` the same day and reached for downstream call counts in the
-database, because from the log side "absent from this window" is also what a healthy low-cadence
-function looks like. `--function` closes that gap without leaving the log source. On mergetel's
-`digest-scheduled` (issue #174):
+found the same failure class on another site the same day and reached for downstream call counts in
+the database, because from the log side "absent from this window" is also what a healthy low-cadence
+function looks like. `--function` closes that gap without leaving the log source. On one site's
+hourly digest cron, stopped ~23h before the query:
 
-| `--function digest-scheduled --since <w>` | lines | newest line |
+| `--function <hourly-cron> --since <w>` | lines | newest line |
 |---|---|---|
 | `2h` / `6h` / `12h` / `18h` | 0 (`No logs found`) | — |
-| `26h` | 6 | `2026-09-02T11:00:35.922Z` |
-| `48h` / `72h` / `7d` | 53 / 82 / 94 | `2026-09-02T11:00:35.922Z` |
+| `26h` | 6 | `11:00:35.922Z` the previous day |
+| `48h` / `72h` / `7d` | 53 / 82 / 94 | the same `11:00:35.922Z` |
 
 **A newest timestamp that does not move as you widen 26h → 48h → 72h → 7d is the signature of a
 cron that stopped**, and a count still under 100 at `7d` proves the pass was not truncated. Four
@@ -475,19 +484,20 @@ narrow windows that each contain the same missed tick and each return zero canno
 truncated it away (§17's two-window proof, applied to absence). Widen only until the count
 approaches 100; past that the cap binds again and the newest is once more an artifact.
 
-**Correction, 2026-09-05 on mergetel: the stale-newest half of that signature ALONE is a FALSE
+**Correction, 2026-09: the stale-newest half of that signature ALONE is a FALSE
 POSITIVE, and it fires on a perfectly healthy cron.** A `--function` pass is subject to §9's
 arbitrary-contiguous-block truncation exactly like an unfiltered one, well under the 100-line cap,
 and the block it keeps sits at the OLD end of the window — so widening the window moves the block
 *backwards* and the newest timestamp sits still. That is the same reading a stopped cron gives.
-`digest-scheduled` (`0 * * * *`), measured twice minutes apart at a `10:31Z` wall clock:
+The same hourly cron (`0 * * * *`) after it recovered, measured twice minutes apart at a `10:31Z`
+wall clock on day D:
 
-| `--function digest-scheduled --since <w>` | lines | oldest | newest |
+| `--function <hourly-cron> --since <w>` | lines | oldest | newest |
 |---|---|---|---|
-| `12h` | 25 | `2026-09-04T23:00:30Z` | **`2026-09-05T10:00:29Z`** — 31 min old, healthy |
-| `26h` | **2** | `2026-09-04T09:00:32Z` | `2026-09-04T09:00:33Z` |
-| `48h` | 22 | `2026-09-04T00:00:52Z` | `2026-09-04T09:00:33Z` |
-| `72h` | 24 | `2026-09-02T11:00:35Z` | `2026-09-04T09:00:33Z` |
+| `12h` | 25 | `D-1 23:00:30Z` | **`D 10:00:29Z`** — 31 min old, healthy |
+| `26h` | **2** | `D-1 09:00:32Z` | `D-1 09:00:33Z` |
+| `48h` | 22 | `D-1 00:00:52Z` | `D-1 09:00:33Z` |
+| `72h` | 24 | `D-3 11:00:35Z` | `D-1 09:00:33Z` |
 
 Identical newest across 26h/48h/72h, every count far under 100 — the textbook signature above, on a
 function that had fired 31 minutes earlier. The 12h pass is *inside* the 26h window and returned 25
@@ -496,7 +506,7 @@ All five of this site's functions showed the same 25h-stale ceiling in their 26h
 that run, while narrow passes put every one of them within a tick of now.
 
 **So the load-bearing evidence for a stopped cron was never the stale newest — it is the NARROW
-windows returning zero.** Re-read the £174 table above: its `2h`/`6h`/`12h`/`18h` rows are all
+windows returning zero.** Re-read the stopped-cron table above: its `2h`/`6h`/`12h`/`18h` rows are all
 `No logs found`, and *that* is what could not be truncation, because four windows cannot each drop
 the same missed tick. The wide rows only corroborate.
 
@@ -509,12 +519,12 @@ The corrected test, both halves required:
 If a narrow pass returns lines, the function is alive and the stale wide newest is this artifact —
 say so and move on. Never open a cron-outage issue off widening windows alone.
 
-**Refinement, 2026-09-08 on mergetel: a NARROW `--function` pass drops the newest ticks too, and
+**Refinement, 2026-09: a NARROW `--function` pass drops the newest ticks too, and
 that reads as a stall in progress.** The corrected test above assumes a narrow pass that returns
-lines is proof of life. It is not, if you read its newest timestamp. `reconcile-scheduled`
+lines is proof of life. It is not, if you read its newest timestamp. A five-minute cron
 (`*/5 * * * *`), measured across four minutes at a `10:31Z` wall clock:
 
-| `--function reconcile-scheduled --since <w>` | lines | newest |
+| `--function <5-min-cron> --since <w>` | lines | newest |
 |---|---|---|
 | `30m` (at `10:27Z`) | 4 | `10:15:11Z` |
 | `25m` (at `10:29Z`) | 3 | `10:15:11Z` |
@@ -540,13 +550,13 @@ The database count of §19 is still the stronger evidence where the function's l
 the host's log retention is short — but run this first. It is two CLI calls and needs no second
 adapter.
 
-**Refinement, 2026-09-11 on mergetel: a `--function` pass combined with `--level` can return a
+**Refinement, 2026-09: a `--function` pass combined with `--level` can return a
 CLEAN, BANNER-BEARING ZERO over a window that contains hundreds of matching lines.** This is the
 same §9 truncation, but the arbitrary contiguous block it kept was *empty* — and the result is
-indistinguishable, byte for byte, from the healthy-zero form of §10. `publish-scheduled`
+indistinguishable, byte for byte, from the healthy-zero form of §10. A minute-cadence cron
 (`* * * * *`) was emitting one ERROR per tick throughout:
 
-| `--source functions --function publish-scheduled --level error --level fatal --since <w>` | log lines |
+| `--source functions --function <minute-cron> --level error --level fatal --since <w>` | log lines |
 |---|---|
 | `30m` | 21 |
 | `2h` | 33 |
@@ -560,18 +570,18 @@ single loudest error source on the site.
 Two rules, and the first one is the expensive one:
 
 - **A `--function` pass is a LADDER too, never a single call.** §9 already says this for
-  `--source` passes; `--function` buys freedom from the chatty *neighbour* (§11's 2026-09-04 note),
+  `--source` passes; `--function` buys freedom from the chatty *neighbour* (§11's cap-contention refinement),
   not freedom from truncation of its own stream. Ladder it whenever you intend to conclude
   *absence* — which is exactly what the per-function error pass is for.
 - **Never read a wide `--function` zero as "this function is clean".** §11's corrected stopped-cron
   test already demands narrow passes for the same reason; the identical caution applies to the
   error level. On this run the three functions that came back zero at `26h`
-  (`___netlify-server-handler`, `generate-background`, `publish-scheduled`) had to be re-run at
+  (`___netlify-server-handler`, a background function, and the minute cron) had to be re-run at
   `1h`/`3h`/`6h`/`12h` before two of them could honestly be called clean — and the third turned out
   to be the flood.
 
 **And note what makes this hard to catch: a failing function floods its own error channel.** The
-398 identical `[cron-watch] … failed` lines of mergetel issue #213 were the §7 chatty-neighbour
+398 identical watchdog `… failed` lines behind one filed issue were the §7 chatty-neighbour
 problem arriving from a *broken* function rather than a talkative one, and they pushed
 `___netlify-server-handler` out of the ladder union entirely. When one signature dominates an error
 union, treat every *other* name's absence as unestablished and re-collect per function before
@@ -584,31 +594,30 @@ liveness is a **collection** step, not a debugging afterthought, on every projec
 
 **Then use §19's `searchSiteFunctions` to decide whose fault it is.** That is the call that reports
 what the **host** believes, and it carries the bundle timestamp `getDeploy` does not surface as
-usefully. On mergetel it answered `digest-scheduled schedule="0 * * * *"`, bundled
-`2026-08-31T20:32:29Z` — registration intact, so the cause is host-side and **no fix agent is
-warranted**: there is nothing in `src/` to fix and a fix agent would guess.
+usefully. On the stopped-cron site it answered `<hourly-cron> schedule="0 * * * *"`, bundled
+two days before the outage began — registration intact, so the cause is host-side and **no fix
+agent is warranted**: there is nothing in `src/` to fix and a fix agent would guess.
 
 `getDeploy` corroborates from the deploy side — `function_schedules` lists the crons that deploy
 declared, and `available_functions` gives each function's content digest, id and size, which on
-mergetel were **byte-identical** across the last two production deploys. One trap there:
+that site were **byte-identical** across the last two production deploys. One trap there:
 `available_functions` entries carry *different key sets* between two deploys (the older snapshot had
 `m`, `rg`, `obl`, `oblv` that the newer lacked). That is API enrichment noise, not a deploy
 difference. Compare the digest `d`, the id, and the size `s`; ignore which optional keys are present.
 
-Read the bundle timestamp against §19's warning before recommending a fix: mergetel's
-`digest-scheduled` bundle dated `2026-08-31T20:32:29Z` was **reused unchanged** by the
-`2026-09-02T11:03Z` production deploy, so "redeploy to re-register the schedule" would have
-re-bundled nothing. A no-op touch to the function file is what forces a fresh bundle.
+Read the bundle timestamp against §19's warning before recommending a fix: that cron's bundle was
+**reused unchanged** by the production deploy that landed minutes after its last tick, so
+"redeploy to re-register the schedule" would have re-bundled nothing. A no-op touch to the function
+file is what forces a fresh bundle.
 
-**Confirmed 2026-09-04 on mergetel, by accident, which is why it is worth trusting.** The stopped
-`digest-scheduled` of issue #174 came back on its own after ~37h (`2026-09-02T11:00:35Z` →
-`2026-09-04T00:00:52Z`, ~36 missed hourly ticks). What separated the deploy that fixed it from the
-ones that did not is exactly the bundle timestamp:
+**Confirmed 2026-09 on the same site, by accident, which is why it is worth trusting.** The stopped
+hourly cron came back on its own after ~37h (~36 missed hourly ticks). What separated the deploy
+that fixed it from the ones that did not is exactly the bundle timestamp:
 
-| production deploys during the outage | re-bundled `digest-scheduled`? | cron restored? |
+| production deploys during the outage | re-bundled the cron? | cron restored? |
 |---|---|---|
-| six, `09-03` `12:13`→`19:13` | no — bundle stayed `2026-08-31T20:32:29Z` | no |
-| `48952a91` (#176), ready `2026-09-03T23:20:25Z` | **yes** — bundle became `2026-09-03T23:21:34.529Z` | **yes, next tick at `00:00:52Z`** |
+| six, `12:13`→`19:13` on one day | no — bundle stayed at its pre-outage timestamp | no |
+| the seventh, ready `23:20:25Z` that night | **yes** — bundle became `23:21:34.529Z` | **yes, next tick at `00:00:52Z`** |
 
 So the paragraph above is not a hunch any more: **an ordinary redeploy re-registers nothing when the
 cache serves the same bundle, and a genuine re-bundle brings the schedule back on the very next
@@ -686,28 +695,28 @@ even though the request itself succeeded — the body still downloads. It is not
 /dev/null`; writing to a real file fails the same way:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}' https://merge.tel/updates   # -> 000, exit 43
-curl -s -o page.html -w '%{http_code}' https://merge.tel/updates   # -> 000, exit 43
+curl -s -o /dev/null -w '%{http_code}' https://<site>/<path>   # -> 000, exit 43
+curl -s -o page.html -w '%{http_code}' https://<site>/<path>   # -> 000, exit 43
 ```
 
-This matters because confirming a finding against the live site is a standard triage step
-here (2026-08-21 confirmed issue #131 that way), and `000` reads exactly like "the site is
-down" — a false outage filed off a broken probe. Dump the headers instead; that path works:
+This matters because confirming a finding against the live site is a standard triage step,
+and `000` reads exactly like "the site is down" — a false outage filed off a broken probe.
+Dump the headers instead; that path works:
 
 ```bash
-curl -sS -D - -o /dev/null https://merge.tel/updates | head -1   # -> HTTP/1.1 200 OK
+curl -sS -D - -o /dev/null https://<site>/<path> | head -1   # -> HTTP/1.1 200 OK
 ```
 
 ## 16. A silent edge tier gives the same `No logs found` as a missing one — read the code, not the CLI
 
 §10 says the `No logs found for the given time range.` one-liner is what an *empty source* returns,
 and §8 says a near-empty `--source edge-functions` pass can be the repeated-`--source` CLI defect.
-There is a **third** cause, and on `auxf` it is the actual one: edge functions that never call
+There is a **third** cause, and on one site it was the actual one: edge functions that never call
 `console.*` emit **nothing**, however often they run.
 
-`auxf`'s `netlify/edge-functions/route-meta.ts` declares `export const config = { path: '/*' }` —
-it runs on every single request to the site — and both its error pass and its unfiltered pass came
-back as the one-liner on 2026-08-23 and 2026-08-24. That is correct and healthy. Only a
+An edge function on that site declares `export const config = { path: '/*' }` — it runs on every
+single request to the site — and both its error pass and its unfiltered pass came back as the
+one-liner on two consecutive days (2026-08). That is correct and healthy. Only a
 `console.error` inside the function would ever produce a line.
 
 So before writing up an empty edge tier as a broken collector, **read
@@ -719,9 +728,8 @@ CLI is fine.
 
 ## 17. A scheduled function that RETURNS a non-2xx logs absolutely nothing
 
-Confirmed 2026-08-27 on `auxf`. `netlify/functions/quest-narrative-drain.mts` returned
-`new Response(..., { status: 502 })` at `2026-08-26T12:30:35Z` after its Supabase RPC came back
-401. The function log recorded **no error line, no warn line, nothing** — proven with two
+Confirmed 2026-08 on one site. A minute-cadence queue drain returned
+`new Response(..., { status: 502 })` at `12:30:35Z` after its Supabase RPC came back 401. The function log recorded **no error line, no warn line, nothing** — proven with two
 overlapping passes that both contain that instant and were both uncapped:
 
 ```bash
@@ -744,7 +752,7 @@ grep -rn 'console\.\(error\|warn\)' netlify/functions/ netlify/shared/ | wc -l
 ```
 
 A large first number with a near-zero second one means the error pass is decorative for that
-project. On `auxf` it was 40 against 1.
+project. On that site it was 40 against 1.
 
 **Two overlapping uncapped windows are the proof technique.** A single window cannot distinguish
 "nothing was logged" from "the truncation of §9 dropped the block containing it". Two windows of
@@ -753,8 +761,8 @@ away the same moment.
 
 ## 18. EVERY file under `netlify/functions/` is a function — a test file there fails the whole build
 
-Confirmed 2026-08-27 on `auxf`. A fix agent added `netlify/functions/narrative-drains.test.mts` next
-to the two drains it was testing. Local `npm run typecheck`, `npm test`, `npm run db:check` and
+Confirmed 2026-08. A fix agent added `netlify/functions/<name>.test.mts` next
+to the two functions it was testing. Local `npm run typecheck`, `npm test`, `npm run db:check` and
 `npm run build` all passed. The deploy preview did not:
 
 ```
@@ -762,7 +770,7 @@ Incorrect function names. Name should consist of only alphanumeric characters, h
 ```
 
 Netlify derives each function's NAME from its filename and treats every file in the functions
-directory as deployable. `narrative-drains.test` contains a `.`, which is outside the allowed set,
+directory as deployable. `<name>.test` contains a `.`, which is outside the allowed set,
 and **one bad name rejects the entire build** — not just that file.
 
 Two things follow.
@@ -778,11 +786,11 @@ header parsing — runs only on the host. After a fix agent pushes, read the dep
 (match on `commit_ref`, per §14) before recording the PR as healthy. On this run the PR was reported
 "done, all checks pass" while `netlify api listSiteDeploys` showed its head commit `error`.
 
-**Refinement, 2026-09-14 on mergetel: the deploy can fail for a reason that is in NEITHER the branch
+**Refinement, 2026-09: the deploy can fail for a reason that is in NEITHER the branch
 nor the host — the RUNNING SITE.** A build-time fetch makes deployability depend on production's
 health, so an outage you are already tracking as external quietly becomes a total deploy freeze.
 
-The #224 fix branch errored with the message that tells you nothing:
+On one site, a fix branch errored with the message that tells you nothing:
 
 ```
 Failed during stage 'building site': Build script returned non-zero exit code: 2
@@ -811,12 +819,12 @@ Three things follow for a sweep:
 
 This is a **bug** and gets an issue, but usually **not** a fix agent: the throw is typically
 deliberate and commented, and the question is whether to re-make the trade now that its blast radius
-is measured. On mergetel that became issue #226.
+is measured.
 
 ## 19. A schedule that STOPS is invisible here — count the function's own downstream calls
 
-Confirmed 2026-09-03 on `auxf` (issue #287). `weekly-digest`, `schedule: '0 * * * *'`, simply stopped
-being invoked: last run `2026-09-02T20:00:20Z`, then fourteen consecutive hours of nothing. Every
+Confirmed 2026-09 on one site. An hourly digest function, `schedule: '0 * * * *'`, simply stopped
+being invoked: last run at `20:00:20Z`, then fourteen consecutive hours of nothing. Every
 pass this adapter runs was **clean**, and all of them were clean *correctly*:
 
 - a 13-window error/fatal ladder: 0 lines, every pass a valid 4-line banner;
@@ -829,7 +837,7 @@ pass catches a cron that is *late*; it does not, on its own, catch one that is *
 "absent from this window" is also what §11's own caveat says a longer-cadence function looks like.
 
 **Try §11's `--function <name>` pass first — it is two CLI calls and usually settles it.** Found on
-mergetel later the same day: `--function` filters before the ~100-line cap, so a *wide* pass on the
+a second site later the same day: `--function` filters before the ~100-line cap, so a *wide* pass on the
 quiet function is uncapped and its newest timestamp is real. A newest that does not move as you
 widen 26h → 48h → 72h → 7d is the stopped-cron signature, with no second adapter and no SQL. Fall
 back to the downstream count below when the function logs too sparsely for that, or when log
@@ -849,7 +857,7 @@ where source='edge_logs' and log_attributes['request.headers.user_agent']='node'
 group by hr order by hr
 ```
 
-An hourly function shows 24 buckets of 1. `weekly-digest` showed **four rows in twenty-four hours**.
+An hourly function shows 24 buckets of 1. The stopped digest showed **four rows in twenty-four hours**.
 Do this for every scheduled function in the tree, every run, and read it against the cron you
 enumerated per §11.
 
@@ -863,15 +871,15 @@ node -e 'const d=JSON.parse(require("fs").readFileSync("sfns.json","utf8").repla
 ```
 
 This is the only CLI call that reports what the **host** believes each function's schedule to be, and
-it also gives the bundle timestamp. On `auxf` it answered `weekly-digest schedule="0 * * * *"`,
-bundled `2026-09-01T23:32:32Z` — so the registration was intact and current, the deployed source
+it also gives the bundle timestamp. On that site it answered `<digest> schedule="0 * * * *"`,
+bundled the day before the outage — so the registration was intact and current, the deployed source
 still carried the same `export const config`, and the cause was host-side. Note `listSiteFunctions`
 is **not** a valid method name (`netlify api --list` to check); the one you want is
 `searchSiteFunctions`.
 
 The bundle timestamp earns its own line: it tells you whether a later deploy actually **re-bundled**
-the function or reused the cache. On `auxf` two production deploys landed after the outage began and
-neither re-bundled `weekly-digest` — so "just redeploy to re-register the schedule" needs a no-op
+the function or reused the cache. On that site two production deploys landed after the outage began
+and neither re-bundled the digest — so "just redeploy to re-register the schedule" needs a no-op
 touch to the function file to mean anything.
 
 **Say so in the unseen-classes list on every project with a scheduled function**, in these terms: the
@@ -886,7 +894,7 @@ each run; a figure copied forward from a report reads as a trend that was never 
 
 ## 20. `Invoke Error … ERR_MODULE_NOT_FOUND` is a module-load crash — and the `Duration:` pairing gives you the failure RATE for free
 
-Found 2026-09-06 on mergetel (issue #193). A function whose bundle cannot resolve an import dies
+Found 2026-09 on one site. A function whose bundle cannot resolve an import dies
 before its handler runs:
 
 ```
@@ -911,15 +919,15 @@ grep '^\[𝒇 <name>\]' all-fn.txt | grep -c 'Invoke Error'
 grep '^\[𝒇 <name>\]' all-fn.txt | grep -c 'Duration:'
 ```
 
-On mergetel that read 89 = 45 errors + 44 `Duration:` lines — i.e. **every** invocation in the window
+On that site it read 89 = 45 errors + 44 `Duration:` lines — i.e. **every** invocation in the window
 failed, stated from the logs alone. Because the error ladder is truncated (§9) and the unfiltered pass
 is capped (§7), neither count is an absolute total; the **ratio** is what carries, and a ratio near
 1:1 of errors to Durations means a 100% failure rate rather than an intermittent one. That
 distinction decides whether the finding is "a bug" or "this integration is entirely down", and it
 costs two greps.
 
-Then date it against the deploys: match the first error timestamp against `listSiteDeploys`. In #193
-the first failure was 2026-09-05T18:07:24Z and the production deploy of the offending commit went
+Then date it against the deploys: match the first error timestamp against `listSiteDeploys`. In that
+case the first failure was at 18:07:24Z and the production deploy of the offending commit went
 ready at 18:05:32Z, ~2 minutes earlier — which named the culprit commit before any code was read.
 
 **And note what a green local build proves here: nothing.** §18 makes this point for function
@@ -931,29 +939,29 @@ walk the static import graph reachable from `netlify/functions/*.ts` and fail on
 
 ## 21. One `console.error(msg, obj)` becomes SIX log lines with the SAME timestamp — count occurrences, not lines
 
-Found 2026-09-09 on mergetel. `console.error('[reconcile] mcp grant sweep failed', err)` where `err`
+Found 2026-09 on one site. `console.error('[<tag>] <job> sweep failed', err)` where `err`
 is a PostgREST error object renders as Node's multi-line object dump, and **Netlify prefixes every
 physical line of it** with the identical `[𝒇 <fn>] <ts> ERROR` header:
 
 ```text
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR [reconcile] mcp grant sweep failed {
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR   code: 'PGRST205',
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR   details: null,
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR   hint: "Perhaps you meant the table 'public.accounts'",
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR   message: "Could not find the table 'public.mcp_grants' in the schema cache"
-[𝒇 reconcile-scheduled] 2026-09-09T09:30:21.548Z ERROR }
+[𝒇 <fn>] <ts> ERROR [<tag>] <job> sweep failed {
+[𝒇 <fn>] <ts> ERROR   code: 'PGRST205',
+[𝒇 <fn>] <ts> ERROR   details: null,
+[𝒇 <fn>] <ts> ERROR   hint: "Perhaps you meant the table 'public.<other_table>'",
+[𝒇 <fn>] <ts> ERROR   message: "Could not find the table 'public.<table>' in the schema cache"
+[𝒇 <fn>] <ts> ERROR }
 ```
 
 So `grep -c '^\['` — the count §10 tells you to use, and correctly, for deciding whether a pass was
 *empty* — inflates the **occurrence** count by the object's height. On that run 637 counted lines for
-`reconcile-scheduled` were 159 actual failures, a 4x overstatement, and the raw figure would have
+one five-minute cron were 159 actual failures, a 4x overstatement, and the raw figure would have
 been reported as a burst four times its real size.
 
 Two different questions, two different counts, and they must not be swapped:
 
 ```bash
 grep -c '^\[' err-union.txt                                  # was the pass empty? (§10)
-grep -c 'mcp grant sweep failed' err-union.txt               # how many times did it happen?
+grep -c '<job> sweep failed' err-union.txt                   # how many times did it happen?
 ```
 
 The rule: **count occurrences by grepping the message's own first line**, the one carrying the app's
@@ -970,12 +978,11 @@ Note the ~100-line cap is per stream, so a single fat error dump can also crowd 
 lines in the same pass — which is the §7 chatty-neighbour problem arriving from a function that
 failed sixteen times rather than one that logged a thousand times successfully.
 
-**Refinement, 2026-09-14 on mergetel: the dump can be a WHOLE HTML PAGE, and at that height it hides
+**Refinement, 2026-09: the dump can be a WHOLE HTML PAGE, and at that height it hides
 its own cause from every level-filtered pass you will run.** Supabase answered a PostgREST query with
 a Cloudflare interstitial, so the error object's `message` was a ~6KB HTML document and
-`console.error('[reconcile] failed to query jobs', error)` rendered as **~110 physical lines, every
-one carrying the identical `[𝒇 reconcile-scheduled] 2026-09-14T10:20:48.025Z ERROR` header.** One
-failure. One stream cap, consumed.
+`console.error('[<tag>] failed to query jobs', error)` rendered as **~110 physical lines, every
+one carrying the identical `[𝒇 <fn>] <ts> ERROR` header.** One failure. One stream cap, consumed.
 
 The measurement is the point:
 
@@ -983,7 +990,7 @@ The measurement is the point:
 |---|---|---|---|
 | `--level error --level fatal --source functions` ladder | 13 | 334 | **no** |
 | the same plus `--function` error ladders on all three crons | +18 | 383 | **no** |
-| **unfiltered `--function publish-scheduled --since 10m`** | 1 | 37 | **yes, 7 of them** |
+| **unfiltered `--function <minute-cron> --since 10m`** | 1 | 37 | **yes, 7 of them** |
 
 The two strings that named the provider as the cause (`525: SSL handshake failed` and
 `Failed to get project config`) were in **none** of the 383 lines that thirty-one level-filtered
@@ -998,25 +1005,24 @@ So the rule that §11 sells as a *liveness* check is really a **collection** ste
   a wide pass proves existence and never absence; a fat-dump function makes that true of *every*
   width at once, because each retained contiguous block is a fragment of one HTML page.
 - **File the dump itself as a finding.** It is not log tidiness: it is the mechanism that hid a
-  60-hour provider outage's cause from the sweep. On mergetel that became issue #224, whose fix is
-  #204's pattern (route the object through the project's own `errText`) plus a cap on the message
-  string, since a project's `errText` may only cap its JSON *fallback* path and pass a long `message`
-  through at full length.
+  60-hour provider outage's cause from the sweep. The fix is to route the object through the
+  project's own error-to-text helper plus a cap on the message string, since such a helper may only
+  cap its JSON *fallback* path and pass a long `message` through at full length.
 
-**Counter-example, 2026-09-15 on `auxf`: a project that ALREADY CAPS the message produces the same
-shape harmlessly, and neither of the two properties above holds. Check the cap before filing.**
+**Counter-example, 2026-09, on a second site: a project that ALREADY CAPS the message produces the
+same shape harmlessly, and neither of the two properties above holds. Check the cap before filing.**
 The same Cloudflare interstitial (`525: SSL handshake failed`) reached the same kind of
 `console.error`, and:
 
-- **It was 10 physical lines ending in `…`, not ~110.** `logBody` in `src/lib/fnGuard.ts` truncates
-  at `LOGGED_BODY_CHARS = 500` — which is exactly the remedy #224 proposes, already shipped.
+- **It was 10 physical lines ending in `…`, not ~110.** That project's logging helper truncates the
+  body at 500 characters — which is exactly the remedy proposed above, already shipped.
 - **The diagnosis was INSIDE the cap.** `<title>supabase.co | 525: SSL handshake failed</title>` is
   the eighth line, so the ordinary level-filtered ladder carried it. No unfiltered narrow pass was
   needed, and the "no error ladder can be called complete" conclusion does not generalise — it is a
   property of an *uncapped* dump, not of dumps.
 - **Only the FIRST physical line carried the `[𝒇 <fn>] <ts> ERROR` prefix**; the continuation lines
-  were bare. So on this site `grep -c '^\['` counts occurrences **correctly**, and mergetel's 4–6×
-  overstatement is not a universal property of the platform. The union was 95 lines for 95 events.
+  were bare. So on this site `grep -c '^\['` counts occurrences **correctly**, and the first site's
+  4–6× overstatement is not a universal property of the platform. The union was 95 lines for 95 events.
 
 So the §21 rule needs one step in front of it: **read the logging call's own truncation before
 deciding the dump is a finding.** Grep the project for a body/message cap around the `console.error`
@@ -1027,7 +1033,7 @@ reading any count, in either direction.
 
 ## 22. Netlify CAN RETRY a scheduled function that RETURNS a non-2xx — more than one extra attempt, with unknown depth and delay
 
-Found 2026-09-12 on `auxf`. §17 establishes that a returned non-2xx is invisible to the log. This is
+Found 2026-09 on one site. §17 establishes that a returned non-2xx is invisible to the log. This is
 the other half of that behaviour, and it is the more consequential half: **the platform treats the
 non-2xx as a failed run and invokes the function again, within the same minute.** Nothing in the
 handler does this — there is no retry anywhere in the code — and no section here had noticed it.
@@ -1042,7 +1048,7 @@ for the retry.
 minute carries one.
 
 ```text
-02:25:05.346Z ERROR match-narrative-drain: scheduled run answered 502 — Could not sweep the queue …
+02:25:05.346Z ERROR <drain>: scheduled run answered 502 — <reason> …
 02:25:10.599Z INFO  Duration: 5235.59 ms     <- the invocation that failed
 02:25:12.040Z INFO  Duration:  123.25 ms     <- the retry, ~1.4 s later, succeeded
 ```
@@ -1050,18 +1056,18 @@ minute carries one.
 So the two counts of §20 acquire a third reading. `Invoke Error` ≈ `Duration:` means every invocation
 crashed. Two `Duration:` lines in a minute that carries an ERROR mean two invocations; they can be
 the platform retrying and the schedule absorbing the failures, but they are not proof of a retry.
-Attribute a retry only under the 2026-09-22 correction below.
+Attribute a retry only under the double-fire correction below.
 
 **Confirm a retry in a downstream log rather than trusting the pairing** — the log is
-truncated (§9) and the pairing is easy to misread. On 2026-09-12 a complete table (a database
+truncated (§9) and the pairing is easy to misread. On that run a complete table (a database
 gateway log, an APM) lined up with one extra call per non-2xx return:
 
 ```
 observed calls  =  ticks in the window  +  number of non-2xx the function returned
 ```
 
-On `auxf`, `retire_stale_match_narratives` was called **1659** times in 24h against a minute cadence:
-`1440 + 219`, and `219 = 157 + 62` was exactly the count of 502s the drain returned. The quest drain
+On that site, one drain's first RPC was called **1659** times in 24h against a minute cadence:
+`1440 + 219`, and `219 = 157 + 62` was exactly the count of 502s the drain returned. A second drain
 gave `1666 = 1440 + 226` against `225`. That is a measurement from that day, not an identity to
 invert: an independent duplicate invocation adds a call with no non-2xx, and one non-2xx can
 produce more than one extra invocation. A count above the tick count does not by itself name the
@@ -1073,27 +1079,27 @@ Two warnings.
 - **The retry is not a guarantee.** If the underlying condition outlasts every attempt the platform
   makes, the tick is genuinely lost — so the finding is still the failure rate.
 - **The retry delay tracks the cadence, not a constant.** On the minute drains it landed ~1–7 s
-  later; on the hourly `weekly-digest` a 504 at `02:00:33.998Z` retried at `02:01:11.624Z`, 38 s
+  later; on an hourly digest function a 504 at `02:00:33.998Z` retried at `02:01:11.624Z`, 38 s
   later. Do not window a recovery check to a couple of seconds.
 
-**Correction, 2026-09-13 on `auxf`: it is NOT "once". The platform makes MORE than one extra
+**Correction, 2026-09: it is NOT "once". The platform makes MORE than one extra
 attempt, so the headroom is wider than one retry — do not size damage against a single retry.**
 The paragraph above said "one extra attempt" and the sentence "the headroom is exactly one attempt
 wide" was carried into that project's card as the thing to watch for. Both were wrong, and the
 counter-example is unambiguous because the RPC involved has exactly one caller:
 
 ```text
-18:02:03.006  retire_stale_quest_narratives  200   169 ms   <- invocation A
-18:02:03.213  claim_quest_narratives         504  5019 ms   <- A fails, drain returns 502
-18:02:12.150  retire_stale_quest_narratives  200   140 ms   <- invocation B
-18:02:13.780  retire_stale_quest_narratives  200    41 ms   <- invocation C
-18:02:21.306  retire_stale_quest_narratives  200   294 ms   <- invocation D
+18:02:03.006  <retire RPC>  200   169 ms   <- invocation A
+18:02:03.213  <claim RPC>   504  5019 ms   <- A fails, drain returns 502
+18:02:12.150  <retire RPC>  200   140 ms   <- invocation B
+18:02:13.780  <retire RPC>  200    41 ms   <- invocation C
+18:02:21.306  <retire RPC>  200   294 ms   <- invocation D
 ```
 
 Four invocations inside ONE minute of a `* * * * *` cron, after a single returned 502. `git grep`
-at the deployed commit showed `retire_stale_quest_narratives` called from exactly one line
-(`netlify/functions/quest-narrative-drain.mts:72`), once per invocation, with no retry anywhere in
-the handler — so the call count *is* the invocation count and three of those four are the platform.
+at the deployed commit showed the retire RPC called from exactly one line of the drain, once per
+invocation, with no retry anywhere in the handler — so the call count *is* the invocation count and
+three of those four are the platform.
 
 **Establish the caller count before reading a minute's call count as invocations.** That `git grep`
 is the whole proof; without it, extra calls in a minute are equally explained by a second caller
@@ -1102,34 +1108,35 @@ is the whole proof; without it, extra calls in a minute are equally explained by
 Two rules replace the "one attempt wide" framing:
 
 - **Count double failures, but do not call them losses.** On this run 16 minutes carried two or more
-  504s on the same path and 1 carried three; every one recovered, both narrative queues were empty,
-  and `weekly-digest` completed all 24 hourly reads. Under the old framing each of those 16 would
+  504s on the same path and 1 carried three; every one recovered, both drain queues were empty,
+  and the hourly digest completed all 24 hourly reads. Under the old framing each of those 16 would
   have been written up as a lost tick.
 - **Do not infer non-2xx returns from call counts alone.** An independent duplicate invocation
   adds a call without a non-2xx return, and one non-2xx can produce more than one additional
   invocation. The same day's match drain showed 1900 observed against `1440 + 461` predicted, and
   `claim calls = retire successes` held **exactly** (1589 = 1589) on both drains — a measurement,
   not a way to recover the failure count from a truncated Netlify log. Attribute a retry only with
-  the downstream-latency, reachable-exit, and contiguous-log checks in the 2026-09-22 correction.
+  the downstream-latency, reachable-exit, and contiguous-log checks in the double-fire correction.
 
 The exact retry policy (how many attempts, on what schedule, whether attempts overlap) is **not**
 pinned down — B, C and D above arrived 9 s, 11 s and 18 s after A started, and B had already
 succeeded before C and D ran, which no simple "retry until success" rule explains. Treat the depth
 as unknown-but-greater-than-one rather than substituting a new constant.
 
-**Correction, 2026-09-22 on `auxf`: two `Duration:` lines mean two invocations, not proof of a retry.
+**Correction, 2026-09: two `Duration:` lines mean two invocations, not proof of a retry.
 The platform also fires a scheduled function twice on its own, so two `Duration:` lines alone do not
 distinguish the cases.** Attribute a retry only after establishing that a non-2xx return was possible and
 checking the downstream latency, reachable non-2xx exits, and contiguous unfiltered logs.
 The double-fire matters more than it sounds, because on a project whose card says "a drain non-2xx with no
-guard ERROR line is a regression" — `auxf` carries exactly that rule for PR #269 — the duplicate
-reads as a *broken guard*, which is a finding, filed against a guard that is working perfectly.
+guard ERROR line is a regression" — one project carries exactly that rule for a past fix — the
+duplicate reads as a *broken guard*, which is a finding, filed against a guard that is working
+perfectly.
 
-One minute out of 1440 carried two invocations of `match-narrative-drain`:
+One minute out of 1440 carried two invocations of a minute-cadence drain:
 
 ```text
-[𝒇 match-narrative-drain] 2026-09-21T23:06:02.020Z INFO Duration: 1014 ms
-[𝒇 match-narrative-drain] 2026-09-21T23:06:18.129Z INFO Duration:   66 ms
+[𝒇 <drain>] <date>T23:06:02.020Z INFO Duration: 1014 ms
+[𝒇 <drain>] <date>T23:06:18.129Z INFO Duration:   66 ms
 ```
 
 Textbook §22: a slow first attempt, a fast second one 16 s later, and no error line anywhere in
@@ -1160,26 +1167,26 @@ reading the pair as a failure — and never open a missing-guard finding off the
 
 ## 23. A RE-BUNDLED function loses its Netlify log history at the deploy — the ladder cannot reach past it
 
-Found 2026-09-14 on `auxf`, and it is the sharpest limit on the ladder yet recorded, because no number
+Found 2026-09 on one site, and it is the sharpest limit on the ladder yet recorded, because no number
 of rungs recovers what it removes.
 
-PR #294 deployed at `2026-09-13T19:13:15Z` and changed only the two narrative drains. A thirteen-window
-error ladder run the next morning covered `09-13T09:00` → `09-14T09:27` and returned **158** lines. Its
-earliest drain line was `2026-09-13T19:15:24Z` — **two minutes after the deploy** — and it held **zero**
+A PR deployed at `19:13:15Z` and changed only two minute-cadence drains. A thirteen-window error
+ladder run the next morning covered `09:00` the previous day → `09:27` and returned **158** lines. Its
+earliest drain line was `19:15:24Z` — **two minutes after the deploy** — and it held **zero**
 drain lines before it, while Supabase's `edge_logs` recorded 25–37 gateway 504s per hour on those same
 drains' RPCs straight through `10:00–19:00`. Nine hours of a loud, continuous failure, invisible to
 every rung.
 
-`weekly-digest` in the same union retained lines back past `09:00`, so this was not the ordinary
+An hourly function in the same union retained lines back past `09:00`, so this was not the ordinary
 truncation of §9 hitting the whole stream.
 
 **`searchSiteFunctions` (§19) names the mechanism in one call — read the bundle timestamp `c`:**
 
 | function | bundled | earliest line in the union |
 |---|---|---|
-| `match-narrative-drain` | `2026-09-13T19:13:56.454Z` | `19:15:24Z` — nothing before |
-| `quest-narrative-drain` | `2026-09-13T19:13:56.531Z` | `19:15:24Z` — nothing before |
-| `weekly-digest` | `2026-09-01T23:32:32.267Z` (cache-reused) | `09:00:35Z`, and `48h` reached 33 hours |
+| drain A | `19:13:56.454Z` | `19:15:24Z` — nothing before |
+| drain B | `19:13:56.531Z` | `19:15:24Z` — nothing before |
+| hourly function | twelve days earlier (cache-reused) | `09:00:35Z`, and `48h` reached 33 hours |
 
 A function whose bundle is **rebuilt** starts its log history at the new bundle. A function the deploy
 served from **cache** keeps its history across that deploy. §11's note that a no-op touch forces a fresh
@@ -1201,16 +1208,15 @@ Three consequences.
   that a Netlify count **exceeding** the independent source is the only anomalous direction still holds;
   this simply widens the expected shortfall after a deploy.
 
-**Counter-observation, 2026-09-16 on mergetel: the history cut did NOT bite, and the shape that
-looks like it is ordinary §9 truncation.** Four functions were re-bundled at `2026-09-16T09:41:37Z`
-(`publish-scheduled`, `reconcile-scheduled`, `generate-background`, `github-webhook`; the deploy that
-did it went ready `09:40:56Z`). Ladders run 40-55 minutes later still returned those functions'
-**pre-bundle** lines — the error ladder held `publish-scheduled` ERRORs from `2026-09-15T18:01`
-through `20:30`, and the unfiltered 26h `--source functions` pass held `publish-scheduled` lines back
-to `2026-09-15T08:30`. Sixteen hours of history across a re-bundle, where §23 on `auxf` had none at
-two minutes.
+**Counter-observation, 2026-09, on a second site: the history cut did NOT bite, and the shape that
+looks like it is ordinary §9 truncation.** Four functions were re-bundled at `09:41:37Z` (three
+crons and a webhook handler; the deploy that did it went ready `09:40:56Z`). Ladders run 40-55
+minutes later still returned those functions' **pre-bundle** lines — the error ladder held the
+minute cron's ERRORs from `18:01` through `20:30` the previous day, and the unfiltered 26h
+`--source functions` pass held its lines back to `08:30` the previous day. Sixteen hours of history
+across a re-bundle, where §23's first site had none at two minutes.
 
-What *did* look like the cut, and is not it: the **unfiltered `--function publish-scheduled` pass
+What *did* look like the cut, and is not it: the **unfiltered `--function <minute-cron>` pass
 returned the identical 3-line block at `1h`, `2h` and `3h`, oldest `09:43:02Z`** — two minutes after
 the bundle timestamp, on a minute-cadence cron that should have put ~360 lines in the 3h window. That
 is exactly §23's tell, and exactly §9's arbitrary-contiguous-block truncation, and here it was the
@@ -1220,8 +1226,8 @@ So the test for a genuine history cut needs a second leg:
 
 - **Before attributing missing history to a re-bundle, check whether ANOTHER pass on the same
   function reaches past the bundle timestamp.** One that does disproves the cut outright. §23's
-  `auxf` case had that leg — a thirteen-window ladder, zero drain lines before the deploy, with
-  `weekly-digest` (cache-reused) retaining nine hours in the same union.
+  first case had that leg — a thirteen-window ladder, zero drain lines before the deploy, with the
+  cache-reused hourly function retaining nine hours in the same union.
 - **Identical oldest AND newest across several widths is the §9 signature first**, whatever the
   bundle timestamps say. `searchSiteFunctions`' `c` field tells you a re-bundle happened; it does not
   tell you the log history went with it.
@@ -1229,25 +1235,32 @@ So the test for a genuine history cut needs a second leg:
 Whether the difference is the host, the plan, or the interval between deploy and query is not pinned
 down. Record which you observed rather than assuming either way.
 
+**Observation, 2026-09: the cut followed an EARLIER deploy than the bundle timestamp names.**
+`searchSiteFunctions` said both drains were bundled at `21:33:19Z`. Yet every unfiltered
+`--function` pass (`18h`–`21h`) returned the same 100-line block starting `19:46:04Z`, one minute after
+the `19:45:31Z` production deploy, and nothing earlier. So the `c` field shows only the newest re-bundle;
+a cut can sit at any deploy in the window. The practical cost: the `Duration:` check of `supabase.md`
+§21 could not run for four missing gateway rows earlier that day. Record such rows as unestablished.
+
 ## 24. An APP-SIDE log rollup makes the line count a FLOOR — §21 in the other direction
 
-Found 2026-09-22 on mergetel. §21 warns that one `console.error(msg, obj)` inflates the line count
+Found 2026-09 on one site. §21 warns that one `console.error(msg, obj)` inflates the line count
 by the object's height, so counting prefixed lines overstates occurrences. The opposite failure
 exists too, and it arrives the moment a project fixes its own log flooding.
 
-mergetel's watchdog now de-duplicates its own repeats in process:
+That site's cron watchdog now de-duplicates its own repeats in process:
 
 ```text
-[𝒇 publish-scheduled] 2026-09-21T19:16:04.559Z ERROR [cron-watch] staleness sweep failed
-publish-scheduled TimeoutError: The operation was aborted due to timeout
-(3 times since 2026-09-21T17:26:10.458Z)
+[𝒇 <cron>] <ts> ERROR [<watchdog>] staleness sweep failed
+<cron> TimeoutError: The operation was aborted due to timeout
+(3 times since <earlier ts>)
 ```
 
 That suffix is **not** a platform feature, and the first instinct that it is one costs a wrong
-write-up. It is `logBoundedFailure` (`src/lib/cron-watch.ts:792-822`): a module-scope
-`Map` keyed on `what\0name\0message`, a `count` incremented per repeat, and a re-log only once per
-`REPEAT_SUMMARY_MS`. It shipped as PR #215 closing issue #214, whose title is the giveaway —
-"identical ERROR logged every tick floods the error channel and hides other classes".
+write-up. It is an app-side helper: a module-scope `Map` keyed on `what\0name\0message`, a `count`
+incremented per repeat, and a re-log only once per summary interval. It shipped as the fix for an
+issue whose title is the giveaway — "identical ERROR logged every tick floods the error channel and
+hides other classes".
 
 **Check the repo before attributing any log shape to Netlify.** One `git grep` settles it:
 
@@ -1270,9 +1283,9 @@ Three things follow, and the third is the useful one.
   queried.** The counts are cumulative within a warm process, so a long-lived instance carries a
   `firstAt` from before the ladder's widest rung, and the union is *correct* not to hold it.
   **Check the timestamp against the widest window before calling it truncation**; outside the
-  window it proves only that the process has been warm a while. On 2026-09-22 a line at
-  `21:05:09.137Z` read `(2 times since 2026-09-21T20:15:22.900Z)` — 24.8 h earlier, inside the 26 h
-  rung — and no `20:15:22` line existed anywhere in the thirteen-window union, so that one did
+  window it proves only that the process has been warm a while. On one run a line at
+  `21:05:09.137Z` read `(2 times since <ts 24.8 h earlier>)` — inside the 26 h rung — and no line at
+  that `firstAt` existed anywhere in the thirteen-window union, so that one did
   establish truncation. Normally establishing it costs a second ladder or a narrow follow-up; here
   one line did it. Look for an in-window `firstAt` with no matching line in the union whenever a
   project logs this way.
@@ -1280,3 +1293,36 @@ Three things follow, and the third is the useful one.
 **And the same shape is positive evidence that a log-flooding fix is live**, which is worth
 recording in the ledger rather than only noticing. §11's bundle timestamp tells you a function was
 re-bundled; a rollup suffix tells you a specific PR's behaviour is actually running in production.
+
+## 25. A production deploy that publishes at the top of the hour can SKIP that tick of every cron
+
+Found 2026-09 on one site. A production deploy had `published_at` `22:00:14Z`. The 22:00Z tick of
+**every** scheduled function was never invoked: the two hourly crons had 21:00 and 23:00 but no 22:00
+in three contiguous `--function` passes (13h/14h/15h), and the five-minute cron had 21:55 and 22:05
+but no 22:00. None of the functions was re-bundled, so this is not §11's schedule-registration loss.
+The next tick ran normally.
+
+It is timing-dependent. The same site's previous deploy published at `22:00:34Z` one day earlier and
+its 22:00 tick ran. So do not predict it from the deploy alone.
+
+- **The tell is the app's own watchdog, if it has one.** A `cron_recovered` event with no error
+  before it means something went quiet. Compare the gap against every deploy's `published_at`
+  (`listSiteDeploys`) before calling it a host outage.
+- **Prove the skip with contiguous passes that bracket the hour**, per §11's narrow-pass refinement.
+  A single pass missing one hour is ordinary §9 truncation.
+- **It is external, not a defect.** Damage depends on the app: an at-or-after due check makes the
+  work one tick late, while an exact-hour check would lose it. Read the due check before sizing it.
+
+## 26. The host can stop EVERY cron for hours, with no deploy, and resume on its own
+
+Found 2026-09 on one site. Two minute-cadence drains and an hourly digest went un-invoked for
+4 h 47 min (`12:37Z` to `17:24Z`). No deploy in the span, bundles unchanged, schedules still
+registered, and the first tick after it ran normally. All three ladders were clean, correctly (§19).
+
+- **The cheap tell is the downstream hourly count, not the ladder.** `edge_logs` node-UA rows per hour
+  (`supabase.md` §8) went `88 → (no row) ×4 → 72` while browser rows kept arriving every hour. Missing
+  hour buckets for *every* scheduled caller at once, with browser traffic present, is this class.
+- **Prove it with one contiguous `--function` block per cron** (§11, §22): the 22 h block jumped straight
+  from `12:37:02` to `17:24:05` with no `Duration:` line between. That rules out §21 row loss.
+- **Size damage from the queues and the slots, not the tick count.** It is external and usually harmless:
+  work queued in the gap waits, and a slot-gated job (a weekly digest) whose slot falls inside is skipped.
