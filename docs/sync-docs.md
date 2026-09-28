@@ -38,9 +38,11 @@ A repo adopts sync-docs with two or three files under `.claude/sync-docs/`:
 | `config.json` | Where the sources are (roots, file types, excludes), how tags are written, where the doc pages are and how they carry their key, which registry fields mirror page frontmatter, and which checks run |
 | `registry.json` | One entry per key: its page, a one-line summary, and its sources |
 | `rules.md` (optional) | What a comparison needs that config cannot say: which numbers on a page must match which constants, a section template to keep, the tone pages are written in |
+| `writes` (in `config.json`, optional) | Extra files fix scope may edit, such as a homepage whose feature links must point at docs. Only config can grant this; `rules.md` only says what the edit is |
 
-`rules.md` is guidance, not permission. It cannot add a file to write, a command to run, or another
-repo to touch.
+`rules.md` is guidance, not permission. It may add read-only checks, such as whether a published
+image URL answers. It cannot add a file to write, run a command that changes anything, or touch
+another repo.
 
 The checks a config can switch on:
 
