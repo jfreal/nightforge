@@ -84,6 +84,16 @@ interleaved with the failures rules out only a continuous site-wide failure that
 that deploy.** An intermittent provider issue, or a condition limited to particular branches or
 commits, remains possible.
 
+A close cousin, seen 2026-09-25 on `auxf`: `Failed during stage 'preparing repo': git ref pull/<n>/head
+does not exist`. It fires on the first preview of a brand-new PR, before GitHub has published the PR ref.
+A retrigger built `ready` 77 s later. It is a PR-creation race, not the clone failure below, and it needs
+no pending-key bookkeeping.
+
+**Run the ladder passes in PARALLEL, not in a loop.** On 2026-09-25 a sequential 41-pass script took about
+1.5 min per pass and had finished 14 after 20 min. The same passes launched as background jobs (`&` then
+`wait`) finished in a few minutes each batch, with no zero-byte files. Each `netlify logs` call is
+independent.
+
 There is a **third** shape that is neither of those and is not a code defect either. Seen
 2026-08-27 on mergetel:
 
@@ -1229,6 +1239,13 @@ So the test for a genuine history cut needs a second leg:
 Whether the difference is the host, the plan, or the interval between deploy and query is not pinned
 down. Record which you observed rather than assuming either way.
 
+**Observation, 2026-09-26 on `auxf`: the cut followed an EARLIER deploy than the bundle timestamp names.**
+`searchSiteFunctions` said both drains were bundled `2026-09-25T21:33:19Z`. Yet every unfiltered
+`--function` pass (`18h`–`21h`) returned the same 100-line block starting `19:46:04Z`, one minute after the
+`19:45:31Z` production deploy, and nothing earlier. So the `c` field shows only the newest re-bundle; a
+cut can sit at any deploy in the window. The practical cost: the `Duration:` check of `supabase.md` §21
+could not run for four missing gateway rows at `14:03`–`15:45Z`. Record such rows as unestablished.
+
 ## 24. An APP-SIDE log rollup makes the line count a FLOOR — §21 in the other direction
 
 Found 2026-09-22 on mergetel. §21 warns that one `console.error(msg, obj)` inflates the line count
@@ -1280,3 +1297,36 @@ Three things follow, and the third is the useful one.
 **And the same shape is positive evidence that a log-flooding fix is live**, which is worth
 recording in the ledger rather than only noticing. §11's bundle timestamp tells you a function was
 re-bundled; a rollup suffix tells you a specific PR's behaviour is actually running in production.
+
+## 25. A production deploy that publishes at the top of the hour can SKIP that tick of every cron
+
+Found 2026-09-25 on mergetel. Deploy `6ab59d09` had `published_at` `2026-09-24T22:00:14Z`. The
+22:00Z tick of **every** scheduled function was never invoked: the two hourly crons had 21:00 and
+23:00 but no 22:00 in three contiguous `--function` passes (13h/14h/15h), and the five-minute cron
+had 21:55 and 22:05 but no 22:00. None of the functions was re-bundled, so this is not §11's
+schedule-registration loss. The next tick ran normally.
+
+It is timing-dependent. The same site's previous deploy published at `22:00:34Z` one day earlier and
+its 22:00 tick ran. So do not predict it from the deploy alone.
+
+- **The tell is the app's own watchdog, if it has one.** A `cron_recovered` event with no error
+  before it means something went quiet. Compare the gap against every deploy's `published_at`
+  (`listSiteDeploys`) before calling it a host outage.
+- **Prove the skip with contiguous passes that bracket the hour**, per §11's 2026-09-08 refinement.
+  A single pass missing one hour is ordinary §9 truncation.
+- **It is external, not a defect.** Damage depends on the app: an at-or-after due check makes the
+  work one tick late, while an exact-hour check would lose it. Read the due check before sizing it.
+
+## 26. The host can stop EVERY cron for hours, with no deploy, and resume on its own
+
+Found 2026-09-28 on `auxf`. Both minute drains and the hourly `weekly-digest` went un-invoked from
+`2026-09-27T12:37Z` to `17:24Z` (4 h 47 min). No deploy in the span, bundles unchanged, schedules still
+registered, and the first tick after it ran normally. All three ladders were clean, correctly (§19).
+
+- **The cheap tell is the downstream hourly count, not the ladder.** `edge_logs` node-UA rows per hour
+  (`supabase.md` §8) went `88 → (no row) ×4 → 72` while browser rows kept arriving every hour. Missing
+  hour buckets for *every* scheduled caller at once, with browser traffic present, is this class.
+- **Prove it with one contiguous `--function` block per cron** (§11, §22): the 22 h block jumped straight
+  from `12:37:02` to `17:24:05` with no `Duration:` line between. That rules out §21 row loss.
+- **Size damage from the queues and the slots, not the tick count.** It is external and usually harmless:
+  work queued in the gap waits, and a slot-gated job (a weekly digest) whose slot falls inside is skipped.

@@ -570,6 +570,11 @@ Three reasons to read it every run on a project with the integration connected:
   `supabase/migrations/`, read that file's diff before calling the change comment-only; the sync line
   tells you only that nothing new is waiting to be applied. (It remains a real disqualifier for the
   other question: a *pending* migration would show up here.)
+- **A migration can reach production WITHOUT an `Applying migration...` line.** Seen 2026-09-26 on
+  `auxf`: `20260925090000_announce_via_queue.sql` shipped in the `21:32Z` push, and the `21:33Z` sync said
+  only `All migrations are up to date.` The owner had pushed it by CLI a minute earlier; the only trace was
+  `postgres_logs` rows with `parsed.user_name = cli_login_postgres` at `21:32:03Z`. So when a diff adds a
+  migration, confirm it in `supabase_migrations.schema_migrations` (`execute_sql`), not from the sync line.
 - **`Skipping configuration for protected branch...` is what makes the `WARN` lines harmless.** A
   `config.toml` that reads secrets via `env(...)` will warn on every sync because the executor has no
   such variable. **Do not file that as a production defect** — the very next line says the config was
@@ -758,3 +763,67 @@ pass test 4 again, so the sweep would keep it open forever while reporting, corr
 rule, that the quiet span was insufficient. Sanity-check any `max_gap` against the collection
 window before writing it — a figure larger than the window itself can only come from a previous
 run's `last_seen`, never from gaps measured inside this one.
+
+## 21. `edge_logs` is NEARLY complete, not complete — it can drop a single row, and that reads as a lost tick
+
+Found 2026-09-23 on `auxf`, and it retires an explanation the previous run had to leave open.
+Several sections here (§8, §19 of `netlify.md`, and the project cards' tick identities) lean on
+`edge_logs` being "a complete table over the window, immune to truncation". It is immune to the
+Netlify-style truncation. **It is not immune to losing an individual row.**
+
+Two consecutive windows each showed exactly one node-UA row missing on the same minute-cadence
+drain, in opposite halves of the same invocation:
+
+| window | minute | sweep row | claim row |
+|---|---|---|---|
+| 2026-09-22 | `2026-09-21T14:02` | **missing** | present, `200` |
+| 2026-09-23 | `2026-09-22T12:01` | present, `200` | **missing** |
+
+The 09-22 run recorded its case as "cause not established". The 09-23 case settled both, by
+proving the invocation made the missing call and got an answer:
+
+1. **Exactly one invocation ran** — an unfiltered `--function <name>` pass returned a *contiguous*
+   one-per-minute block covering the minute (`netlify.md` §22's contiguous-block check), with one
+   `Duration:` line in it and no ERROR anywhere in the block.
+2. **The call is unconditional** on that code path (read the handler at the deployed commit).
+3. **A failure of that call cannot be silent** — on `auxf` an RPC error throws, the handler returns
+   502, and `withScheduledErrorReport` writes an ERROR line. None existed.
+
+So the RPC was made and answered, and the gateway log simply has no row for it. Roughly one row in
+~3,170 node-UA rows per day, on the two days measured.
+
+**Consequences.**
+
+- **A shortfall of ONE against a tick identity is not a finding by itself.** Run the three checks
+  above before calling it a skipped tick, a dropped schedule or a code-path bug. A shortfall of
+  several, or one clustered on one path across runs with a matching gap in the Netlify
+  `Duration:` lines, is the opposite finding.
+- **The direction matters.** A missing row can only make a count *smaller*. A count that *exceeds*
+  the tick identity still needs a second invocation or a second caller to explain it (§8,
+  `netlify.md` §22) — row loss never produces one.
+- **Do not reach for the clock or the cadence first.** 09-22 ruled both out correctly and then had
+  nothing left; the answer was the collector.
+
+**Counter-case, 2026-09-24 on `auxf`: a shortfall of SEVERAL was real skipped ticks, and the
+Netlify log is what told them apart.** `claim_quest_narratives` came back 1436 and
+`claim_match_narratives` 1438 against 1440, with seven one-minute holes (quest `18:11`, `22:33`,
+`22:34`, `22:46`; match `23:05`, `23:15`, `23:22`). Unfiltered `--function <name>` passes whose
+contiguous one-per-minute block covered those minutes carried **no `Duration:` line** in any of
+them, so the host never invoked the drain. Row loss (above) leaves the `Duration:` line in place;
+a skipped tick removes it. Two further tells: the first invocation after each hole carried
+`Init Duration` (a cold start), and the match drain fired **twice** at `23:16` with both claims
+`200` and no ERROR — a catch-up double fire, not a retry (`netlify.md` §22). Consequence nil;
+both queues empty. The one check that separates the two causes is the contiguous `--function`
+block, so run it before choosing either.
+
+**The loss rate is not ~1/day — 2026-09-25 on `auxf` lost about TEN node-UA rows, clustered.** Missing:
+`claim_quest` `13:36`, `15:09`, `15:11`, `15:46`; `retire_stale_quest` `15:01`, `18:00`, `19:01`;
+`claim_match` `14:00`, `15:01`, `16:06`. Contiguous `--function quest-narrative-drain` blocks carried a
+`Duration:` line in every checked quest minute and zero non-INFO lines, so the invocations ran and did not
+fail. Most losses sat inside `13:36 → 16:06`. So several missing rows can still be row loss. The
+`Duration:` check decides it, not the count.
+
+**`lagInFrame` window queries can fail with `Backend error! Retry your query.` for a whole run**
+(2026-09-24, three shapes, retries did not help). The §20 `max_gap` query then cannot run. Fall
+back to `arrayStringConcat(arraySort(groupArray(formatDateTime(timestamp,'%Y-%m-%dT%H:%i:%S'))), ',')`
+grouped by class, and compute the gaps locally. It is one small row per class.
