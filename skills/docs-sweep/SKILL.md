@@ -91,8 +91,8 @@ PR will be based on — not a dirty checkout mid-someone-else's-work.
 Read the worktree's `.claude/skills/sync-docs/SKILL.md` and follow it in **audit** scope. Read the
 file from the worktree — do not substitute another repo's port or a `/sync-docs` skill loaded in
 your own session; the ports differ deliberately (nightforge audits a README index and inventory
-lists; Pheidi audits an Eleventy hub page). The port you were not asked to run will "fix" structure
-the target repo never had.
+lists; an app repo's port audits an Eleventy hub page). The port you were not asked to run will
+"fix" structure the target repo never had.
 
 **Audit clean is the normal, healthy result.** Remove the worktree
 (`git worktree remove <path>`), report the repo in one line, move on.

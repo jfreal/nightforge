@@ -13,7 +13,7 @@ Usage:
     python ensure-priority-label.py                      # preview, writes nothing
     python ensure-priority-label.py --apply              # create the missing labels
     python ensure-priority-label.py --apply --update     # also fix colour/description
-    python ensure-priority-label.py --apply --repo pheidi --repo mergetel
+    python ensure-priority-label.py --apply --repo web-app --repo api
 """
 
 from __future__ import annotations
