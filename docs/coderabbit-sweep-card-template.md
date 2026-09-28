@@ -36,7 +36,7 @@ description: Hourly sweep for open PRs CodeRabbit never finished reviewing; trig
 | **Trigger phrase** | `@coderabbitai full review` |
 | **Priority labels** | `coderabbit-priority` (default) — a PR carrying one is fired at before any unlabelled PR |
 | **Cooldown** | **<n> minutes** — a PR fired inside this window is not re-fired |
-| **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head commit is this old |
+| **Paused quiet** | **<n> minutes** (120) — a PR on a branch CodeRabbit paused waits until its head has sat unchanged this long |
 | **Barren backoff max** | **<n>** (3) — how many times a PR's cooldown may double after consecutive reviews that found nothing |
 | **Retention** | **<n>** (40) — `fired` entries kept. Must be at least `cooldown x 2^backoff max` in **hours**, since at most one fire lands per hour |
 | **Ledger** | `<abs path>/ledger.json` |
@@ -102,12 +102,15 @@ doubled 3 times is 12 hours, so 16 entries — the default 40 covers it comforta
 after about 40 hours with nothing saying why. The script checks this at startup and raises retention
 rather than refusing to run, but the card should carry the right number so the check stays quiet.
 
-**Ledger** — the only memory between runs: `throttledUntil`, the published `boardUrl`, and the
-`fired` list. Its size is governed by **retention** above, not by a separate judgement call — the
+**Ledger** — the only memory between runs: `throttledUntil`, the published `boardUrl`, the
+`fired` list, the three records that must outlive `fired` — `barren` (each PR's run of reviews that
+found nothing), `refusals`, and the `gaveUp` list — and a `{sha, at}` head record per open PR, which
+is how the paused-quiet guard ages a head that a rebase or force-push just moved. `fired` is the part
+that grows, and its size is governed by **retention** above, not by a separate judgement call — the
 floor there is the binding constraint, and the sweep drops entries past the cap when it writes the
 ledger back. It once grew to 90KB and cost about 6k tokens of read on *every* hourly run, which is
 why the cap exists at all. It follows that `fired` is not a lifetime record — never compute totals
-or streaks off it.
+or streaks off it; anything that has to survive the trim lives beside it as its own keyed object.
 
 **Board template** — the HTML the run fills in to publish the board Artifact. It lives on disk
 precisely so the sweep never has to fetch the published board to recover its own design: fetching
