@@ -101,13 +101,18 @@ bytes — no sync script, no drift:
 cmd /c mklink /J "%USERPROFILE%\.claude\skills\error-sweep" "<clone>\skills\error-sweep"
 ```
 
-Then write a project card per app (see `docs/`) and point a scheduled task at it.
+Then, per app: make a Notion board with the three databases the sweep remembers things in (runs,
+signatures, knowledge — layouts in
+[docs/project-card-template.md](docs/project-card-template.md)), write a project card that points
+at them, and point a scheduled task at the card.
 
 ### What is deliberately not here
 
-Project cards, dedup ledgers, and run reports. Cards carry infrastructure identifiers; ledgers and
-reports carry raw production log text, which routinely includes capability URLs, tokens, and user
-data. Keep all three in a private repo, or out of git entirely.
+Project cards, dedup ledgers, run reports, and what the sweeps learn about each app. Cards carry
+infrastructure identifiers; ledgers, reports, and lessons carry raw production log text, which
+routinely includes capability URLs, tokens, and user data. The sweep keeps them in a private Notion
+board per app and the card in the local scheduled task. A run never writes to this repo, so a night
+of sweeping is never a pull request here.
 
 ### War stories
 
@@ -135,7 +140,11 @@ these are the ones worth reading before you write your own:
   branch triggers a build. The per-project fix cap is a budget decision, not a safety rail — set it
   against that project's actual bill.
 - **Knowledge left in a run report is knowledge you will pay for twice.** Nothing reads last night's
-  report. Gotchas go in the adapter or the card, in the same run you learn them.
+  report. Gotchas go in the app's Notion knowledge store, in the same run you learn them.
+- **Knowledge written back into the skill is a pull request a night.** For a month the sweeps edited
+  the adapters and their own cards whenever they learned something. The cards passed 100 KB, and the
+  adapters filled with one app's function names and dates, each change a PR with review and CI. Now a
+  run writes lessons to a database, and the skill changes only by hand.
 - **A chip is a bug you found and decided not to fix.** For three weeks the sweeps opened one a
   night — the follow-up a fix agent left out of scope, the runtime scan nobody spawned — and the
   owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause

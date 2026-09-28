@@ -10,7 +10,48 @@ This file is the pipeline. It is stack-agnostic — every tech-specific detail l
 <!-- @doc:project-card -->
 ## What the caller gives you
 
-A project card naming: app + URL, repo path + GitHub slug + default branch, the **adapters** to run, the ledger path, the report paths, the fix-session cap, and per-project known-noise. Everything below reads those values; nothing below hardcodes a project.
+A project card naming: app + URL, repo path + GitHub slug + default branch, the **adapters** to run, the adapter identifiers, the fix-session cap, the issue label, the redaction helper, and where the project's **memory** lives (next section). Everything below reads those values; nothing below hardcodes a project.
+
+The card holds identifiers only. What the sweep has *learned* about a project — known noise, traps,
+recurring failure classes, fix-agent commands — lives in the project's memory, not in the card and
+not in this repo.
+
+## Where the sweep's memory lives
+
+A run remembers nothing. Everything it needs from past runs lives in three stores per project,
+kept in **Notion**, one board per project:
+
+| Store | What it holds | Read | Write |
+|---|---|---|---|
+| **Error signatures** | The dedup ledger. One row per normalized signature ever triaged: `Signature` (the exact key), `Class`, `Issue`, `PR`, `Filed by`, `First seen`, `Last seen`, `Max gap h`, `Summary`; the full reasoning in the page body when it runs past ~1800 characters | Step 3 | Step 7 |
+| **Error sweep runs** | One row per run: `Date`, `Window`, `Gap hours`, `Result`, `Headline`, counts; the full report in the page body. A night with no row is a run that did not happen | Step 0 | Step 8 |
+| **Sweep knowledge** | Everything learned about this project and its stack: one row per lesson with `Topic`, `Scope`, `Kind`, `Status`, and `Rule` — the gist, enough to act on without opening the page | Step 0 | Any step, the moment you learn it |
+
+The card names each store's data source (`collection://…`) and a **view URL**.
+
+**Read with view mode, never SQL.** `query_data_sources` in SQL mode draws on a workspace quota
+that other routines share, and it has run out mid-sweep. View mode —
+`{"mode":"view","view_url":"<card's view URL>","page_size":100}` — carries no tool quota. It returns
+100 rows per page: **follow `next_cursor` until `has_more` is false.** A ledger read that stops at
+page one makes every signature past row 100 look new, and the sweep refiles them.
+
+**Writes are unrestricted.** `create_pages` and `update_page` do not share the read quota. Create one
+row per new signature, one run row per run, and update existing rows in place. Never change a
+database's schema; if a column is missing, say so in the report.
+
+**When Notion is unreachable, degrade — never treat the ledger as empty.** An empty ledger refiles
+every signature the project has ever had. Fall back to the card's **local mirror** (`seen.json`,
+outside any repo) read-only, say in the report that the read was degraded and which copy was used,
+and still write to Notion if the write path works. If writes fail too, write the local report and put
+the Notion failure under *Needs you*.
+
+**Keep the mirror fresh.** After every successful ledger read, write the rows back to the local
+`seen.json` (`{"signatures": {"<sig>": {...}}, "last_run": "<date>"}`). It is only worth anything as
+a fallback if it is refreshed on every run.
+
+**Never commit memory to git.** Ledgers, reports, and knowledge carry production log text, which
+routinely includes capability URLs, tokens, and user data. They belong in the private Notion board and
+the local task folder, never in a repository.
 
 ## Hard constraints — every project, no exceptions
 
@@ -49,7 +90,19 @@ person is the report line with extra steps.
 
 ## Step 0 — Load context
 
-Read the project card. Then read `CLAUDE.md` at the repo root — it is the authority on that project's conventions, and a "fix" that violates one of its rules is worse than no fix. Read the card's known-noise list; those patterns have already been triaged and closed, and refiling them wastes a run.
+Read the project card. Then read `CLAUDE.md` at the repo root — it is the authority on that project's conventions, and a "fix" that violates one of its rules is worse than no fix.
+
+**Read every `Active` row in Sweep knowledge** (view mode, all pages). The `Rule` column is written to
+be enough on its own. Open a row's page body only when its rule applies to something in front of you.
+The `known-noise` rows are patterns already triaged and closed; refiling them wastes a run. Rows scoped
+to an adapter carry that adapter's quirks *on this project*, on top of the adapter file.
+
+**Then check that the previous run happened.** Read the newest rows of Error sweep runs. If the
+previous run is missing, the telemetry it would have collected is usually gone for good — log
+retention is often a day or less. Say so in the report under its own heading, with the exact
+uncollected span, and backfill a `Missed` row (cause, if known) so the hole is visible on the board. A
+report that silently spans a gap implies coverage the sweep never had. Two misses in a row belong
+under *Needs you*.
 
 ## Step 1 — Collect
 
@@ -75,9 +128,13 @@ Where the source already has a stable identity, prefer it over your own: an App 
 
 ## Step 3 — Drop anything already handled
 
-**Ledger.** Read the card's `seen.json`: `{"signatures": {"<sig>": {...}}}`. Skip any signature present — *including* ones whose status says the fix is written but not yet merged. Those keep appearing in production until the PR lands, and refiling them is the single most common way these sweeps waste a run.
+**Ledger.** Read every row of the project's Error signatures store (view mode, every page — see
+*Where the sweep's memory lives*). Skip any signature present — *including* ones whose status says the
+fix is written but not yet merged. Those keep appearing in production until the PR lands, and refiling
+them is the single most common way these sweeps waste a run.
 
-If the ledger is missing or unparseable, treat it as empty, **say so in the report**, and still write it back correctly at the end.
+If Notion is unreachable, use the local mirror as that section says. If both are missing or
+unreadable, treat the ledger as empty, **say so in the report**, and lean on the tracker pass below.
 
 **Second pass — search the tracker itself.** Belt and braces for a lost or reverted ledger:
 
@@ -91,9 +148,9 @@ you move on, depends on the issue's state:
 - **Closed:** record it `fixed` and move on — unless the signature's newest occurrence is *after*
   the deploy that fixed it. That is a recurrence, not a duplicate; step 7b says what to do with it.
 - **Open, with a PR that claims it** (`gh issue view <n> --repo <slug> --json
-  closedByPullRequestsReferences`): the fix is written and waiting. Record `bug` with that `pr`
+  closedByPullRequestsReferences`): the fix is written and waiting. Record `bug` with that `PR`
   and move on.
-- **Open, no PR:** record `bug`, `pr: null`, `note: deferred: no PR`. That is the deferred case
+- **Open, no PR:** record `Class: bug`, `PR` empty, note `deferred: no PR`. That is the deferred case
   below, and it goes into **this run's** step 6 queue, not the next run's. A tracker hit that only
   says "seen" turns an open bug into a permanent skip.
   **Except when the issue itself says it was stopped for an owner decision — check that FIRST.**
@@ -108,17 +165,17 @@ you move on, depends on the issue's state:
   ```
 
   A `sweep-stop:owner-decision` label or such a comment means record `stopped: owner decision — #<n>`
-  and do **not** queue it. Nothing else on an open issue carries that state once `seen.json` is gone.
+  and do **not** queue it. Nothing else on an open issue carries that state once the ledger is gone.
 
-Whichever it is, record `filed_by` from the issue's author (step 7) — a hit found this way may
+Whichever it is, record `Filed by` from the issue's author (step 7) — a hit found this way may
 be a person's issue, and step 7b needs to know.
 
-**A ledger entry with `status: bug` and `pr: null` is deferred, not handled.** Its issue exists, so
+**A ledger row with `Class: bug` and no `PR` is deferred, not handled.** Its issue exists, so
 skip its triage — but carry it into step 6 ahead of new bugs of the same weight. Nothing else ever
-re-spawns it. The entry's `note` says which kind it is (step 7): `deferred: …` — over cap, or no
+re-spawns it. The row's note says which kind it is (step 7): `deferred: …` — over cap, or no
 PR — goes straight back into the queue; `stopped: owner decision` never goes back until the
 owner answers; `stopped: cause unclear` goes back only when this run
-collected new evidence — occurrences with a new shape since `last_seen`, or a comment from a
+collected new evidence — occurrences with a new shape since `Last seen`, or a comment from a
 person on the issue. Re-spawning a cause-unclear stop on the same evidence is a nightly loop that
 costs a session and produces the same comment.
 
@@ -270,9 +327,9 @@ WORKING RULES — follow all of these
 
 If a bug has no issue yet, file one first (step 5) so the agent can close it.
 
-**When the agents return, turn PR auto-fix on.** John authorized this standing, for every PR, on
-2026-09-17 — do not ask. The agents open the PRs, but the *session* holds the monitor binding, so
-you do this, not them. Call `mcp__ccd_pr__get_status` to see which PR the app bound, then
+**When the agents return, turn PR auto-fix on** — if the owner has given standing authorization
+for it (say so in the card or the user's instructions; otherwise skip this and list the PRs). The
+agents open the PRs, but the *session* holds the monitor binding, so you do this, not them. Call `mcp__ccd_pr__get_status` to see which PR the app bound, then
 `mcp__ccd_pr__set_monitor(url: "<that PR url>", auto_fix: true, address_comments: true)`. Leave
 `auto_merge` and `auto_archive_on_close` alone.
 
@@ -289,28 +346,34 @@ every PR the run opened as UNMONITORED under *Needs you*, with the one-line reas
 
 ## Step 7 — Update the ledger
 
-Write every newly triaged signature back to `seen.json` with:
+Create one Error signatures row per newly triaged signature, and update the rows of known signatures
+this run saw again:
 
-- `first_seen` (today) and `last_seen` (the newest occurrence this run saw)
-- `max_gap` — hours, the longest gap between consecutive occurrences on record: the gaps inside
-  this window, plus the gap from the previous run's `last_seen` to this run's first occurrence.
-  Keep the larger of the stored and the new figure. Null until two occurrences have been seen.
+- `Signature` — the exact normalized key; `Name` — a short human title
+- `First seen` (today) and `Last seen` (the newest occurrence this run saw)
+- `Max gap h` — hours, the longest gap between consecutive occurrences on record: the gaps inside
+  this window, plus the gap from the previous `Last seen` to this run's first occurrence.
+  Keep the larger of the stored and the new figure. Empty until two occurrences have been seen.
   This is the only long memory a day-wide collector has, and step 7b's quiet test depends on it.
-- `status` — `bug`/`noise`/`external`, or `fixed` once step 7b closes it
-- a one-line `note`
-- `issue` (number or null) and `filed_by` — `sweep`, `bot`, or `human`, from the issue's author
+- `Class` — `bug`/`noise`/`external`, or `fixed` once step 7b closes it
+- `Summary` — the triage in a sentence or two, and the ledger note (below). Longer reasoning goes in
+  the page body; a text property stops at 2000 characters.
+- `Issue` (number or empty) and `Filed by` — `sweep`, `bot`, or `human`, from the issue's author
   (`gh issue view <n> --repo <slug> --json author`). Step 7b closes only the first two.
-- `pr` (number or null) and `closed_by_sweep` (date, only when step 7b closed it)
+- `PR` (number or empty); when step 7b closes the issue, say so in `Summary` with the date
+- link the row to this run's row in Error sweep runs
 
-Preserve existing entries.
+Preserve existing rows. Update in place; never delete one. Then refresh the local mirror.
+
+In what follows, a signature's *note* is the leading text of its `Summary`.
 
 **Only record signatures you actually finished triaging.** A signature whose issue creation failed must stay unrecorded so the next run retries it.
 
-**A `bug` with `pr: null` must say why in its `note`**, because step 3 treats the reasons
+**A `bug` with no `PR` must say why in its note**, because step 3 treats the reasons
 differently: `deferred: over cap` or `deferred: no PR` (re-spawned next run — or this run, when
 step 3 found it) versus `stopped: cause unclear — analysis on #<n>` (re-spawned only on new
 evidence) versus `stopped: owner decision — #<n>` (never re-spawned without a word from the
-owner). A bare null is read as `deferred`.
+owner). A note with no reason is read as `deferred`.
 
 **That third reason exists because the first two both lie about a real and recurring case: the
 cause is fully known, and the only available code change is one the owner already made on
@@ -321,7 +384,7 @@ it every night; `cause unclear` is simply false and invites a pointless analysis
 the issue with the measurement that makes the decision reviewable, put the decision under the
 report's *Needs you*, and record `stopped: owner decision`.
 
-**Write that stop where the TRACKER can see it too, not only in `seen.json`.** The ledger is the
+**Write that stop where the TRACKER can see it too, not only in the ledger.** The ledger is the
 one piece of this pipeline that has actually gone missing, and step 3's recovery pass reads an
 open issue with no PR as `deferred: no PR` — which would queue a fix agent against a decision the
 owner made deliberately. A label is the cheapest durable copy, and it is an additive write, so the
@@ -342,12 +405,12 @@ The sweep may close an issue. It may not *decide* one. The line between those is
 test below must pass. A single miss leaves the issue open and puts it under the report's *Needs you*
 with the test that failed. When two readings of a test disagree, the issue stays open.
 
-1. **A machine filed it.** The ledger's `filed_by` is `sweep` or `bot`, and the issue's author on
+1. **A machine filed it.** The ledger's `Filed by` is `sweep` or `bot`, and the issue's author on
    GitHub agrees (`gh issue view <n> --repo <slug> --json author`). Check the author, not the
    presence of a ledger entry — the step 3 tracker search can put a person's issue in the ledger.
    `bot` means the app's own triage workflow, which the `github-auto-issues` adapter identifies by
    its label and its `fp:` fingerprint. An issue a person wrote is never closed by a machine.
-2. **A merged PR fixes it, by name.** The ledger's `pr`, or a merged PR whose body says `Closes #<n>`
+2. **A merged PR fixes it, by name.** The ledger's `PR`, or a merged PR whose body says `Closes #<n>`
    or `Fixes #<n>`. Quiet with no PR is not fixed — it is waiting.
 3. **That PR is deployed.** The adapter's deploy data names the running commit (Netlify `commit_ref`,
    the deploy workflow's `headSha`), and the PR's merge commit is its ancestor:
@@ -360,10 +423,10 @@ with the test that failed. When two readings of a test disagree, the issue stays
    card's adapters cannot name a deployed SHA, nothing closes.
 4. **The telemetry has been quiet since the deploy, for long enough.** Zero occurrences of the
    signature after the deploy timestamp, and the quiet span is at least the *longest* of: 72 hours;
-   the card's collection window; the ledger's `max_gap` for the signature. That last figure is the
+   the card's collection window; the ledger's `Max gap h` for the signature. That last figure is the
    one the window cannot supply — a 26 h Netlify pass or a 24 h Supabase pass cannot see a weekly
    bug's rhythm, and even App Insights' `P30D` is a ceiling — which is why step 7 accumulates it
-   across runs. **A null `max_gap` means fewer than two occurrences are on record, so there is no
+   across runs. **An empty `Max gap h` means fewer than two occurrences are on record, so there is no
    gap to measure: leave it open** and say so. One hit proves neither a rate nor its absence. The
    72 h floor exists because one per-node fix looked good for 33 h. Another looked good for 184 h,
    which is why the reverse path below exists.
@@ -384,7 +447,7 @@ Close with the evidence on the issue, not only in the report:
 gh issue close <n> --repo <slug> --reason completed --comment "<PR, merge SHA, deployed SHA and time, quiet span, the pass that confirmed absence>. Closed by the error sweep; reopen if it recurs."
 ```
 
-Then the ledger entry: `status: fixed`, `pr`, `closed_by_sweep: <date>`.
+Then the ledger row: `Class: fixed`, `PR`, and "closed by the sweep <date>" in `Summary`.
 
 **Never `not planned`.** An `external` or `noise` signature has no fix to prove — it went quiet on
 its own, or it is correct behaviour that someone still has to agree is correct. Those closes are the
@@ -399,7 +462,11 @@ that did not hold.
 
 ## Step 8 — Report
 
-Write the full write-up to the card's dated report file, then a short summary to `last-run-report.md` and to the chat:
+Create this run's row in Error sweep runs: `Date`, `Window` (the telemetry this run actually saw),
+`Gap hours` (previous window end to this window start — about 0 is healthy, a positive value is
+telemetry no run saw), `Result` (`Clean`, `Findings`, `Partial` when a collector failed), a one-line
+`Headline`, the counts, and **the full write-up as the page body**. Also write the write-up to the
+card's local report folder as a backup, and a short summary to `last-run-report.md` and to the chat:
 
 - error lines per source in the window, distinct signatures, how many were new
 - what you filed and what you spawned, with issue/PR numbers and links
@@ -411,11 +478,12 @@ Write the full write-up to the card's dated report file, then a short summary to
   work is never in this list; it is in the PRs above. Additive comments you already posted are
   listed as done.
 - any finding that is not yet actionable, and why
+- knowledge rows added, changed, or retired this run, by `Topic`
 
 **Re-verify every carry-forward against the code before repeating it.** A ledger note saying "fixed,
 awaiting the user's decision" was true on the day it was written and is a claim about the past, not
-the present. Carrying one forward unchecked hands the user a decision they already made — on `auxf`,
-a note listing three open `reportError.ts` defects was repeated across two runs after the PR that
+the present. Carrying one forward unchecked hands the user a decision they already made — on one
+project, a note listing three open defects in one file was repeated across two runs after the PR that
 fixed all three had already merged. Before any item reaches the report's carry-forward section, open
 the file it names and confirm the state still holds. Then correct the ledger entry in the same run.
 
@@ -436,6 +504,22 @@ resolved is how a real pending decision disappears.
 
 **If nothing new appeared, say exactly that in one line.** File nothing, spawn nothing, do not pad the report.
 
-## When you learn something about the tooling
+## When you learn something
 
-A gotcha you discover about a *stack* (a CLI flag that lies, a field that is a string when it looks like a bool) belongs in `adapters/<name>.md`, not in a report where the next run will not read it. A gotcha about a *project* belongs in that task's project card. Edit the file in the same run you learn it — that is the only reason this pipeline stops re-learning the same things.
+Write it to the project's **Sweep knowledge** the moment you learn it — not in a report, where the
+next run will not read it. That is the only reason this pipeline stops re-learning the same things.
+
+- **One row per lesson.** `Topic` names it. `Rule` states it so the next run can act without opening
+  the page: the exact identifier, query, flag, or threshold. Evidence and history go in the page body.
+- **`Scope`**: `project` for a fact about this app, the adapter's name for a stack gotcha seen here
+  (a CLI flag that lies, a field that is a string when it looks like a bool), `pipeline` for how the
+  sweep itself should behave on this project.
+- **`Kind`**: `known-noise`, `trap`, `failure-class`, `config`, `fix-agent`, `carry-forward`, or
+  `history`.
+- **Correct, don't pile up.** If a row is wrong or out of date, update it. If it no longer applies, set
+  `Status: Retired` and say why in the body. Never delete a row.
+
+**Never edit this skill, its adapters, the project card, or any file in this repository from a run.**
+They are shared, reviewed code; a run that edits them turns every night into a pull request. A stack
+lesson that would help every project stays in the knowledge store with its adapter's `Scope`, and the
+report lists it, so the owner can decide whether to fold it into the adapter by hand.
