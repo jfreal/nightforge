@@ -2,6 +2,31 @@
 
 Agentic "dark factory" tools and skills that I use across my repos.
 
+## Install
+
+Every skill under `skills/` ships as one Claude Code plugin. The repo is its own marketplace, so
+two commands install all of them on any machine that can read this repo:
+
+```bat
+claude plugin marketplace add jfreal/nightforge
+claude plugin install nightforge@nightforge --scope user
+```
+
+The installed plugin is a copy pinned to a commit, not a live link to your clone. After you push a
+skill change, pull it in and restart Claude Code:
+
+```bat
+claude plugin marketplace update nightforge
+claude plugin update nightforge@nightforge
+```
+
+Plugin skills are namespaced, so `error-sweep` shows up as `nightforge:error-sweep`. A scheduled
+task that reads a skill by file path should point at a clone (`<clone>\skills\error-sweep\SKILL.md`).
+The plugin copy lives under a folder named after a commit hash, and that name changes on every
+update.
+
+Install the ELI10 output style by hand, as its section below shows.
+
 ## `ELI10` output style
 
 A Claude Code output style for end-of-day brains: plain English, jargon defined once, every report
@@ -82,6 +107,16 @@ skills/pr-test/
   SKILL.md                      the per-PR test run — plan, check out, drive, tick, report
 skills/sync-docs/
   SKILL.md                      the docs-drift audit — one engine, a config per repo
+skills/onboarding-sweep/
+  SKILL.md                      the hourly onboarding sweep: dogfood board to fix PRs
+skills/unslop/
+  SKILL.md                      strips AI tells from prose and adds voice
+skills/simple-issue-description/
+  SKILL.md                      turns a rough report or PR into a plain-language issue
+  agents/openai.yaml            display metadata for Codex-style agent hosts
+.claude-plugin/
+  plugin.json                   the repo as one plugin: every skill under skills/
+  marketplace.json              the repo as its own marketplace, listing that plugin
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
@@ -96,12 +131,7 @@ pipeline fix is one edit every project inherits.
 
 ### Install
 
-Clone, then junction the skill into your Claude config so the live path and the repo are the same
-bytes — no sync script, no drift:
-
-```bat
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\error-sweep" "<clone>\skills\error-sweep"
-```
+Comes with the plugin (see [Install](#install)).
 
 Then, per app: make a Notion board with the three databases the sweep remembers things in (runs,
 signatures, knowledge — layouts in
@@ -183,9 +213,7 @@ overrides like a docs build command.
 
 ### Install
 
-```
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\docs-sweep" "<clone>\skills\docs-sweep"
-```
+Comes with the plugin (see [Install](#install)).
 
 Then write the roster card into a weekly scheduled task (see
 [docs/docs-sweep-card-template.md](docs/docs-sweep-card-template.md)).
@@ -218,9 +246,7 @@ signal either — it stays in the comment body after a later attempt succeeds �
 
 ### Install
 
-```
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\coderabbit-sweep" "<clone>\skills\coderabbit-sweep"
-```
+Comes with the plugin (see [Install](#install)).
 
 Then write the fleet card into an hourly scheduled task (see
 [docs/coderabbit-sweep-card-template.md](docs/coderabbit-sweep-card-template.md)).
@@ -264,14 +290,7 @@ list.
 
 ### Install
 
-```bat
-mkdir "%USERPROFILE%\.claude\skills" 2>nul
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\ci-cost-sweep" "<clone>\skills\ci-cost-sweep"
-```
-
-`mklink` needs the link's parent folder to exist and fails with *The system cannot find the path
-specified* when it does not, so the `mkdir` matters on a machine with no skills installed yet. It is
-harmless when the folder is already there — same reason the ELI10 block above carries one.
+Comes with the plugin (see [Install](#install)).
 
 No card — the repo you point it at is the input.
 
@@ -315,14 +334,45 @@ merges, or closes anything. Checking out a branch to run it is not a licence to 
 
 ### Install
 
-```bat
-mkdir "%USERPROFILE%\.claude\skills" 2>nul
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\pr-test" "<clone>\skills\pr-test"
-```
+Comes with the plugin (see [Install](#install)).
 
 Then write one card per repo — the slug, the services and how to start them, the test account, the
 env vars holding the login, where screenshots go (see
 [docs/pr-test-card-template.md](docs/pr-test-card-template.md)). Everything else is the pipeline.
+
+## `onboarding-sweep`
+
+The hourly onboarding-improvement loop. A bot signs up as a brand-new user and writes what it hit
+to a Notion "Onboarding dogfood" board, as run rows and finding rows. This sweep reads the board,
+turns every actionable finding into a worktree-isolated fix agent that opens a PR, and moves each
+finding's status as its PR merges and deploys. It also files findings for failed runs nobody wrote
+up. Same split as error-sweep: the pipeline lives here, and the board IDs, caps and repo live in
+a per-project card inside the scheduled task.
+
+### Install
+
+Comes with the plugin (see [Install](#install)). Then write a project card into an hourly
+scheduled task.
+
+## `unslop`
+
+Cuts AI tells from any prose a person will read, and adds voice back. Repos that want it on for
+every contributor, cloud agents included, still carry their own copy in `.claude/skills/unslop/`.
+Keep that copy the same as this one.
+
+### Install
+
+Comes with the plugin (see [Install](#install)).
+
+## `simple-issue-description`
+
+Turns a rough bug report, feature request, support note or PR into a short issue about the
+problem and the behavior you want, with the implementation detail taken out. User-invokable:
+`/simple-issue-description`.
+
+### Install
+
+Comes with the plugin (see [Install](#install)).
 
 ## `sync-docs`
 
@@ -340,10 +390,6 @@ would otherwise make that page silently wrong.
 
 ### Install
 
-```
-cmd /c mklink /J "%USERPROFILE%\.claude\skills\sync-docs" "<clone>\skills\sync-docs"
-```
-
-Then give a repo its config and registry (see [docs/sync-docs.md](docs/sync-docs.md)). Run
-`/sync-docs` to audit, `/sync-docs fix` to repair. Full mechanism:
-[docs/sync-docs.md](docs/sync-docs.md).
+Comes with the plugin (see [Install](#install)). Then give a repo its config and registry (see
+[docs/sync-docs.md](docs/sync-docs.md)). Run `/nightforge:sync-docs` to audit,
+`/nightforge:sync-docs fix` to repair. Full mechanism: [docs/sync-docs.md](docs/sync-docs.md).
