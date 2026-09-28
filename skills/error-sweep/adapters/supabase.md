@@ -32,7 +32,7 @@ Realtime warnings are routine background noise; count them in the report, do not
 get_advisors(type="security")
 ```
 
-A **new class** of advisory is a finding — a table with RLS disabled is exactly the bug class these apps care most about. A moving *count* within an already-triaged class (e.g. SECURITY DEFINER RPCs 52 → 56) is not, unless a table crosses onto the `rls_enabled_no_policy` list. Report the count delta, triage only the new class.
+A **new class** of advisory is a finding — a table with RLS disabled is exactly the bug class a Supabase app should care most about. A moving *count* within an already-triaged class (e.g. SECURITY DEFINER RPCs 52 → 56) is not, unless a table crosses onto the `rls_enabled_no_policy` list. Report the count delta, triage only the new class.
 
 ## 4. Migration-lag false positives
 
@@ -46,7 +46,7 @@ No `supabase db push`. No MCP `apply_migration`. No DDL against the hosted proje
 
 ## 6. `permission denied for table X` (42501) is a COLUMN privilege, not RLS
 
-Confirmed 2026-08-22 on `auxf`. RLS denies by returning **zero rows**; SQLSTATE **42501** from
+Seen 2026-08 on one project. RLS denies by returning **zero rows**; SQLSTATE **42501** from
 PostgREST means the role lacks a `SELECT` privilege — and on a table that uses **column-level
 grants**, it fires when the request's `select=` list names one ungranted column, even though every
 other column and every other caller works. So a table with thousands of 200s can still 403 a single
@@ -85,7 +85,7 @@ reading invents a flapping privilege that was never there.
 
 ## 7. The log-attribute keys are NAMESPACED — a flat key silently returns zero rows
 
-Confirmed 2026-08-23 on `auxf`, **lost, and re-confirmed 2026-08-24**. `log_attributes` is a
+Seen 2026-08 on one project, **lost, and re-confirmed the next day**. `log_attributes` is a
 ClickHouse `Map`, and a **missing key evaluates to `''` rather than raising**. So the natural first
 query —
 
@@ -99,29 +99,29 @@ group by sev
 same green-collector trap as the netlify adapter's §6/§8. On the run that found it, the true answer
 behind that empty result was 15 postgres ERRORs and 15 HTTP 403s.
 
-The 2026-08-23 run wrote the lesson up as "§7 of `adapters/supabase.md`" — and the section was never
-actually appended, so the 2026-08-24 run had to re-derive the whole thing. **Verify the file after
+One run wrote the lesson up as "§7 of `adapters/supabase.md`" — and the section was never
+actually appended, so the next run had to re-derive the whole thing. **Verify the file after
 editing it.**
 
-**Verified keys, per source** (`ivuwwlhsppeetfkijxbo`, 2026-08-24):
+**Verified keys, per source** (one project, 2026-08):
 
 | Source | Level / status key | Other useful keys |
 |---|---|---|
 | `postgres_logs` | `parsed.error_severity` | `parsed.sql_state_code`, `parsed.query`, `parsed.detail`, `parsed.user_name`, `parsed.command_tag`, `parsed.application_name` |
 | `edge_logs` | `response.status_code` (a **String** — wrap in `toInt32OrZero`) | `request.method`, `request.path`, `request.search`, `request.headers.referer`, `request.sb.auth_user`, `request.headers.cf_connecting_ip`, `request.headers.user_agent` (§8), and — added 2026-09-12, see §13 — `response.origin_time` (origin latency in ms, also a String) plus `request.sb.apikey.apikey.prefix` / `request.sb.apikey.authorization.prefix` (which credential the caller presented) |
 | `auth_logs` | `level` + `status` (these ARE bare) | `msg`, `path`, `component`, `remote_addr`, and — added 2026-09-16 — `error` (GoTrue's own error string, e.g. `error finding flow state: context canceled`), `duration` (**nanoseconds**, not ms), `referer`. `error` is the key that separates two `500`s that share a `msg`, and it is populated on the paired `request completed` row too, so an `error` row and a `request completed` row carrying the SAME `error` string at the same second are **one request**, not two events |
-| ↳ | **A GoTrue request the CLIENT aborted produces NO `edge_logs` row at all** — added 2026-09-17. There was never a response for the gateway to record a status against, so the request exists only in `auth_logs`. Two consequences. (1) A request-level `auth_logs` ↔ `edge_logs` reconciliation, after collapsing paired `auth_logs` rows (the `error` row and the `request completed` row) for one request, is *expected* to be short on the `edge_logs` side by exactly the number of aborted requests, and that shortfall is not a collection gap. (2) The §7 `edge_logs` status distribution — the check every other section tells you to run first — **cannot see this class**, so a window reading `{200: n, 101: m}` with no 4xx or 5xx does not mean no auth request failed. Read `auth_logs` on its own terms. Observed on `auxf`: a `500` `unexpected EOF` on `POST /token` at `05:42:52Z` with **one** `edge_logs` row across it and its successful retry (the retry's `200`), against a window carrying zero 5xx over 7554 gateway rows | |
-| ↳ | **`status` is `''` on non-HTTP lines** — 47 of 395 on `auxf` 2026-08-31. Those blank-status rows are where the OAuth outcomes live (`Login`, `Redirecting to external provider`, and `access_denied: The resource owner or authorization server denied the request` when a user cancels the consent screen). A filter of `status >= 500` or `level = 'error'` sees none of them. Group by `log_attributes['msg']` over the blank-status rows once per run. | |
-| `storage_logs` | `level` — and **`warning`, not `error`, is where 4xx live** (§12) | `res.statusCode` seen 2026-08-23; absent from the 2026-08-24 pass. When it is absent, parse `event_message`: it is a fixed pipe-delimited line, `project | METHOD | STATUS | ip | cf-ray | path?token=redacted | user-agent`, so `splitByChar('|', event_message)[3]` is the status |
+| ↳ | **A GoTrue request the CLIENT aborted produces NO `edge_logs` row at all** — added 2026-09-17. There was never a response for the gateway to record a status against, so the request exists only in `auth_logs`. Two consequences. (1) A request-level `auth_logs` ↔ `edge_logs` reconciliation, after collapsing paired `auth_logs` rows (the `error` row and the `request completed` row) for one request, is *expected* to be short on the `edge_logs` side by exactly the number of aborted requests, and that shortfall is not a collection gap. (2) The §7 `edge_logs` status distribution — the check every other section tells you to run first — **cannot see this class**, so a window reading `{200: n, 101: m}` with no 4xx or 5xx does not mean no auth request failed. Read `auth_logs` on its own terms. Observed on one project: a `500` `unexpected EOF` on `POST /token` with **one** `edge_logs` row across it and its successful retry (the retry's `200`), against a window carrying zero 5xx over 7554 gateway rows | |
+| ↳ | **`status` is `''` on non-HTTP lines** — 47 of 395 on one project (2026-08). Those blank-status rows are where the OAuth outcomes live (`Login`, `Redirecting to external provider`, and `access_denied: The resource owner or authorization server denied the request` when a user cancels the consent screen). A filter of `status >= 500` or `level = 'error'` sees none of them. Group by `log_attributes['msg']` over the blank-status rows once per run. | |
+| `storage_logs` | `level` — and **`warning`, not `error`, is where 4xx live** (§12) | `res.statusCode` seen on one 2026-08 pass; absent from the next day's pass. When it is absent, parse `event_message`: it is a fixed pipe-delimited line, `project | METHOD | STATUS | ip | cf-ray | path?token=redacted | user-agent`, so `splitByChar('|', event_message)[3]` is the status |
 | `realtime_logs` | `level` | — |
 | `postgrest_logs` | **none** | `event_message` only; the map carries just `host`/`identifier`/`project` |
 | `pgbouncer_logs` | **none** | `event_message` only |
-| `supavisor_logs` | bare `level` (`info`) on 2026-08-25; **none** on 2026-08-24; bare `level` on 2026-08-23 | `event_message`, `context.*`, `db_name`, `peer_ip` |
+| `supavisor_logs` | bare `level` (`info`) on two 2026-08 passes; **none** on the pass between them | `event_message`, `context.*`, `db_name`, `peer_ip` |
 | `workflow_run_logs` | **none** | `event_message` only; plus `branch`/`workflow_run`/`container_name` |
 | `auth_audit_logs` | bare `level` | `msg` (the whole event as JSON), `auth_audit_event.action`, `auth_audit_event.actor_id`, `auth_audit_event.actor_name`, `auth_audit_event.user_agent` |
 
-**The source list itself is not fixed — enumerate it every run.** `auth_audit_logs` appeared on
-2026-08-25 and is absent from every earlier pass on this project. A sweep that walks the table above
+**The source list itself is not fixed — enumerate it every run.** `auth_audit_logs` appeared in
+2026-08 on one project and is absent from every earlier pass there. A sweep that walks the table above
 instead of `select source, count(*) from logs group by source` skips whatever is new that day and
 still reports a clean bill of health. Its rows are `login` / `token_refreshed` / `token_revoked` /
 `user_signedup` at `level='info'` — normal traffic, but the *next* new source may not be.
@@ -184,7 +184,7 @@ Group by the key list rather than sampling one row — the key set varies *withi
 
 ## 8. `user_agent='node'` splits the app's OWN server calls out of `edge_logs` — and it changes the 4xx rule
 
-Confirmed 2026-08-27 on `auxf`. `edge_logs` mixes browser traffic with the calls the project's own
+Seen 2026-08 on one project. `edge_logs` mixes browser traffic with the calls the project's own
 server-side code makes (Netlify functions, cron jobs, build scripts). The server ones carry
 `log_attributes['request.headers.user_agent'] = 'node'` and no `request.headers.referer`:
 
@@ -197,7 +197,7 @@ group by p, st order by n desc
 
 Two reasons this is worth a query of its own every run.
 
-**It gives each scheduled job an exact invocation count.** `auxf`'s two minute-cadence drains showed
+**It gives each scheduled job an exact invocation count.** On one project, two minute-cadence drains showed
 1441 and 1440 `200`s over 24h against a theoretical 1440 — better liveness evidence than the netlify
 adapter's narrow-window trick (`netlify.md` §11), and immune to its truncation problems.
 
@@ -216,14 +216,14 @@ two by duration, never by count alone.
 
 `select source, count(*) from logs group by source` and a follow-up per-source distribution are
 taken seconds apart against a rolling 24h window, so the second one legitimately disagrees with the
-first by a handful of rows in both directions (6611 vs 6607 on 2026-08-27). §7 tells you to check
+first by a handful of rows in both directions (6611 vs 6607 on one run). §7 tells you to check
 that the buckets sum to the source's row count — that check is for catching a **wrong key**, whose
 signature is a single `{'': n}` bucket holding everything, not a drift of single digits. Do not
 re-run queries chasing a difference of four.
 
 ## 10. SQLSTATE `P0001` is an RPC refusing on purpose, not a defect — but prove the user sees it
 
-Confirmed 2026-09-06 on `auxf`. A `postgres_logs` row at severity `ERROR` with
+Seen 2026-09 on one project. A `postgres_logs` row at severity `ERROR` with
 `log_attributes['parsed.sql_state_code'] = 'P0001'` is Postgres's `raise_exception` — a
 `raise exception '...'` written **deliberately** in a `plpgsql` function. PostgREST turns it into a
 `400`, so it shows up twice: once in `postgres_logs` at ERROR, once in `edge_logs` as a `4xx`.
@@ -244,8 +244,8 @@ it, do not assume:
 1. Find the `raise exception` — `git grep -n -F '<the message>' <deployed-sha> -- supabase/`.
    Read the guard around it and decide whether refusing was correct for those inputs.
 2. Find the client wrapper for that RPC and check it **rethrows the server's message** rather than a
-   generic one. On `auxf` that is `rows()` in `src/lib/api.ts`, which rethrows `err.message` for
-   every code except `42501` (§6's stale-bundle case, which it deliberately replaces).
+   generic one. A wrapper may deliberately replace the message for a code it handles itself, such
+   as §6's stale-bundle `42501`; note which codes it treats that way.
 3. Find the component and check its `catch` renders that message somewhere visible.
 
 All three hold → **`external`**, ledgered, nothing filed. Any of them fails → a real finding, and
@@ -257,7 +257,7 @@ count-not-presence rule §8 applies to node-UA 4xx.
 
 ## 11. A `504` in `edge_logs` is usually PostgREST's own Warp reaper — and `postgres_logs` is what tells you it is not the SQL
 
-Confirmed 2026-09-09 on `auxf`. A single `504` on `POST /rest/v1/rpc/<name>` reads like a slow query
+Seen 2026-09 on one project. A single `504` on `POST /rest/v1/rpc/<name>` reads like a slow query
 timing out, and the obvious next move is to go looking at the function's plan. That is the wrong
 first move: the corroborating evidence sits in **two other sources**, and together they usually say
 the database never even saw a problem.
@@ -276,7 +276,7 @@ where source='postgrest_logs'
 order by timestamp
 ```
 
-On `auxf` the 504 was at `22:54:01.306Z` and the Warp line at `22:54:02.76Z`.
+On that project the Warp line came about 1.5 s after the 504.
 
 **The disqualifier that makes this cheap: check `postgres_logs` for the window.** If the SQL had
 genuinely timed out you would see a `57014` `canceling statement due to statement timeout` there,
@@ -299,7 +299,7 @@ rather than trusting such a note, and correct the note when it leaks.
 
 ## 12. `storage_logs` logs a 4xx at `warning`, and a signed-URL `400` is a TOKEN failure, not a missing file
 
-Confirmed 2026-09-10 on `auxf` (issue #291). Two traps, and the first hides the second.
+Seen 2026-09 on one project. Two traps, and the first hides the second.
 
 **Storage never uses `level = 'error'` for a failed request.** The whole window was
 `{info: 616, warning: 5}`, and those five `warning` rows were the only `400`s the tier produced.
@@ -323,16 +323,17 @@ and they have nothing in common.
 Prove which one you have before classifying, with three cheap reads:
 
 1. **Does the object exist?** Look for a `HEAD /s3/<bucket>/<path>` row, or any `200` on the same
-   path at any point in the window. On `auxf` a `HEAD` sweep had returned `200` for all twelve
+   path at any point in the window. On that project a `HEAD` sweep had returned `200` for all twelve
    objects in the folder 47 minutes before the failures.
 2. **Did the same path succeed either side of the failure?** A `200` before *and* after, on the
-   identical path, rules out the object and rules out an outage. `auxf` had `200` at `07:07:24Z`,
-   `400` at `07:47:35Z`, `200` again at `07:49:05Z`, then `200` repeatedly for the next two hours.
+   identical path, rules out the object and rules out an outage. That project had a `200` forty
+   minutes before the `400`, another `200` ninety seconds after it, then `200` repeatedly for the
+   next two hours.
 3. **What is the tier's overall ratio?** 290 `GET` `200` against 5 `GET` `400` is a specific
    failure, not a broken feature.
 
-All three held → the tokens had expired, and the finding is in whatever signs the URLs (on `auxf`,
-a fixed `3600` TTL in `createSignedUrls` with nothing re-signing).
+All three held → the tokens had expired, and the finding is in whatever signs the URLs (on that
+project, a fixed `3600` TTL in `createSignedUrls` with nothing re-signing).
 
 **One shape worth recognising, because it doubles the log volume and misleads the count.** If the
 client falls back from a thumbnail URL to a full-size URL on image error, and both were signed in
@@ -343,7 +344,7 @@ failures; it is N photos failing, twice each, and the second half is itself part
 
 ## 13. `response.origin_time` and the apikey prefix turn a 504 pile into a diagnosis in two queries
 
-Confirmed 2026-09-12 on `auxf`, where §11's single-blip framing met a window carrying **448** 504s
+Seen 2026-09 on one project, where §11's single-blip framing met a window carrying **448** 504s
 and was not enough. §11 tells you to check `postgrest_logs` for the Warp line and `postgres_logs` for
 a `57014`. Both of those are *disqualifiers* — they rule the database out. Neither tells you what the
 failure actually is, and on a sustained incident that gap is the whole triage.
@@ -368,7 +369,7 @@ group by hr order by hr
 ```
 
 A Warp reaping is *random*: the tail moves but does not settle anywhere in particular. A **timeout**
-pins the quantile to a constant. On `auxf` the p90 went from 174–1354 ms to `5018`, `5019`, `5021`,
+pins the quantile to a constant. On that project the p90 went from 174–1354 ms to `5018`, `5019`, `5021`,
 `5026`, `5027`, `5044`, `5103` in eight consecutive hours — a five-second wall, visible in one query,
 and not something the Warp line could have told you. Note the p50 barely moved (47 → 79 ms): **read
 the p90, never the mean**, because a few seconds spread over a healthy median averages away to
@@ -386,7 +387,7 @@ from logs where source='edge_logs' and timestamp > toDateTime('<onset>')
 group by key_prefix order by n desc
 ```
 
-On `auxf`: the service key showed 3332 requests, p90 `5021 ms`, **446** 504s; publishable-key and
+On that project: the service key showed 3332 requests, p90 `5021 ms`, **446** 504s; publishable-key and
 anonymous browser traffic **through the same gateway in the same window** showed 331 requests, p90
 `276 ms`, **zero** 504s. Same PostgREST, same database, same minutes. Nothing the application does
 differs between those two populations except which credential is presented, so no amount of reading
@@ -395,7 +396,7 @@ app code or query plans could have explained it — and equally, no app change c
 Three rules follow.
 
 - **Find the onset before you measure anything.** An hourly `countIf(status='504')` next to the
-  success count gives it: `auxf` stepped from 2/hour to 31/hour at one hour boundary. Splitting the
+  success count gives it: that project stepped from 2/hour to 31/hour at one hour boundary. Splitting the
   whole 24h window as a single population hides a step change inside an average.
 - **A credential-scoped failure is `external` however large the count is.** §11's "a sustained run is
   the opposite finding and IS a bug" is about *severity*, not about ownership. Sustained means stop
@@ -409,22 +410,22 @@ Three rules follow.
 
 **And check what the count means downstream before writing damage into the report.** These 504s
 usually land on scheduled jobs, and `adapters/netlify.md` §22 documents that Netlify retries a
-scheduled function that returns a non-2xx. On `auxf` every one of the 448 was retried and succeeded,
+scheduled function that returns a non-2xx. On that project every one of the 448 was retried and succeeded,
 so a 19%-of-calls failure rate cost exactly nothing. Trace the recovery; do not infer loss from a
 rate.
 
 **The incident CHANGES STATUS CODE as it dies — filter on the credential and the path, never on
-`504` alone.** Confirmed 2026-09-15 on `auxf`, watching this same incident end. A filter of
-`status='504'` would have seen it stop at `13:42Z` and missed the terminal phase entirely, which
-arrived as four other codes on the same two service-key paths inside the same three hours:
+`504` alone.** Seen 2026-09 on the same project, watching this same incident end. A filter of
+`status='504'` would have seen it stop and missed the terminal phase entirely, which arrived as
+four other codes on the same two service-key paths inside the same three and a half hours:
 
-| code | count | window (2026-09-14) | what it was |
+| code | count | span within the final day | what it was |
 |---|---|---|---|
-| `525` | 6 | `10:20:09–10:20:49Z` | Cloudflare could not complete TLS to the Supabase origin |
-| `504` | 86 | `10:15:14–13:42:03Z` | the ~5.02 s origin wall |
-| `502` | 15 | `13:25:43–13:33:10Z` | Bad Gateway |
-| `500` | 8 | `13:26:05–13:35:08Z` | origin 500 |
-| `401` | 5 | `13:26:03–13:30:24Z` | gateway auth rejection |
+| `525` | 6 | 40 s, five minutes in | Cloudflare could not complete TLS to the Supabase origin |
+| `504` | 86 | the whole ~3.5 h | the ~5.02 s origin wall |
+| `502` | 15 | 7.5 min, near the end | Bad Gateway |
+| `500` | 8 | 9 min, near the end | origin 500 |
+| `401` | 5 | 4 min, inside the `502`/`500` cluster | gateway auth rejection |
 
 Two consequences, and the second is the one that misfiles a run.
 
@@ -444,7 +445,7 @@ Two consequences, and the second is the one that misfiles a run.
   explanation.
 
 **The cleanest possible "it is over" reading is the §7 whole-source distribution with no 4xx and no
-5xx in it at all.** Confirmed 2026-09-16 on `auxf`, the second window after the incident cleared:
+5xx in it at all.** Seen on the same project, the second window after the incident cleared:
 `{200: 7054, 101: 144, 302: 9, 304: 8, 204: 2}` over 7217 rows. At that point the credential split,
 the path filter and the `>= 500` count all have nothing to catch, and running them is wasted effort
 — but you only know that because the distribution was run **first**, which is the §7 rule and the
@@ -452,9 +453,9 @@ reason this section tells you to run it before the 504 filter every time. The co
 still applies to the hourly view: node-UA traffic at a flat 132 requests/hour all `200`, and
 `max(origin_time)` scattered `607–10785 ms` with no pin.
 
-**And the clearing test, now that one has actually been observed clearing.** The 2026-09-14 run
+**And the clearing test, now that one has actually been observed clearing.** One run
 corrected the p90 half of it (a quantile falls off the wall once the failure rate drops below
-`1 − q`, while the wall is still armed). 2026-09-15 is the positive case and both halves fired
+`1 − q`, while the wall is still armed). The next run is the positive case and both halves fired
 together: hourly 504s went to **zero** for 21 consecutive hours, *and* `max(origin_time)` per hour
 came off the pin — `5018–5103 ms` during, then scattered `2922–10572 ms`, then `552–1257 ms`. A
 scattered max is recovery; a pinned max is the wall, at any count. Report the pair, never either
@@ -462,7 +463,7 @@ alone.
 
 ## 14. `postgrest_logs` is not only the Warp reaper — group the REMAINDER, or you examine a third of it
 
-Found 2026-09-18 on `auxf`. §11 introduces `postgrest_logs` as the home of
+Found 2026-09 on one project. §11 introduces `postgrest_logs` as the home of
 `Warp server error: Thread killed by timeout manager`, and it is: 1657 of 1981 rows that window.
 But every sweep on that project for nine runs had reduced this source to **the Warp count alone**,
 which meant **324 rows a day were enumerated and never examined** — the exact clean-bill-of-health
@@ -476,7 +477,7 @@ Successfully connected to PostgreSQL 17.6 on aarch64-...          x2
 Connection Pool initialized with a maximum size of 10 connections x2
 Config reloaded                                                   x2
 Schema cache queried in <n> milliseconds                          x2
-Schema cache loaded 28 Relations, 29 Relationships, 100 Functions x2
+Schema cache loaded <r> Relations, <s> Relationships, <f> Functions x2
 ```
 
 **Read the `Schema cache loaded` counts across cycles — that one line is the cheap first cut.**
@@ -508,11 +509,11 @@ count the class AND the remainder, and group the remainder at least once.** A so
 when the buckets sum — the same arithmetic §7 demands of `postgres_logs` and `edge_logs`.
 
 **How to group a level-less source: classify with `multiIf` on substrings, NOT with a
-digit-stripping shape regex.** Found 2026-09-21 on `auxf`. The obvious move on a source with no
+digit-stripping shape regex.** Found 2026-09 on one project. The obvious move on a source with no
 level key is `replaceRegexpAll(substring(event_message,1,N), '[0-9]+', 'N')` — which works on
 `postgrest_logs`, whose lines are fixed prose. It **fails** on `pgbouncer_logs`, where every line
-opens with a per-connection id and a client address (`C-0xbde2e1: postgres/supabase_storage_admin@
-[2600:1f18:…]:20302 login attempt: …`). Digit-stripping leaves the hex and the IPv6 colons intact,
+opens with a per-connection id and a client address (`C-0x<hex>: postgres/supabase_storage_admin@
+[<ipv6>]:<port> login attempt: …`). Digit-stripping leaves the hex and the IPv6 colons intact,
 so each connection becomes its own bucket: a 669-row source came back as dozens of `n=1` groups
 that summed correctly and showed nothing. Widening the regex to eat hex and colons then starts
 eating the message too, and the §17 backslash-escaping trap makes character classes unreliable over
@@ -539,7 +540,7 @@ the catch-all rows, then move on.
 ## 15. `workflow_run_logs` is the GitHub-integration sync, and it reports whether config reached production
 
 §7's table lists `workflow_run_logs` with no level key and `event_message` only, which is correct but
-undersells it. Confirmed 2026-09-18 on `auxf`, where it carried content for the first time: it is
+undersells it. Seen 2026-09 on one project, where it carried content for the first time: it is
 Supabase's **GitHub integration executor**, and it runs once per push to a connected branch, about a
 minute behind the push. Useful keys beyond `event_message`: `workflow_run`, `branch` (a *Supabase*
 branch uuid, not a git ref), `container_name` (`executor`).
@@ -570,6 +571,11 @@ Three reasons to read it every run on a project with the integration connected:
   `supabase/migrations/`, read that file's diff before calling the change comment-only; the sync line
   tells you only that nothing new is waiting to be applied. (It remains a real disqualifier for the
   other question: a *pending* migration would show up here.)
+- **A migration can reach production WITHOUT an `Applying migration...` line.** Seen 2026-09 on one
+  project: a new migration shipped in a push, and the sync a minute later said only
+  `All migrations are up to date.` The owner had pushed it by CLI a minute before the push; the only trace
+  was `postgres_logs` rows with `parsed.user_name = cli_login_postgres` in that minute. So when a diff adds a
+  migration, confirm it in `supabase_migrations.schema_migrations` (`execute_sql`), not from the sync line.
 - **`Skipping configuration for protected branch...` is what makes the `WARN` lines harmless.** A
   `config.toml` that reads secrets via `env(...)` will warn on every sync because the executor has no
   such variable. **Do not file that as a production defect** — the very next line says the config was
@@ -580,13 +586,13 @@ Three reasons to read it every run on a project with the integration connected:
 
 ## 16. Five sources starting at the SAME INSTANT looks like a restart, and is usually just an idle app
 
-Found 2026-09-18 on `auxf`, and it nearly went into a report as a 20.7 h collection gap. The
+Found 2026-09 on one project, and it nearly went into a report as a 20.7 h collection gap. The
 §7 source distribution came back with `pgbouncer_logs`, `storage_logs`, `realtime_logs`, `auth_logs`
-and `auth_audit_logs` **all reporting `min(timestamp)` within 1.5 seconds of each other**
-(`13:31:41.891` → `13:31:42.513`), three hours into a 24 h window. Five sources agreeing to the
+and `auth_audit_logs` **all reporting `min(timestamp)` within 1.5 seconds of each other**, three
+hours into a 24 h window. Five sources agreeing to the
 second reads as a platform restart, or as retention truncating the low-volume tiers.
 
-It was neither. **Those tiers are driven by human sessions, and the app had none.** `13:31:41Z` was
+It was neither. **Those tiers are driven by human sessions, and the app had none.** That instant was
 simply the first `Login` of the day; storage, pooler and realtime churn begins with a user and stops
 without one. The `edge_logs` stream looked busy throughout only because a minute-cadence cron keeps
 the gateway warm, and cron traffic touches none of those five services.
@@ -595,12 +601,13 @@ Two cheap disqualifiers settle it, and both are one query each:
 
 - **Re-query with an explicit EARLIER window.** `iso_timestamp_start` / `iso_timestamp_end` are
   honoured, so a window over the supposedly-empty stretch either returns rows (the sources were
-  alive; you were reading a quiet period) or does not. Here it returned `auth_logs` rows at
-  `09:08:24` and `realtime_logs` at `09:57:00`, before the "boundary".
+  alive; you were reading a quiet period) or does not. Here it returned an `auth_logs` row about
+  four and a half hours before the "boundary" and a `realtime_logs` row about three and a half
+  hours before it.
   **Read that for exactly what it is: those sources were producing rows at those two times.** It
-  disproves a retention cliff that would have cut everything before `13:31` — rows survive earlier
-  than the boundary, so nothing truncated them. It does **not** establish that collection was
-  continuous through `13:31`, and it does not rule out a restart between `09:57` and the boundary.
+  disproves a retention cliff that would have cut everything before the boundary — rows survive
+  earlier than it, so nothing truncated them. It does **not** establish that collection was
+  continuous up to the boundary, and it does not rule out a restart between the later row and it.
   Two rows are two observations, not a covered interval.
 - **Look for the restart's own evidence, not its silhouette.** A GoTrue restart writes a boot
   sequence (`received graceful shutdown signal`, `GoTrue migrations applied successfully`,
@@ -616,11 +623,11 @@ normal overnight lull a collection failure spends the next run's credibility.
 
 ## 17. `query_logs` reads the LOG STREAM only — `information_schema` and every app table need `execute_sql`
 
-Found 2026-09-19 on `auxf`. `query_logs` is ClickHouse SQL over the unified `logs` stream and nothing
+Found 2026-09 on one project. `query_logs` is ClickHouse SQL over the unified `logs` stream and nothing
 else. A perfectly ordinary catalogue read —
 
 ```sql
-select column_name from information_schema.columns where table_schema='public' and table_name='matches'
+select column_name from information_schema.columns where table_schema='public' and table_name='<table>'
 ```
 
 — comes back `Tables "information_schema", "columns" do not exist.` That is the right answer from the
@@ -655,7 +662,7 @@ against `execute_sql` and carry on.
 
 ## 18. A `520` is a GATEWAY-tier code the storage service never logs — and it is not the 5 s origin wall
 
-Found 2026-09-19 on `auxf`. Cloudflare's `520` ("web server returned an unknown error") arrived on a
+Found 2026-09 on one project. Cloudflare's `520` ("web server returned an unknown error") arrived on a
 single browser photo upload, `POST /storage/v1/object/<bucket>/<path>`, publishable key. Two things
 separate it from the 504/502/500/525 family of §13, and both are one field each:
 
@@ -678,12 +685,12 @@ same rule, per path.
 
 ## 19. The `information_schema`-first rule must read `data_type` too — a name-only read stops name errors and nothing else
 
-Found 2026-09-21 on `auxf`, by the rule failing while being correctly followed.
+Found 2026-09 on one project, by the rule failing while being correctly followed.
 
 §17 establishes that the catalogue read must go to `execute_sql`, not `query_logs`. Several project
 cards then carry a standing **"read `information_schema.columns` before querying any app table"**
 rule, whose whole purpose is to stop the sweep's own guessed identifiers landing in `postgres_logs`
-as `mgmt-api` ERRORs. On `auxf` that rule had held for six consecutive windows.
+as `mgmt-api` ERRORs. On that project the rule had held for six consecutive windows.
 
 It did not hold on the seventh, and **the run had followed it**: the catalogue read ran first, via
 `execute_sql`, and returned the real column list for all five tables. The column existed. The query
@@ -691,11 +698,11 @@ still failed:
 
 ```text
 42883  function length(jsonb) does not exist
-       select ... length(d.brief) ... from season_digests d
+       select ... length(d.<col>) ... from <table> d
 ```
 
-`season_digests.brief` is `jsonb`. The read had confirmed `brief` **exists**; it had said nothing
-about what `brief` **is**, because it selected `column_name` only. A name-only catalogue read
+The column was `jsonb`. The read had confirmed the column **exists**; it had said nothing about
+what it **is**, because it selected `column_name` only. A name-only catalogue read
 prevents exactly one failure mode — a wrong name — and this was the other one.
 
 **Select the type as well. It is the same call and the same row:**
@@ -727,7 +734,7 @@ recognised.
 
 ## 20. Measuring `max_gap` with `lagInFrame` puts the EPOCH in your ledger unless you guard the first row
 
-Found 2026-09-21 on `auxf`, while accumulating the `max_gap` figure step 7b's quiet test depends on.
+Found 2026-09 on one project, while accumulating the `max_gap` figure step 7b's quiet test depends on.
 
 The natural query for "longest gap between consecutive occurrences" is a window function over the
 signature's timestamps. In ClickHouse, `lagInFrame` returns the column's **default** for the first
@@ -758,3 +765,65 @@ pass test 4 again, so the sweep would keep it open forever while reporting, corr
 rule, that the quiet span was insufficient. Sanity-check any `max_gap` against the collection
 window before writing it — a figure larger than the window itself can only come from a previous
 run's `last_seen`, never from gaps measured inside this one.
+
+## 21. `edge_logs` is NEARLY complete, not complete — it can drop a single row, and that reads as a lost tick
+
+Found 2026-09 on one project, and it retires an explanation the previous run had to leave open.
+Several sections here (§8, §19 of `netlify.md`, and the project cards' tick identities) lean on
+`edge_logs` being "a complete table over the window, immune to truncation". It is immune to the
+Netlify-style truncation. **It is not immune to losing an individual row.**
+
+Two consecutive windows each showed exactly one node-UA row missing on the same minute-cadence
+drain, in opposite halves of the same invocation (the drain makes two RPC calls per tick):
+
+| window | first RPC row | second RPC row |
+|---|---|---|
+| day 1 | **missing** | present, `200` |
+| day 2 | present, `200` | **missing** |
+
+The day-1 run recorded its case as "cause not established". The day-2 case settled both, by
+proving the invocation made the missing call and got an answer:
+
+1. **Exactly one invocation ran** — an unfiltered `--function <name>` pass returned a *contiguous*
+   one-per-minute block covering the minute (`netlify.md` §22's contiguous-block check), with one
+   `Duration:` line in it and no ERROR anywhere in the block.
+2. **The call is unconditional** on that code path (read the handler at the deployed commit).
+3. **A failure of that call cannot be silent** — on that project an RPC error throws, the handler
+   returns 502, and the scheduled-function error wrapper writes an ERROR line. None existed.
+
+So the RPC was made and answered, and the gateway log simply has no row for it. Roughly one row in
+~3,170 node-UA rows per day, on the two days measured.
+
+**Consequences.**
+
+- **A shortfall of ONE against a tick identity is not a finding by itself.** Run the three checks
+  above before calling it a skipped tick, a dropped schedule or a code-path bug. A shortfall of
+  several, or one clustered on one path across runs with a matching gap in the Netlify
+  `Duration:` lines, is the opposite finding.
+- **The direction matters.** A missing row can only make a count *smaller*. A count that *exceeds*
+  the tick identity still needs a second invocation or a second caller to explain it (§8,
+  `netlify.md` §22) — row loss never produces one.
+- **Do not reach for the clock or the cadence first.** The day-1 run ruled both out correctly and
+  then had nothing left; the answer was the collector.
+
+**Counter-case, seen the next day on the same project: a shortfall of SEVERAL was real skipped
+ticks, and the Netlify log is what told them apart.** Two minute-cadence drains came back 1436 and
+1438 against 1440, with seven one-minute holes between them. Unfiltered `--function <name>` passes
+whose contiguous one-per-minute block covered those minutes carried **no `Duration:` line** in any
+of them, so the host never invoked the drain. Row loss (above) leaves the `Duration:` line in place;
+a skipped tick removes it. Two further tells: the first invocation after each hole carried
+`Init Duration` (a cold start), and one drain fired **twice** in the minute after a hole, with both
+calls `200` and no ERROR — a catch-up double fire, not a retry (`netlify.md` §22). Consequence nil;
+both queues empty. The one check that separates the two causes is the contiguous `--function`
+block, so run it before choosing either.
+
+**The loss rate is not ~1/day — a day later the same project lost about TEN node-UA rows, clustered,**
+across three drains, most of them inside one two-and-a-half-hour stretch. Contiguous
+`--function <name>` blocks carried a `Duration:` line in every checked minute and zero non-INFO
+lines, so the invocations ran and did not fail. So several missing rows can still be row loss. The
+`Duration:` check decides it, not the count.
+
+**`lagInFrame` window queries can fail with `Backend error! Retry your query.` for a whole run**
+(seen 2026-09, three shapes, retries did not help). The §20 `max_gap` query then cannot run. Fall
+back to `arrayStringConcat(arraySort(groupArray(formatDateTime(timestamp,'%Y-%m-%dT%H:%i:%S'))), ',')`
+grouped by class, and compute the gaps locally. It is one small row per class.
