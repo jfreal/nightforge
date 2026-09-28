@@ -1,0 +1,16 @@
+{
+  "name": "nightforge",
+  "description": "Unattended sweeps (errors, docs, CodeRabbit, CI cost, onboarding), per-PR testing, and the writing skills John uses across every repo.",
+  "author": {
+    "name": "John Farrell",
+    "url": "https://github.com/jfreal"
+  },
+  "repository": "https://github.com/jfreal/nightforge",
+  "license": "Unlicense",
+  "keywords": [
+    "sweeps",
+    "automation",
+    "scheduled-tasks",
+    "writing"
+  ]
+}
