@@ -38,6 +38,7 @@ Adapters are in `<path to>/skills/error-sweep/adapters/`.
 | **Fix cap** | **<n>** sessions per run |
 | **Issue label** | `<label>` |
 | **Redaction helper** | `<function>` in `<file>` — <the secret shapes this app can leak> |
+| **Learnings doc** | <Notion page URL> — what earlier runs learned about this project; read before collecting, append to when you learn something |
 
 ### Adapter config
 
@@ -76,10 +77,15 @@ adapter. A pipeline fix is one edit that every project gets.
 
 ## Where knowledge goes when you learn it
 
-- Gotcha about a **stack** (a CLI flag that lies, a field that is a string when it looks like a
-  bool) → the adapter.
-- Gotcha about a **project** (a route that 404s by design, a slow query that is a tier cost and not
-  a defect) → that project's card, under known-noise.
+- Gotcha about a **platform** (a CLI flag that lies, a field that is a string when it looks like a
+  bool) → the adapter, written without naming the project. Adapters are shared; nothing
+  project-specific goes in them.
+- Anything about the **project** (a route that 404s by design, a slow query that is a tier cost and
+  not a defect, an incident with its ids and times) → the project's learnings doc in Notion, as a
+  dated bullet under the platform it concerns. It is readable from anywhere, not just the machine
+  that holds the card.
+- The card keeps only what a run needs to start: identifiers, paths, caps, commands, and the
+  known-noise list.
 - Neither → the shared skill.
 
 Never leave it only in a run report. The next run does not read those, and you will pay to learn it

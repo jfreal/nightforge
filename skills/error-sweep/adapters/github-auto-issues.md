@@ -198,7 +198,7 @@ every future failure of it costs the same manual excavation.
 
 When you find one, read the failing job's log (`gh run view <id> --repo <slug> --log-failed`) and name the failing test before filing. "e2e is red" is not a finding; "this named test races a 2 s self-clearing UI flag" is.
 
-**A red CI run whose jobs have ZERO steps did not test anything.** Seen 2026-09-28 on `auxf`: both jobs
+**A red CI run whose jobs have ZERO steps did not test anything.** Seen once: both jobs
 `failure`, `steps: 0`, runner name empty, `--log-failed` answered `log not found`. The reason is only in
 the check-run annotations — `gh api repos/<slug>/check-runs/<job id>/annotations --jq '.[].message'` —
 which said `The job was not started because an Actions budget is preventing further use.` Report that

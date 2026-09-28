@@ -109,6 +109,9 @@ Project cards, dedup ledgers, and run reports. Cards carry infrastructure identi
 reports carry raw production log text, which routinely includes capability URLs, tokens, and user
 data. Keep all three in a private repo, or out of git entirely.
 
+Also not here: anything a sweep learned about one project. That goes in the project's learnings doc
+in Notion, which the card links to. The adapters stay platform-only.
+
 ### War stories
 
 Every rule in here was paid for. The adapters carry the sharp edges inline, where you will hit them;
@@ -135,7 +138,8 @@ these are the ones worth reading before you write your own:
   branch triggers a build. The per-project fix cap is a budget decision, not a safety rail — set it
   against that project's actual bill.
 - **Knowledge left in a run report is knowledge you will pay for twice.** Nothing reads last night's
-  report. Gotchas go in the adapter or the card, in the same run you learn them.
+  report. A platform gotcha goes in the adapter, written without naming the project. Anything about
+  the project goes in its learnings doc in Notion. Both in the same run you learn them.
 - **A chip is a bug you found and decided not to fix.** For three weeks the sweeps opened one a
   night — the follow-up a fix agent left out of scope, the runtime scan nobody spawned — and the
   owner woke up to a queue of suggestions instead of PRs. Now every code change with a clear cause

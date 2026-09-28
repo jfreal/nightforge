@@ -5,12 +5,14 @@ description: Shared pipeline for unattended production error sweeps. Collect err
 
 Sweep one project's production errors, triage each genuinely new one, and spawn a fix agent per confirmed bug that opens a PR. Runs unattended, on a schedule, with **no memory of prior runs**.
 
-This file is the pipeline. It is stack-agnostic — every tech-specific detail lives in an adapter under `adapters/`, and every project-specific detail lives in the calling task's **project card**. If you are reading this because a scheduled task told you to, you should already have that card. If you do not, stop and say so.
+This file is the pipeline. It is stack-agnostic — every tech-specific detail lives in an adapter under `adapters/`, every project identifier lives in the calling task's **project card**, and everything earlier runs learned about the project lives in its **learnings doc**, a Notion page the card names. Adapters never name a project. If you are reading this because a scheduled task told you to, you should already have that card. If you do not, stop and say so.
 
 <!-- @doc:project-card -->
 ## What the caller gives you
 
-A project card naming: app + URL, repo path + GitHub slug + default branch, the **adapters** to run, the ledger path, the report paths, the fix-session cap, and per-project known-noise. Everything below reads those values; nothing below hardcodes a project.
+A project card naming: app + URL, repo path + GitHub slug + default branch, the **adapters** to run, the ledger path, the report paths, the fix-session cap, per-project known-noise, and the **learnings doc**. Everything below reads those values; nothing below hardcodes a project.
+
+**Read the learnings doc before collecting** (`notion-fetch` on the card's URL). It holds the project's quirks and past incidents: what a normal gap looks like, which errors are by design, what broke last time. If it cannot be read, say so in the report and keep going; the adapters and the card are enough to run.
 
 ## Hard constraints — every project, no exceptions
 
@@ -414,9 +416,9 @@ Write the full write-up to the card's dated report file, then a short summary to
 
 **Re-verify every carry-forward against the code before repeating it.** A ledger note saying "fixed,
 awaiting the user's decision" was true on the day it was written and is a claim about the past, not
-the present. Carrying one forward unchecked hands the user a decision they already made — on `auxf`,
-a note listing three open `reportError.ts` defects was repeated across two runs after the PR that
-fixed all three had already merged. Before any item reaches the report's carry-forward section, open
+the present. Carrying one forward unchecked hands the user a decision they already made. On one project a
+note listing three open defects in one file was repeated across two runs after the PR that fixed
+all three had already merged. Before any item reaches the report's carry-forward section, open
 the file it names and confirm the state still holds. Then correct the ledger entry in the same run.
 
 **But a file can only settle a claim about code.** Carry-forwards come in two kinds and they verify
@@ -438,4 +440,9 @@ resolved is how a real pending decision disappears.
 
 ## When you learn something about the tooling
 
-A gotcha you discover about a *stack* (a CLI flag that lies, a field that is a string when it looks like a bool) belongs in `adapters/<name>.md`, not in a report where the next run will not read it. A gotcha about a *project* belongs in that task's project card. Edit the file in the same run you learn it — that is the only reason this pipeline stops re-learning the same things.
+Write it down in the same run you learn it, never only in the report. The next run does not read reports, and that is the only reason this pipeline stops re-learning the same things. Split what you learned in two:
+
+- **How a platform behaves** (a CLI flag that lies, a field that is a string when it looks like a bool, a host that skips a cron tick) goes in `adapters/<name>.md`. Write it so it holds for any project: no project names, slugs, ids, table or function names. If one incident is the evidence, say "seen once" and describe it without the project.
+- **Anything about this project** (its quirks, an incident with its ids and timestamps, a route that 404s by design, what the next run should expect) goes in the card's **learnings doc**. Append one bullet under the heading for the platform it concerns: `**YYYY-MM-DD:** <fact>. <evidence>.` Use `notion-update-page` with `insert_content`. No secrets and no raw log text; the same redaction rules as issues apply.
+
+Most lessons have both halves. Write both. If the Notion write is refused, put the bullet verbatim in the report under *Needs you* as "learning not saved", so a person can paste it in.
