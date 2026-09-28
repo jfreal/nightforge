@@ -35,8 +35,8 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
   Where that will not do, run the passes separately and merge them yourself.
 - **`client_City` is per-telemetry-item, not per-operation — an outbound call and its exception can
   carry the *server's* city.** Inside one `operation_Id` the inbound `request` and its SQL
-  dependencies read `Kobenhavn` (the visitor), while the outbound `GET /v1/forecast` dependency and
-  the `HttpRequestException` it raised both read `Des Moines` — the app's own datacenter. Read a
+  dependencies read the visitor's city, while an outbound weather-API dependency and the
+  `HttpRequestException` it raised both read `Des Moines` — the app's own datacenter. Read a
   city off an exception row and you will place a provider failure in a city no user was in. Two
   consequences: resolve the visitor from the operation's own inbound `request` row, never from the
   exception; and on a circuit-scoped exception (no `operation_Id` at all) treat `client_City` as
@@ -73,6 +73,16 @@ Window guidance: **7 days**, not 24 hours. Dedup is by key in the ledger, so a r
   usually benign and the transition it triggers is the finding. A count of rejections tells you about one
   recipient; a count of transitions tells you about everyone else.
 
+- **EF Core logs `ConnectionError` (event 20004) WITHOUT its exception, so a failed connection open loses its
+  cause.** You get a sev-3 `traces` row, *"An error occurred using the connection to database …"*, and nothing in
+  `exceptions`. The paired SQL dependency row reads `data` = `InternalOpenAsync` with an empty `resultCode`.
+  Neither row carries the SqlException number. A retrying execution strategy then hides the rest, because the
+  request answers 200. One project confirmed this with an integration test against a real SqlClient failure.
+  So "which SQL error was it?" is unanswerable from default telemetry. Do not guess among login, TCP reset and
+  gateway codes. The cheap diagnostic is to log the SqlException `Number`/`State`/`Class`/message from the
+  strategy's `OnRetry()`, as message parameters. Do not attach the exception object, or the row goes to
+  `exceptions` and its fields leave `traces.customDimensions`.
+
 - **The same category rule applies to `traces`, and it cuts the other way: a framework Warning can
   describe a path the app deliberately handles.** A framework component often logs its own complaint
   *before* handing control to the app's hook, and the app's handler may then log at Information —
@@ -98,9 +108,9 @@ exceptions | summarize cnt=count(), firstSeen=min(timestamp), lastSeen=max(times
 `problemId` is `<exception type> at <throwing method>`. Two unrelated defects that fault in the same
 framework method collapse into one key. On one run
 `Microsoft.Data.SqlClient.SqlException at Microsoft.Data.SqlClient.SqlConnection.OnError` had sat in
-the ledger for two weeks as an accepted `UserVisits` unique-index race; the same key came back
-carrying a **different** inner message — a duplicate `SentEmails` key that proved a user had been
-emailed twice. A dedup pass that stops at the key never reads the second one. **Compare
+the ledger for two weeks as an accepted unique-index race on a visit-tracking table; the same key
+came back carrying a **different** inner message — a duplicate key on the sent-email log that proved
+a user had been emailed twice. A dedup pass that stops at the key never reads the second one. **Compare
 `sampleInner` against the ledger's recorded message before skipping a known problemId**, and record
 that message in the ledger entry so the next run can.
 
@@ -123,7 +133,7 @@ against occurrences within a single pass**. A job that visits each entity once p
 about the same id twice in the same pass — unless its work list contains that entity twice. On one
 run six identical-looking claim-collision warnings landed inside five seconds of one hourly pass, and
 four of them were four different users doing exactly what the design intended. The finding was that
-the other three all read *user 1*. The only way to reach that is three rows for one user in the table
+the other three all read the *same* user id. The only way to reach that is three rows for one user in the table
 the job iterates — which turned out to be a documented, tolerated duplicate that a *sibling* service
 handled by grouping and this one did not. The loud key was harmless; the thing it revealed was a
 daily duplicate email on a code path with no error telemetry of its own at all.
@@ -145,7 +155,7 @@ requests | where success == 'False' | summarize cnt=count(), firstSeen=min(times
 
 **Query the route's successes in the same breath as its failures.** Dropping `where success == 'False'`
 and summarizing by `name, resultCode` costs one extra query and often hands you the mechanism for free,
-because the ordering of the good and bad answers is the finding. On one run `POST /api/injuries`
+because the ordering of the good and bad answers is the finding. On one run a `POST` create route
 showed a single `201` six seconds before a run of eight `500`s from the same user: the create path
 worked and every *subsequent* save of that same record failed, which pointed straight at what the
 client echoes back on a repeat write rather than at the handler's happy path. The failure pass alone
@@ -247,8 +257,8 @@ requests | where name has '/<route>' | summarize cnt=count(), firstSeen=min(time
 ```
 
 And when such a rule stamps a *reason* dimension, read what the code actually tests before trusting
-the name. One of these labelled every sessionless 400 `session-restart-renegotiation` on the strength
-of three facts — status 400, path prefix, header absent — and never checked whether a 200 followed.
+the name. One of these labelled every sessionless 400 with a reason that read as a benign session
+restart, on the strength of three facts — status 400, path prefix, header absent — and never checked whether a 200 followed.
 The pathological case and the benign case therefore carry the identical reassuring label. **A
 dimension asserting a recovery is not evidence of one**; get that from the raw per-request timeline.
 
@@ -295,7 +305,7 @@ later, in a background worker, with no `operation_Id` to tie it back.
 That is exactly how one run's only new bug presented: three foreign-key violations from a timer-driven
 flush, `operation_Name` empty, `operation_Id` empty. The cause was an account deletion 18 seconds
 earlier that left **no row of its own anywhere in telemetry**. It was identified from the one HTTP
-side-effect the flow happened to have — a `POST /auth/clear-cookie` fired by the sign-out that follows
+side-effect the flow happened to have — a cookie-clearing `POST` fired by the sign-out that follows
 a confirmed deletion.
 
 So: **an exception with no `operation_Id` may be a background-worker failure, and its trigger is
@@ -400,12 +410,21 @@ instances, never the class, and the sweep is what notices the difference — the
 event against a fix's whole verification pass, so it only shows up if you compare `lastSeen`
 against the fix's deploy time on **every** key the ledger calls resolved, not just the open ones.
 
+**When a per-credential route turns from 200 to 404, search every request for the credential, not only
+that route.** Apps often reuse one token for several routes: a calendar feed, an unsubscribe link, a share page.
+Running `requests | where name has '<token>'` over the window finds all of them. On one run a calendar feed
+answered 200 for six days and then only 404. The same search showed that four hours before the flip, the
+token's owner opened the email-unsubscribe link, signed in, and fired the sign-out that follows an account
+deletion. The token did not break: the account was deleted, and the 404 was the correct answer. Also check
+the token's full history before calling it "never seen". The day before, a run had checked one route alone
+and concluded that, which was wrong.
+
 **A route you deleted on purpose can still be a finding, and the delay before it shows is the trap.**
 When a release removes an integration, the provider on the far side does not know: a webhook push
 subscription, a callback registration, a polling job keyed to your URL all keep firing, and every one
 of them now lands on a route that no longer exists. The failed-request pass sees them as 4xx on a
 route nobody in the codebase can explain, which reads as scanner noise — check whether the route used
-to answer 200 before you dismiss it. On one run `POST /webhooks/strava` had answered 200 fifty times
+to answer 200 before you dismiss it. On one run a `POST /webhooks/<provider>` route had answered 200 fifty times
 and then 404 fifteen times, in bursts of three to six attempts spaced exactly two minutes apart: that
 regular retry ladder from one datacenter city is a provider, not a scanner.
 
@@ -429,7 +448,7 @@ does not remove it from a running app.
 a brand-new 4xx on a route nobody in the codebase can explain, **list the open pull requests**. A
 feature branch's preview environment — a Netlify deploy preview, a staging front end, a locally-run
 UI — routinely points at *production* for its API, so the new page calls an endpoint that exists only
-on that branch. On one run four `OPTIONS /api/preview-plan` 404s from a single city over four minutes
+on that branch. On one run four `OPTIONS /api/<new-endpoint>` 404s from a single city over four minutes
 looked like a probe until the open-PR list showed a PR opened **two minutes after the last one**,
 adding exactly that endpoint plus the marketing page that calls it. The route's only other mention in
 the whole repo was a research document *proposing* it.
@@ -471,7 +490,7 @@ database — was the only thing worth writing down.
 only the literal first request on an instance; a boot serves several requests inside its first few
 seconds, and every one after the first is then labelled *warm*. On one run that split returned 22
 "warm" rows out of 46, and about seventeen of them were 8–30 s into an instance's life — a
-`/_blazor/negotiate` 13 s after boot, four `GET /` inside the same 16 s window, a `/plan` 24 s in.
+`/_blazor/negotiate` 13 s after boot, four `GET /` inside the same 16 s window, a page `GET` 24 s in.
 Only five rows were genuinely warm. Compare the **age**, not the timestamps:
 
 ```kusto
@@ -506,8 +525,8 @@ exists to find the row that is not. Raise it if a project boots slowly, but rais
 whether it finished.** Apps that pre-compile query shapes at boot usually log one line on the way
 out, and a sweep that finds that line naturally reads the cold-start question as closed. It is not:
 the log says the routine ran, and says nothing about coverage. On one run the instance logged
-`Database warm-up completed in 3691ms`, well inside a 15 s budget, and fifty seconds later the first
-`GET /plan` still paid two 15 s command timeouts — on a query the warm-up had just executed.
+its warm-up as completed in 3691 ms, well inside a 15 s budget, and fifty seconds later the first
+real page `GET` still paid two 15 s command timeouts — on a query the warm-up had just executed.
 
 The mechanism is worth knowing because it defeats the obvious warm-up design. The warm-up called the
 real repository method for a **user id chosen to match no row**, which is the right instinct: it
@@ -675,6 +694,25 @@ that emits no process-level counters cannot distinguish them — so the correct 
 worker/IO threads, `GC.CollectionCount(0/1/2)` deltas and the `GC.GetTotalPauseDuration()` delta as
 custom dimensions on any request past a threshold. That is the pipeline's "cause unclear, approach
 clear" row, and this is the shape that most often lands in it.
+
+**When the process counters show a pause the app could not have caused, look at the host.** On one run the
+first stall row carrying those counters read `GC gen0=1 gen1=1 gen2=0 pause=21855 ms`: 22 s of GC suspension
+for one gen1 collection on a ~300 MB heap. Kestrel's `HeartbeatSlow` warning then said its timer had been
+stuck 38 s. That timer runs independently of requests, so the whole process was frozen, not busy. App
+Insights cannot see why, but Azure Monitor can. The plan's `MemoryPercentage` hit 95% that minute while the
+app's `MemoryWorkingSet` stayed flat, so the memory went to another process on the worker. A 1-minute series
+over a week then showed the same spike at the same minute every weekday.
+`az monitor metrics list --resource <plan id> --metric MemoryPercentage CpuPercentage --interval PT1M
+--aggregation Maximum`. **In Git Bash set `MSYS_NO_PATHCONV=1` first**, or the `/subscriptions/...` resource
+id is rewritten into a Windows path and `az` answers with a usage error that names nothing.
+**A command that fails 5 s after its `CommandTimeout` is NOT a late timer.** An earlier version of this file
+said an EF trace with `CommandTimeout='10'` failing at 15 s meant a CPU-starved process. That was wrong.
+On timeout SqlClient sends an Attention (a cancel) and waits a fixed 5 s for the server to acknowledge it
+(`AttentionTimeoutSeconds = 5` in `TdsParserStateObject.cs`). So 10 s + 5 s = 15 s is the normal failure
+time when the server answers neither the query nor the cancel. Read it as "the server, or the path to it,
+went silent", and check the process counters before blaming the process. Seen 2026-09-28: five trivial
+reads on five open connections all failed at 15.0–15.2 s together, with GC pause under 300 ms and
+ThreadPool pending 1–2.
 
 ## 6. Dependencies and traces
 
