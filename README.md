@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.png" alt="NightForge logo" width="160">
+</p>
+
 # nightforge
 
 Agentic "dark factory" tools and skills that I use across my repos.
@@ -122,6 +126,7 @@ docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
 docs/pr-test-card-template.md   the pr-test project card, and how to fill it in
 docs/sync-docs.md               how sync-docs works, and how this repo configures it
+docs/logo.png                   the NightForge logo shown at the top of this README
 .claude/sync-docs/              this repo's own sync-docs config and registry
 ```
 
