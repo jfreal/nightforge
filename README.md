@@ -109,6 +109,8 @@ skills/ci-cost-sweep/
   adapters/test-runners.md      per-test timings and parallelism, per runner
 skills/pr-test/
   SKILL.md                      the per-PR test run — plan, check out, drive, tick, report
+skills/codebase-cleanup/
+  SKILL.md                      the whole-repo audit — research, size, one PR per finding
 skills/sync-docs/
   SKILL.md                      the docs-drift audit — one engine, a config per repo
 skills/onboarding-sweep/
@@ -344,6 +346,23 @@ Comes with the plugin (see [Install](#install)).
 Then write one card per repo — the slug, the services and how to start them, the test account, the
 env vars holding the login, where screenshots go (see
 [docs/pr-test-card-template.md](docs/pr-test-card-template.md)). Everything else is the pipeline.
+
+## `codebase-cleanup`
+
+A full code-quality audit of one repo, then many small fixes. It reads the whole codebase first
+(security, correctness, error handling, dead code, types, tests, perf, accessibility, docs drift),
+writes every finding down with `path:line` evidence, and sizes each one S, M or L. Every S or M
+finding gets its own branch off the default branch and its own PR, with a regression test for
+logic fixes and the exact test output in the body. L findings get an issue for a human, and no
+code. User-invokable: `/codebase-cleanup`, with config overrides as arguments.
+
+It never merges, never touches production, and re-checks each finding against the current code
+before fixing it — a finding that turns out wrong is recorded as rejected, not shipped.
+
+### Install
+
+Comes with the plugin (see [Install](#install)). Defaults (labels, title prefix, branch prefix)
+sit in the config table at the top of the skill.
 
 ## `onboarding-sweep`
 
