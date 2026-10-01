@@ -351,10 +351,10 @@ env vars holding the login, where screenshots go (see
 
 A full code-quality audit of one repo, then many small fixes. It reads the whole codebase first
 (security, correctness, error handling, dead code, types, tests, perf, accessibility, docs drift),
-writes every finding down with `path:line` evidence, and sizes each one S, M or L. Every S or M
-finding gets its own branch off the default branch and its own PR, with a regression test for
-logic fixes and the exact test output in the body. L findings get an issue for a human, and no
-code. User-invokable: `/codebase-cleanup`, with config overrides as arguments.
+writes every finding down with `path:line` evidence, and sizes each one S, M or L. Every shippable S or
+M finding gets its own branch off the default branch and its own PR, with a regression test for
+logic fixes and the exact test output in the body. L findings, and S or M findings that can't ship
+directly, get an issue for a human, and no code. User-invokable: `/codebase-cleanup`, with config overrides as arguments.
 
 It never merges, never touches production, and re-checks each finding against the current code
 before fixing it — a finding that turns out wrong is recorded as rejected, not shipped.
