@@ -51,13 +51,8 @@
   nav ul a:hover { color: var(--text); text-decoration: none; }
 
   /* hero */
-  .hero { position: relative; overflow: hidden; padding: 96px 0 88px; }
-  .hero::before {
-    content: ""; position: absolute; inset: auto -20% -60% -20%; height: 120%;
-    background: radial-gradient(ellipse at 70% 0%, rgba(255,138,61,.16), transparent 60%);
-    pointer-events: none;
-  }
-  .hero .wrap { position: relative; display: grid; grid-template-columns: 1.4fr 1fr; gap: 48px; align-items: center; }
+  .hero { position: relative; overflow: hidden; padding: 104px 0 112px; background: radial-gradient(ellipse at 50% -20%, #1b2433 0%, var(--bg) 60%); }
+  .hero .wrap { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
   .eyebrow { font: 500 13px/1 var(--mono); color: var(--ember); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 20px; }
   h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 24px; font-weight: 700; }
   h1 em { font-style: normal; color: var(--ember); }
@@ -70,8 +65,99 @@
   .btn:hover { text-decoration: none; border-color: var(--muted); }
   .btn.primary { background: var(--ember); border-color: var(--ember); color: #1a0d03; }
   .btn.primary:hover { background: var(--ember-hot); border-color: var(--ember-hot); }
-  .hero-art { display: flex; justify-content: center; }
-  .hero-art img { width: min(300px, 70%); height: auto; filter: drop-shadow(0 30px 60px rgba(255,120,40,.25)); }
+  /* stars */
+  .stars, .stars::before, .stars::after {
+    position: absolute; inset: 0; pointer-events: none;
+    background-repeat: repeat; background-size: 340px 340px;
+  }
+  .stars {
+    background-image:
+      radial-gradient(1px 1px at 20px 30px, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 140px 80px, #fff7 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 260px 40px, #fffb 50%, transparent 51%),
+      radial-gradient(1px 1px at 300px 190px, #fff6 50%, transparent 51%),
+      radial-gradient(1px 1px at 90px 220px, #fff8 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 200px 290px, #fff9 50%, transparent 51%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+  }
+  .stars::before {
+    content: ""; background-size: 520px 520px;
+    background-image:
+      radial-gradient(1px 1px at 60px 120px, #ffd9b0 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 380px 60px, #fff 50%, transparent 51%),
+      radial-gradient(1px 1px at 450px 330px, #fff 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 230px 440px, #ffe6c7 50%, transparent 51%);
+    animation: twinkle 5s ease-in-out infinite alternate;
+  }
+  .stars::after {
+    content: ""; background-size: 700px 700px;
+    background-image:
+      radial-gradient(2px 2px at 520px 140px, #fff 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 120px 560px, #fff 50%, transparent 51%),
+      radial-gradient(2px 2px at 330px 260px, #ffd9b0 50%, transparent 51%);
+    animation: twinkle 7s ease-in-out 2s infinite alternate;
+  }
+  @keyframes twinkle { from { opacity: .15; } to { opacity: 1; } }
+  .shooting {
+    position: absolute; top: 14%; left: 60%; width: 140px; height: 1px; pointer-events: none;
+    background: linear-gradient(90deg, #fff, transparent);
+    transform: rotate(-20deg); opacity: 0;
+    animation: shoot 9s ease-in 3s infinite;
+  }
+  @keyframes shoot {
+    0% { opacity: 0; transform: translate(0, 0) rotate(-20deg); }
+    2% { opacity: 1; }
+    8% { opacity: 0; transform: translate(-360px, 130px) rotate(-20deg); }
+    100% { opacity: 0; transform: translate(-360px, 130px) rotate(-20deg); }
+  }
+
+  /* glowing logo + terminal */
+  .hero-art { position: relative; }
+  .emblem {
+    position: absolute; width: 360px; right: -60px; top: -120px; opacity: .22; pointer-events: none;
+    filter: blur(.5px) drop-shadow(0 0 60px rgba(255,120,40,.6));
+  }
+  .ember-glow {
+    position: absolute; inset: 10% 0 -10% 0; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(255,120,40,.28), transparent 70%);
+    filter: blur(20px); animation: breathe 4s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { opacity: .55; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.04); } }
+  .term {
+    position: relative; background: rgba(10,13,18,.88); border: 1px solid #2b3544; border-radius: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,138,61,.08), 0 0 40px rgba(255,120,40,.12);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
+  }
+  .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3544; }
+  .term-bar span { margin-left: 8px; font: 500 12px/1 var(--mono); color: var(--muted); }
+  .term-body { font: 13px/1.6 var(--mono); padding: 16px 18px 18px; min-height: 312px; color: var(--muted); }
+  .term-body .ln { display: grid; grid-template-columns: 5ch 17ch 1fr; gap: 0 12px; margin-bottom: 6px; animation: lnin .35s ease-out; }
+  @keyframes lnin { from { opacity: 0; transform: translateX(-6px); } }
+  .term-body .t { color: #5d6b7e; }
+  .term-body .k { color: var(--text); }
+  .term-body .ok { color: #7ee2a8; }
+  .term-body .hot { color: var(--ember-hot); }
+  .caret { display: inline-block; width: 8px; height: 15px; background: var(--ember); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .term-note { margin: 10px 2px 0; font: 12px/1.4 var(--mono); color: #5d6b7e; text-align: right; }
+
+  /* scroll reveal + hover */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  .card { transition: border-color .25s, transform .25s, box-shadow .25s; }
+  .card:hover { border-color: rgba(255,138,61,.45); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(255,120,40,.08); }
+  .btn.primary { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: pulse 2.8s ease-out infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,138,61,.45); } 70%,100% { box-shadow: 0 0 0 14px rgba(255,138,61,0); } }
+  h1 em { background: linear-gradient(90deg, var(--ember-hot), var(--ember), var(--ember-deep), var(--ember-hot)); background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 8s linear infinite; }
+  @keyframes forge { to { background-position: 300% 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
 
   /* sections */
   section { padding: 88px 0; border-top: 1px solid var(--line); }
@@ -134,8 +220,10 @@
   @media (max-width: 820px) {
     .hero { padding: 56px 0; }
     .hero .wrap, .trust { grid-template-columns: 1fr; }
-    .hero-art { order: -1; }
-    .hero-art img { width: 140px; }
+    .emblem { width: 220px; right: -40px; top: -80px; }
+    .term-body { min-height: 0; font-size: 11.5px; }
+    .term-body .ln { grid-template-columns: 3.2em 1fr; }
+    .term-body .ln span:last-child { grid-column: 2; }
     .night { grid-template-columns: 1fr 1fr; row-gap: 32px; }
     .night::before { display: none; }
     nav ul { display: none; }
@@ -163,6 +251,8 @@
 </nav>
 
 <header class="hero">
+  <div class="stars" aria-hidden="true"></div>
+  <div class="shooting" aria-hidden="true"></div>
   <div class="wrap">
     <div>
       <p class="eyebrow">A Claude Code plugin</p>
@@ -173,7 +263,15 @@
         <a class="btn" href="https://github.com/jfreal/nightforge">View on GitHub →</a>
       </div>
     </div>
-    <div class="hero-art"><img src="logo.png" alt="NightForge logo: a dark hexagonal forge with a glowing ember core"></div>
+    <div class="hero-art">
+      <div class="ember-glow" aria-hidden="true"></div>
+      <img class="emblem" src="logo.png" alt="">
+      <div class="term" role="img" aria-label="Example terminal log of an overnight NightForge run">
+        <div class="term-bar"><i></i><i></i><i></i><span>nightforge — overnight</span></div>
+        <div class="term-body" id="term"></div>
+      </div>
+      <p class="term-note">An illustrative run, not real data</p>
+    </div>
   </div>
 </header>
 
@@ -182,10 +280,10 @@
     <h2>One night with NightForge</h2>
     <p class="sub">Each sweep runs as a scheduled task with its own small config card. When there's nothing new, the report is one line.</p>
     <div class="night">
-      <div class="tick"><time>Every hour</time><h3>Retry starved reviews</h3><p>coderabbit-sweep finds PRs that hit CodeRabbit's rate limit and spends the next free review on the one that has waited longest.</p></div>
-      <div class="tick"><time>Overnight</time><h3>Sweep production errors</h3><p>error-sweep collects errors, dedupes them against the issue tracker, files an issue and opens a fix PR.</p></div>
-      <div class="tick"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a draft PR wherever a page no longer matches its code.</p></div>
-      <div class="tick"><time>Morning</time><h3>You review</h3><p>Small PRs, each with evidence and test output. Nothing gets merged until you merge it.</p></div>
+      <div class="tick reveal"><time>Every hour</time><h3>Retry starved reviews</h3><p>coderabbit-sweep finds PRs that hit CodeRabbit's rate limit and spends the next free review on the one that has waited longest.</p></div>
+      <div class="tick reveal"><time>Overnight</time><h3>Sweep production errors</h3><p>error-sweep collects errors, dedupes them against the issue tracker, files an issue and opens a fix PR.</p></div>
+      <div class="tick reveal"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a draft PR wherever a page no longer matches its code.</p></div>
+      <div class="tick reveal"><time>Morning</time><h3>You review</h3><p>Small PRs, each with evidence and test output. Nothing gets merged until you merge it.</p></div>
     </div>
   </div>
 </section>
@@ -198,27 +296,27 @@
     <div class="group">
       <p class="group-label">Scheduled sweeps</p>
       <div class="grid">
-        <div class="card"><h3>error-sweep</h3><span class="when">Overnight</span><p>Collects production errors, normalizes them to stable signatures, triages each against the real source, files an issue and opens a fix PR from an isolated worktree. Adapters for Netlify, Supabase, Azure Application Insights and GitHub.</p></div>
-        <div class="card"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a draft PR. Clean repos get one line.</p></div>
-        <div class="card"><h3>coderabbit-sweep</h3><span class="when">Hourly</span><p>CodeRabbit's review allowance is shared across all your repos, and PRs that miss it are never retried. This is the retry. Label a PR to put it first in line.</p></div>
-        <div class="card"><h3>onboarding-sweep</h3><span class="when">Hourly</span><p>A bot signs up as a new user and logs what it hit to a Notion board. This sweep turns each finding into a fix PR and tracks it through merge and deploy.</p></div>
+        <div class="card reveal"><h3>error-sweep</h3><span class="when">Overnight</span><p>Collects production errors, normalizes them to stable signatures, triages each against the real source, files an issue and opens a fix PR from an isolated worktree. Adapters for Netlify, Supabase, Azure Application Insights and GitHub.</p></div>
+        <div class="card reveal"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a draft PR. Clean repos get one line.</p></div>
+        <div class="card reveal"><h3>coderabbit-sweep</h3><span class="when">Hourly</span><p>CodeRabbit's review allowance is shared across all your repos, and PRs that miss it are never retried. This is the retry. Label a PR to put it first in line.</p></div>
+        <div class="card reveal"><h3>onboarding-sweep</h3><span class="when">Hourly</span><p>A bot signs up as a new user and logs what it hit to a Notion board. This sweep turns each finding into a fix PR and tracks it through merge and deploy.</p></div>
       </div>
     </div>
 
     <div class="group">
       <p class="group-label">On demand</p>
       <div class="grid">
-        <div class="card"><h3>codebase-cleanup</h3><span class="when">/codebase-cleanup</span><p>Reads the whole repo, logs every finding with <code>path:line</code> evidence and a size, then ships one branch and one PR per small fix. Bigger findings become issues.</p></div>
-        <div class="card"><h3>ci-cost-sweep</h3><span class="when">/ci-cost-sweep</span><p>Measures where your CI minutes actually go, down to each cache, then cuts them without cutting coverage. Run it with <code>fix</code> to get a PR.</p></div>
-        <div class="card"><h3>sync-docs</h3><span class="when">/sync-docs</span><p>Links source files to the doc pages that describe them, and flags pages whose sources changed, orphaned pages and lists that no longer match disk.</p></div>
+        <div class="card reveal"><h3>codebase-cleanup</h3><span class="when">/codebase-cleanup</span><p>Reads the whole repo, logs every finding with <code>path:line</code> evidence and a size, then ships one branch and one PR per small fix. Bigger findings become issues.</p></div>
+        <div class="card reveal"><h3>ci-cost-sweep</h3><span class="when">/ci-cost-sweep</span><p>Measures where your CI minutes actually go, down to each cache, then cuts them without cutting coverage. Run it with <code>fix</code> to get a PR.</p></div>
+        <div class="card reveal"><h3>sync-docs</h3><span class="when">/sync-docs</span><p>Links source files to the doc pages that describe them, and flags pages whose sources changed, orphaned pages and lists that no longer match disk.</p></div>
       </div>
     </div>
 
     <div class="group">
       <p class="group-label">Writing</p>
       <div class="grid">
-        <div class="card"><h3>unslop</h3><span class="when">Any prose</span><p>Strips the tells of AI-written prose and puts a voice back in.</p></div>
-        <div class="card"><h3>simple-issue-description</h3><span class="when">/simple-issue-description</span><p>Turns a rough bug report, request or PR into a short issue about the problem and the behavior you want.</p></div>
+        <div class="card reveal"><h3>unslop</h3><span class="when">Any prose</span><p>Strips the tells of AI-written prose and puts a voice back in.</p></div>
+        <div class="card reveal"><h3>simple-issue-description</h3><span class="when">/simple-issue-description</span><p>Turns a rough bug report, request or PR into a short issue about the problem and the behavior you want.</p></div>
       </div>
     </div>
   </div>
@@ -229,12 +327,12 @@
     <h2>Built for unattended work</h2>
     <p class="sub">Every sweep follows the same rules.</p>
     <div class="rules">
-      <div class="rule"><h3>It never merges</h3><p>Sweeps open PRs, issues and drafts. Merging, deploying and touching production stay with you.</p></div>
-      <div class="rule"><h3>One finding, one PR</h3><p>Small, separate PRs that are quick to review and easy to revert. Each carries its evidence and test output.</p></div>
-      <div class="rule"><h3>It checks before it fixes</h3><p>Each finding is re-checked against the current code. A finding that turns out wrong is recorded as rejected, not shipped.</p></div>
-      <div class="rule"><h3>Quiet when it's clean</h3><p>When nothing new turned up, the report is a single line.</p></div>
+      <div class="rule reveal"><h3>It never merges</h3><p>Sweeps open PRs, issues and drafts. Merging, deploying and touching production stay with you.</p></div>
+      <div class="rule reveal"><h3>One finding, one PR</h3><p>Small, separate PRs that are quick to review and easy to revert. Each carries its evidence and test output.</p></div>
+      <div class="rule reveal"><h3>It checks before it fixes</h3><p>Each finding is re-checked against the current code. A finding that turns out wrong is recorded as rejected, not shipped.</p></div>
+      <div class="rule reveal"><h3>Quiet when it's clean</h3><p>When nothing new turned up, the report is a single line.</p></div>
     </div>
-    <div class="story">
+    <div class="story reveal">
       <span class="big">+71s</span>
       <p>A dependency cache that "obviously" saved time made every CI run 71 seconds slower.</p>
       <p class="note">ci-cost-sweep came out of that measurement. Its one rule: measure, never assume.</p>
@@ -247,13 +345,13 @@
     <h2>Install</h2>
     <p class="sub">The GitHub repo is its own plugin marketplace. Add it once, then install the plugin.</p>
     <div class="steps">
-      <div class="step">
+      <div class="step reveal">
         <h3>On your machine</h3>
         <p>Installs for every repo you open in Claude Code.</p>
         <div class="code"><button class="copy" type="button">Copy</button><pre>claude plugin marketplace add jfreal/nightforge
 claude plugin install nightforge@nightforge --scope user</pre></div>
       </div>
-      <div class="step">
+      <div class="step reveal">
         <h3>For a team repo</h3>
         <p>Commit this to the repo's <code>.claude/settings.json</code>. Then each teammate installs once with <code>--scope project</code>.</p>
         <div class="code"><button class="copy" type="button">Copy</button><pre>{
@@ -294,6 +392,41 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
 </footer>
 
 <script>
+  (function () {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var lines = [
+      ['01:00', 'coderabbit-sweep', '2 PRs starved. Reviewing #48.', ''],
+      ['02:00', 'error-sweep', '214 errors → <span class="hot">3 new signatures</span>', ''],
+      ['02:06', 'error-sweep', 'triaged checkout.ts:88', ''],
+      ['02:19', 'error-sweep', '<span class="ok">PR #212</span> guard empty cart', ''],
+      ['02:31', 'error-sweep', '<span class="ok">PR #213</span> retry webhook on 429', ''],
+      ['03:00', 'docs-sweep', '6 repos audited, 1 drifted', ''],
+      ['03:12', 'docs-sweep', '<span class="ok">draft PR</span> sync API docs', ''],
+      ['07:00', 'report', '<span class="k">4 PRs to review. 0 merged.</span>', '']
+    ];
+    var el = document.getElementById('term');
+    function row(l) {
+      return '<div class="ln"><span class="t">' + l[0] + '</span><span class="k">' + l[1] + '</span><span>' + l[2] + '</span></div>';
+    }
+    if (reduce) { el.innerHTML = lines.map(row).join(''); }
+    else {
+      var i = 0, html = '';
+      var caret = '<span class="caret"></span>';
+      var tick = function () {
+        if (i < lines.length) { html += row(lines[i++]); el.innerHTML = html + caret; setTimeout(tick, 650 + Math.random() * 500); }
+        else { setTimeout(function () { i = 0; html = ''; el.innerHTML = caret; setTimeout(tick, 600); }, 6000); }
+      };
+      el.innerHTML = caret; setTimeout(tick, 700);
+    }
+    var items = document.querySelectorAll('.reveal');
+    if (reduce || !('IntersectionObserver' in window)) { items.forEach(function (n) { n.classList.add('in'); }); }
+    else {
+      var io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+      }, { threshold: .12 });
+      items.forEach(function (n, k) { n.style.transitionDelay = (k % 4) * 70 + 'ms'; io.observe(n); });
+    }
+  })();
   document.querySelectorAll('.copy').forEach(function (b) {
     b.addEventListener('click', function () {
       var text = b.parentElement.querySelector('pre').innerText;
