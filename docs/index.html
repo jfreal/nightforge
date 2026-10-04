@@ -117,23 +117,10 @@
   .emblem {
     position: absolute; width: 360px; right: -60px; top: -120px; opacity: .3; pointer-events: none;
     filter: drop-shadow(0 0 50px rgba(255,110,30,.7));
-    animation: firelight 3.2s steps(1) infinite;
+    animation: smoulder 9s ease-in-out infinite;
   }
-  @keyframes firelight {
-    0% { opacity: .3; } 12% { opacity: .38; } 19% { opacity: .27; } 31% { opacity: .35; }
-    44% { opacity: .42; } 52% { opacity: .29; } 67% { opacity: .37; } 81% { opacity: .31; } 93% { opacity: .4; }
-  }
-  @keyframes firelight-soft { 0%,100% { filter: drop-shadow(0 0 40px rgba(255,110,30,.55)); } 50% { filter: drop-shadow(0 0 80px rgba(255,140,40,.95)); } }
-  .ember-glow {
-    position: absolute; inset: 10% 0 -10% 0; pointer-events: none;
-    background: radial-gradient(closest-side, rgba(255,110,30,.42), rgba(194,65,12,.15) 55%, transparent 75%);
-    filter: blur(24px); animation: breathe 2.6s ease-in-out infinite, flicker 4.3s linear infinite;
-  }
+  @keyframes smoulder { 0%,100% { opacity: .24; } 50% { opacity: .34; } }
   @keyframes breathe { 0%,100% { transform: scale(.95); } 50% { transform: scale(1.06); } }
-  @keyframes flicker {
-    0% { opacity: .75; } 7% { opacity: .95; } 11% { opacity: .7; } 23% { opacity: 1; } 29% { opacity: .82; }
-    41% { opacity: .68; } 47% { opacity: .96; } 58% { opacity: .78; } 66% { opacity: .9; } 79% { opacity: .72; } 88% { opacity: 1; } 100% { opacity: .75; }
-  }
 
   /* the forge: molten floor, sparks, heat */
   .forge-floor {
@@ -143,7 +130,7 @@
       radial-gradient(ellipse 50% 55% at 66% 100%, rgba(255,140,40,.55), transparent 70%),
       radial-gradient(ellipse 80% 75% at 55% 100%, rgba(230,80,20,.38), transparent 72%),
       radial-gradient(ellipse 120% 90% at 50% 100%, rgba(150,40,10,.3), transparent 78%);
-    filter: blur(10px); animation: flicker 3.7s linear infinite, heave 6s ease-in-out infinite;
+    filter: blur(10px); animation: heave 12s ease-in-out infinite;
   }
   @keyframes heave { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(1.12); } }
   .sparks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -177,11 +164,10 @@
   .reveal.in { opacity: 1; transform: none; }
   .card { transition: border-color .25s, transform .25s, box-shadow .25s; }
   .card:hover { border-color: rgba(255,138,61,.45); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(255,120,40,.08); }
-  .btn.primary { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: pulse 2.8s ease-out infinite; }
+  .btn.primary { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: pulse 5s ease-out infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,138,61,.45); } 70%,100% { box-shadow: 0 0 0 14px rgba(255,138,61,0); } }
   h1 em { background: linear-gradient(90deg, var(--ember-hot), var(--ember), var(--ember-deep), var(--ember-hot)); background-size: 300% 100%;
-    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 8s linear infinite; filter: drop-shadow(0 0 16px rgba(255,130,45,.6)); }
-  @keyframes heat { 0%,100% { filter: drop-shadow(0 0 10px rgba(255,120,40,.45)); } 50% { filter: drop-shadow(0 0 26px rgba(255,150,50,.85)); } }
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 16s linear infinite; filter: drop-shadow(0 0 16px rgba(255,130,45,.6)); }
   @keyframes forge { to { background-position: 300% 0; } }
 
   @media (prefers-reduced-motion: reduce) {
@@ -510,16 +496,17 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
         if (!c || Math.random() > c.base + .2) return;
         embers.push({ x: c.x + rnd(-c.r * .4, c.r * .4), y: c.y - c.r * .3, vx: rnd(-.12, .12), vy: -rnd(.22, .55),
           life: 0, max: rnd(420, 900), r: rnd(.9, 2), wob: rnd(0, 6.28), ws: rnd(.008, .02), amp: rnd(.2, .55),
-          drift: rnd(-.0015, .0015), tw: rnd(.03, .09), trail: [] });
+          drift: rnd(-.0015, .0015), tw: rnd(.008, .02), trail: [] });
       };
 
       var step = function () {
         for (var i = 0; i < coals.length; i++) {
           var c = coals[i];
-          c.flare *= .93;
-          if (Math.random() < .0022 * (c.base + .3)) { c.flare = rnd(.35, .75); if (Math.random() < .15) emit(c, 1 + Math.floor(Math.random() * 3)); }
+          c.target = (c.target || 0) * .996;
+          c.flare += ((c.target || 0) - c.flare) * .012;
+          if (Math.random() < .0007 * (c.base + .3)) { c.target = rnd(.12, .28); if (Math.random() < .03) emit(c, 1); }
         }
-        if (embers.length < (wide ? 90 : 40) && Math.random() < (wide ? .22 : .12)) spawnEmber();
+        if (embers.length < (wide ? 70 : 30) && Math.random() < (wide ? .14 : .08)) spawnEmber();
         for (i = embers.length - 1; i >= 0; i--) {
           var e = embers[i]; e.life++; e.wob += e.ws; e.vx += e.drift;
           e.x += e.vx + Math.sin(e.wob) * e.amp; e.y += e.vy; e.vy *= .9995;
@@ -534,13 +521,13 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
       };
 
       var heatOf = function (c, t) {
-        return Math.max(0, Math.min(1.2, c.base + Math.sin(t * .0012 * c.sp + c.ph) * .14 + Math.sin(t * .0031 * c.sp + c.ph * 2) * .06 + c.flare));
+        return Math.max(0, Math.min(1.1, c.base + Math.sin(t * .00045 * c.sp + c.ph) * .12 + Math.sin(t * .0011 * c.sp + c.ph * 2) * .05 + c.flare));
       };
       var draw = function (t) {
         ctx.clearRect(0, 0, W, H);
         // heat haze over the bed
         ctx.globalCompositeOperation = 'lighter';
-        var fl = .85 + Math.sin(t * .002) * .08 + Math.sin(t * .0053) * .05;
+        var fl = .88 + Math.sin(t * .0006) * .07 + Math.sin(t * .0015) * .03;
         var haze = ctx.createRadialGradient(hotX(), B + 10, 0, hotX(), B + 10, W * (wide ? .5 : .9));
         haze.addColorStop(0, 'rgba(255,100,25,' + .24 * fl + ')');
         haze.addColorStop(.4, 'rgba(200,50,12,' + .16 * fl + ')');
@@ -577,7 +564,7 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (i = 0; i < embers.length; i++) {
           var e = embers[i], q = e.life / e.max;
-          var a = Math.min(1, q * 10) * (1 - q) * (.65 + .35 * Math.sin(e.life * e.tw));
+          var a = Math.min(1, q * 6) * (1 - q) * (.75 + .25 * Math.sin(e.life * e.tw));
           var tr = e.trail;
           if (tr.length > 4) {
             ctx.strokeStyle = 'rgba(255,110,30,' + a * .16 + ')'; ctx.lineWidth = e.r * .9;
