@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NightForge</title>
+<meta name="description" content="Claude Code skills that work your repos overnight: error sweeps, docs drift, CI cost, code cleanup. One small PR per fix, and they never merge.">
+<meta property="og:title" content="NightForge">
+<meta property="og:description" content="Claude Code skills that work your repos overnight. One small PR per fix, and they never merge.">
+<meta property="og:image" content="logo.png">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-raised: #151b24;
+    --bg-sunk: #0a0d12;
+    --line: #232c38;
+    --text: #e6e9ee;
+    --muted: #9aa4b2;
+    --ember: #ff8a3d;
+    --ember-hot: #ffb547;
+    --ember-deep: #c2410c;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--ember-hot); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  code, pre { font-family: var(--mono); }
+
+  /* nav */
+  nav { border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; letter-spacing: .02em; }
+  .brand img { width: 26px; height: auto; }
+  .brand:hover { text-decoration: none; }
+  nav ul { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; font-size: 15px; }
+  nav ul a { color: var(--muted); }
+  nav ul a:hover { color: var(--text); text-decoration: none; }
+
+  /* hero */
+  .hero { position: relative; overflow: hidden; padding: 96px 0 88px; }
+  .hero::before {
+    content: ""; position: absolute; inset: auto -20% -60% -20%; height: 120%;
+    background: radial-gradient(ellipse at 70% 0%, rgba(255,138,61,.16), transparent 60%);
+    pointer-events: none;
+  }
+  .hero .wrap { position: relative; display: grid; grid-template-columns: 1.4fr 1fr; gap: 48px; align-items: center; }
+  .eyebrow { font: 500 13px/1 var(--mono); color: var(--ember); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 20px; }
+  h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 24px; font-weight: 700; }
+  h1 em { font-style: normal; color: var(--ember); }
+  .lede { font-size: 20px; color: var(--muted); max-width: 34em; margin: 0 0 36px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 8px;
+    font-weight: 600; font-size: 16px; border: 1px solid var(--line); color: var(--text);
+  }
+  .btn:hover { text-decoration: none; border-color: var(--muted); }
+  .btn.primary { background: var(--ember); border-color: var(--ember); color: #1a0d03; }
+  .btn.primary:hover { background: var(--ember-hot); border-color: var(--ember-hot); }
+  .hero-art { display: flex; justify-content: center; }
+  .hero-art img { width: min(300px, 70%); height: auto; filter: drop-shadow(0 30px 60px rgba(255,120,40,.25)); }
+
+  /* sections */
+  section { padding: 88px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: clamp(28px, 4vw, 38px); line-height: 1.15; letter-spacing: -.01em; margin: 0 0 16px; }
+  .sub { color: var(--muted); max-width: 40em; margin: 0 0 48px; font-size: 18px; }
+
+  /* night timeline */
+  .night { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; }
+  .night::before { content: ""; position: absolute; top: 18px; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, var(--line), var(--ember-deep), var(--line)); }
+  .tick { position: relative; padding: 48px 20px 0 0; }
+  .tick::before { content: ""; position: absolute; top: 12px; left: 0; width: 13px; height: 13px; border-radius: 50%; background: var(--bg); border: 2px solid var(--ember); }
+  .tick time { font: 500 14px/1 var(--mono); color: var(--ember); }
+  .tick h3 { margin: 10px 0 6px; font-size: 18px; }
+  .tick p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* skills */
+  .group { margin-bottom: 48px; }
+  .group:last-child { margin-bottom: 0; }
+  .group-label { font: 500 13px/1 var(--mono); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .card h3 { margin: 0 0 4px; font: 600 17px/1.3 var(--mono); color: var(--text); }
+  .card .when { font: 500 12px/1 var(--mono); color: var(--ember); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 14px; display: block; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* rules */
+  .rules { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 32px; }
+  .rule h3 { font-size: 18px; margin: 0 0 8px; }
+  .rule h3::before { content: "▸ "; color: var(--ember); }
+  .rule p { margin: 0; color: var(--muted); font-size: 15px; }
+  .story { margin-top: 56px; background: var(--bg-sunk); border-left: 3px solid var(--ember); border-radius: 0 12px 12px 0; padding: 28px 32px; }
+  .story p { margin: 0; font-size: 18px; }
+  .story .big { font: 600 40px/1 var(--mono); color: var(--ember); display: block; margin-bottom: 12px; }
+  .story .note { margin-top: 10px; color: var(--muted); font-size: 15px; }
+
+  /* install */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+  .step h3 { margin: 0 0 6px; font-size: 18px; }
+  .step p { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+  .code { position: relative; background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 10px; }
+  .code pre { margin: 0; padding: 18px 20px; overflow-x: auto; font-size: 14px; line-height: 1.7; color: var(--text); }
+  .code pre .c { color: var(--muted); }
+  .copy {
+    position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--mono); padding: 7px 10px; border-radius: 6px;
+    background: var(--bg-raised); color: var(--muted); border: 1px solid var(--line); cursor: pointer;
+  }
+  .copy:hover { color: var(--text); }
+  .callout { margin-top: 32px; padding: 20px 24px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 15px; }
+  .callout strong { color: var(--text); }
+
+  /* trust */
+  .trust { display: grid; grid-template-columns: 1fr 1.3fr; gap: 48px; align-items: start; }
+  .svc { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .svc li { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .svc li span:last-child { color: var(--muted); font-family: var(--mono); font-size: 13px; text-align: right; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
+
+  @media (max-width: 820px) {
+    .hero { padding: 56px 0; }
+    .hero .wrap, .trust { grid-template-columns: 1fr; }
+    .hero-art { order: -1; }
+    .hero-art img { width: 140px; }
+    .night { grid-template-columns: 1fr 1fr; row-gap: 32px; }
+    .night::before { display: none; }
+    nav ul { display: none; }
+    section { padding: 64px 0; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    .night { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="logo.png" alt="">NightForge</a>
+    <ul>
+      <li><a href="#skills">Skills</a></li>
+      <li><a href="#rules">How it works</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="https://github.com/jfreal/nightforge">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">A Claude Code plugin</p>
+      <h1>Your repos get fixed <em>overnight</em>.</h1>
+      <p class="lede">NightForge is a set of Claude Code skills that sweep your projects while you're away. They pick up production errors, docs that no longer match the code, wasted CI minutes and starved code reviews. Every fix lands as a small pull request you review in the morning.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install in two commands</a>
+        <a class="btn" href="https://github.com/jfreal/nightforge">View on GitHub →</a>
+      </div>
+    </div>
+    <div class="hero-art"><img src="logo.png" alt="NightForge logo: a dark hexagonal forge with a glowing ember core"></div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>One night with NightForge</h2>
+    <p class="sub">Each sweep runs as a scheduled task with its own small config card. When there's nothing new, the report is one line.</p>
+    <div class="night">
+      <div class="tick"><time>Every hour</time><h3>Retry starved reviews</h3><p>coderabbit-sweep finds PRs that hit CodeRabbit's rate limit and spends the next free review on the one that has waited longest.</p></div>
+      <div class="tick"><time>Overnight</time><h3>Sweep production errors</h3><p>error-sweep collects errors, dedupes them against the issue tracker, files an issue and opens a fix PR.</p></div>
+      <div class="tick"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a draft PR wherever a page no longer matches its code.</p></div>
+      <div class="tick"><time>Morning</time><h3>You review</h3><p>Small PRs, each with evidence and test output. Nothing gets merged until you merge it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="skills">
+  <div class="wrap">
+    <h2>What's in the box</h2>
+    <p class="sub">Nine skills in one plugin. Once it's installed they're namespaced, so <code>error-sweep</code> runs as <code>/nightforge:error-sweep</code>.</p>
+
+    <div class="group">
+      <p class="group-label">Scheduled sweeps</p>
+      <div class="grid">
+        <div class="card"><h3>error-sweep</h3><span class="when">Overnight</span><p>Collects production errors, normalizes them to stable signatures, triages each against the real source, files an issue and opens a fix PR from an isolated worktree. Adapters for Netlify, Supabase, Azure Application Insights and GitHub.</p></div>
+        <div class="card"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a draft PR. Clean repos get one line.</p></div>
+        <div class="card"><h3>coderabbit-sweep</h3><span class="when">Hourly</span><p>CodeRabbit's review allowance is shared across all your repos, and PRs that miss it are never retried. This is the retry. Label a PR to put it first in line.</p></div>
+        <div class="card"><h3>onboarding-sweep</h3><span class="when">Hourly</span><p>A bot signs up as a new user and logs what it hit to a Notion board. This sweep turns each finding into a fix PR and tracks it through merge and deploy.</p></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="group-label">On demand</p>
+      <div class="grid">
+        <div class="card"><h3>codebase-cleanup</h3><span class="when">/codebase-cleanup</span><p>Reads the whole repo, logs every finding with <code>path:line</code> evidence and a size, then ships one branch and one PR per small fix. Bigger findings become issues.</p></div>
+        <div class="card"><h3>ci-cost-sweep</h3><span class="when">/ci-cost-sweep</span><p>Measures where your CI minutes actually go, down to each cache, then cuts them without cutting coverage. Run it with <code>fix</code> to get a PR.</p></div>
+        <div class="card"><h3>sync-docs</h3><span class="when">/sync-docs</span><p>Links source files to the doc pages that describe them, and flags pages whose sources changed, orphaned pages and lists that no longer match disk.</p></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="group-label">Writing</p>
+      <div class="grid">
+        <div class="card"><h3>unslop</h3><span class="when">Any prose</span><p>Strips the tells of AI-written prose and puts a voice back in.</p></div>
+        <div class="card"><h3>simple-issue-description</h3><span class="when">/simple-issue-description</span><p>Turns a rough bug report, request or PR into a short issue about the problem and the behavior you want.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="rules">
+  <div class="wrap">
+    <h2>Built for unattended work</h2>
+    <p class="sub">Every sweep follows the same rules.</p>
+    <div class="rules">
+      <div class="rule"><h3>It never merges</h3><p>Sweeps open PRs, issues and drafts. Merging, deploying and touching production stay with you.</p></div>
+      <div class="rule"><h3>One finding, one PR</h3><p>Small, separate PRs that are quick to review and easy to revert. Each carries its evidence and test output.</p></div>
+      <div class="rule"><h3>It checks before it fixes</h3><p>Each finding is re-checked against the current code. A finding that turns out wrong is recorded as rejected, not shipped.</p></div>
+      <div class="rule"><h3>Quiet when it's clean</h3><p>When nothing new turned up, the report is a single line.</p></div>
+    </div>
+    <div class="story">
+      <span class="big">+71s</span>
+      <p>A dependency cache that "obviously" saved time made every CI run 71 seconds slower.</p>
+      <p class="note">ci-cost-sweep came out of that measurement. Its one rule: measure, never assume.</p>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">The GitHub repo is its own plugin marketplace. Add it once, then install the plugin.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>On your machine</h3>
+        <p>Installs for every repo you open in Claude Code.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre>claude plugin marketplace add jfreal/nightforge
+claude plugin install nightforge@nightforge --scope user</pre></div>
+      </div>
+      <div class="step">
+        <h3>For a team repo</h3>
+        <p>Commit this to the repo's <code>.claude/settings.json</code>. Then each teammate installs once with <code>--scope project</code>.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre>{
+  "extraKnownMarketplaces": {
+    "nightforge": {
+      "source": { "source": "github", "repo": "jfreal/nightforge" }
+    }
+  },
+  "enabledPlugins": { "nightforge@nightforge": true }
+}</pre></div>
+      </div>
+    </div>
+    <div class="callout"><strong>Using Claude Code on the web?</strong> Cloud sessions don't load plugins. Commit the skill folders you want under the repo's <code>.claude/skills/</code> instead. <a href="https://github.com/jfreal/nightforge#install">The README has the details.</a></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap trust">
+    <div>
+      <h2>No server. No telemetry.</h2>
+      <p class="sub" style="margin-bottom:0">NightForge is plain Markdown skills plus a few dependency-free Python scripts. Nothing contacts an outside service when it's installed. A skill reaches out only when you run it, through CLIs you've already signed in to.</p>
+    </div>
+    <ul class="svc">
+      <li><span>GitHub</span><span>gh</span></li>
+      <li><span>CodeRabbit</span><span>PR comments</span></li>
+      <li><span>Netlify</span><span>netlify CLI</span></li>
+      <li><span>Azure Application Insights</span><span>az CLI</span></li>
+      <li><span>Supabase</span><span>read-only queries</span></li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>NightForge by <a href="https://github.com/jfreal">John Farrell</a>. Public domain (Unlicense).</span>
+    <span><a href="https://github.com/jfreal/nightforge">github.com/jfreal/nightforge</a></span>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.parentElement.querySelector('pre').innerText;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
+    });
+  });
+</script>
+</body>
+</html>
