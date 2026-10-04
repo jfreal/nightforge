@@ -8,26 +8,84 @@ Agentic "dark factory" tools and skills that I use across my repos.
 
 ## Install
 
-Every skill under `skills/` ships as one Claude Code plugin. The repo is its own marketplace, so
-two commands install all of them on any machine that can read this repo:
+Every skill under `skills/` ships as one Claude Code plugin named `nightforge`. Once it is
+installed, the skills show up namespaced: `error-sweep` becomes `/nightforge:error-sweep`.
+
+### How marketplaces work
+
+Claude Code installs plugins only from a marketplace. You can't point it at a folder and say
+"install this". A marketplace is a git repo (or a local path or URL) holding a
+`.claude-plugin/marketplace.json` that lists plugins and where each one's files are.
+
+This repo is its own marketplace, and it holds two files:
+
+- `.claude-plugin/marketplace.json` is the catalog. It lists one plugin, `nightforge`, whose
+  source is `./`, meaning this repo.
+- `.claude-plugin/plugin.json` is the plugin's manifest: name, description, author.
+
+So the plugin's full name is `nightforge@nightforge`, the plugin `nightforge` from the marketplace
+`nightforge`. Installing takes two steps: register the marketplace, then install a plugin from it.
+
+An installed plugin is a copy pinned to a commit, not a live link to the repo. A push to this
+repo reaches you only after you update (see below).
+
+### On your own machine
+
+Run these once per machine. `--scope user` puts the plugin in `~/.claude`, so it loads in every
+repo you open:
 
 ```bat
 claude plugin marketplace add jfreal/nightforge
 claude plugin install nightforge@nightforge --scope user
 ```
 
-The installed plugin is a copy pinned to a commit, not a live link to your clone. After you push a
-skill change, pull it in and restart Claude Code:
+After a skill change is pushed, pull it in and restart Claude Code:
 
 ```bat
 claude plugin marketplace update nightforge
 claude plugin update nightforge@nightforge
 ```
 
-Plugin skills are namespaced, so `error-sweep` shows up as `nightforge:error-sweep`. A scheduled
-task that reads a skill by file path should point at a clone (`<clone>\skills\error-sweep\SKILL.md`).
-The plugin copy lives under a folder named after a commit hash, and that name changes on every
-update.
+### In another repo, for cloud sessions and teammates
+
+A user-scope install doesn't follow you into Claude Code on the web. A cloud session starts in a
+new container with a fresh clone, so your `~/.claude` isn't there. The session gets only what the
+repo itself commits. The same is true of a teammate who clones the repo.
+
+To give a repo the plugin, commit this `.claude/settings.json` at its root. If the repo already
+has one, merge in these two keys:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "nightforge": {
+      "source": { "source": "github", "repo": "jfreal/nightforge" }
+    }
+  },
+  "enabledPlugins": {
+    "nightforge@nightforge": true
+  }
+}
+```
+
+- `extraKnownMarketplaces` registers the marketplace for anyone working in the repo, the same as
+  running `claude plugin marketplace add`.
+- `enabledPlugins` turns the plugin on, the same as `claude plugin install`.
+
+On your machine, Claude Code prompts you to install the marketplace and plugin when you trust the
+repo's folder.
+A cloud session installs the plugin when it starts. No credentials are needed, because this repo
+is public. This repo commits the same file in `.claude/settings.json`, so sessions here get the
+plugin too.
+
+A cloud container is new every session, so it fetches the marketplace each time. A local
+checkout keeps whatever copy it installed until you run the `update` commands above.
+
+### Pointing at skill files
+
+A scheduled task that reads a skill by file path should point at a clone
+(`<clone>\skills\error-sweep\SKILL.md`). The plugin copy lives under a folder named after a
+commit hash, and that name changes on every update.
 
 Install the ELI10 output style by hand, as its section below shows.
 
@@ -121,6 +179,7 @@ skills/simple-issue-description/
 .claude-plugin/
   plugin.json                   the repo as one plugin: every skill under skills/
   marketplace.json              the repo as its own marketplace, listing that plugin
+.claude/settings.json           registers the marketplace and enables the plugin for sessions in this repo
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
