@@ -253,6 +253,7 @@
     .hero .wrap, .trust { grid-template-columns: 1fr; }
     .emblem { width: 220px; right: -40px; top: -80px; }
     .term-body { min-height: 0; font-size: 11.5px; }
+    .hero-art { margin-top: 96px; }
     .term-body .ln { grid-template-columns: 3.2em 1fr; }
     .term-body .ln span:last-child { grid-column: 2; }
     .night { grid-template-columns: 1fr 1fr; row-gap: 32px; }
@@ -452,45 +453,102 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
       el.appendChild(caret); setTimeout(tick, 700);
     }
     var cv = document.getElementById('sparks');
-    if (cv && !reduce && cv.getContext) {
-      var ctx = cv.getContext('2d'), hero = cv.parentElement, W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
-      var sparks = [], visible = true;
-      var size = function () { W = hero.clientWidth; H = hero.clientHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
-      size(); window.addEventListener('resize', size);
-      new IntersectionObserver(function (e) { visible = e[0].isIntersecting; }).observe(hero);
-      var spawn = function () {
-        var hotX = W * (W > 820 ? .72 : .55);
-        var x = Math.random() < .65 ? hotX + (Math.random() - .5) * W * .45 : Math.random() * W;
-        sparks.push({ x: x, y: H + 4, px: x, py: H + 4, vx: (Math.random() - .5) * .8, vy: -(1.4 + Math.random() * 3.2),
-          life: 0, max: 160 + Math.random() * 220, r: .6 + Math.random() * 1.8, wob: Math.random() * 6.28 });
+    if (cv && cv.getContext) {
+      var ctx = cv.getContext('2d'), hero = cv.parentElement, W = 0, H = 0, B = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var sparks = [], flames = [], visible = true, wide = true;
+      // the fire burns along the bottom of the first screen, so it's in view on any device
+      var size = function () {
+        W = hero.clientWidth; H = hero.clientHeight; wide = W > 820;
+        var top = hero.getBoundingClientRect().top + window.scrollY;
+        if (wide) { B = Math.min(H, window.innerHeight - top); if (B < 300) B = H; }
+        else { var cta = hero.querySelector('.cta'); B = cta ? cta.getBoundingClientRect().bottom + window.scrollY - top + 92 : H; }
+        cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       };
-      for (var s0 = 0; s0 < (W > 820 ? 140 : 50); s0++) { spawn(); var q = sparks[sparks.length - 1]; q.life = Math.random() * q.max * .7; q.y = H - Math.random() * H * .9; q.px = q.x; q.py = q.y; }
-      var last = 0;
-      var frame = function (t) {
-        requestAnimationFrame(frame);
-        if (!visible || t - last < 16) return;
-        last = t;
+      size(); window.addEventListener('resize', size); window.addEventListener('load', size);
+      if ('ResizeObserver' in window) new ResizeObserver(size).observe(hero);
+      if ('IntersectionObserver' in window) new IntersectionObserver(function (e) { visible = e[0].isIntersecting; }).observe(hero);
+
+      // soft round sprites in four heats: white-hot core to dull red
+      var heats = [[255, 244, 214], [255, 196, 90], [255, 122, 34], [190, 50, 12]];
+      var sprites = heats.map(function (c) {
+        var o = document.createElement('canvas'); o.width = o.height = 64;
+        var g = o.getContext('2d'), rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+        rg.addColorStop(0, 'rgba(' + c + ',1)'); rg.addColorStop(.4, 'rgba(' + c + ',.55)'); rg.addColorStop(1, 'rgba(' + c + ',0)');
+        g.fillStyle = rg; g.fillRect(0, 0, 64, 64); return o;
+      });
+      var hotX = function () { return W * (wide ? .7 : .5); };
+      var pickX = function (spread) { return Math.random() < .7 ? hotX() + (Math.random() - .5) * W * spread : Math.random() * W; };
+      var spawnFlame = function () {
+        var scale = wide ? 1 : .7;
+        flames.push({ x: pickX(wide ? .55 : .9), y: B + 10, vx: (Math.random() - .5) * .4, vy: -(1.2 + Math.random() * 1.6),
+          life: 0, max: 34 + Math.random() * 40, r: (10 + Math.random() * 18) * scale, wob: Math.random() * 6.28 });
+      };
+      var spawnSpark = function () {
+        var x = pickX(.45);
+        sparks.push({ x: x, y: B, px: x, py: B, vx: (Math.random() - .5) * .8, vy: -(1.6 + Math.random() * 3.4),
+          life: 0, max: 140 + Math.random() * 220, r: .6 + Math.random() * 1.8, wob: Math.random() * 6.28 });
+      };
+
+      var step = function () {
+        var nf = wide ? 7 : 4, ns = wide ? 3 : 1;
+        for (var k = 0; k < nf; k++) if (flames.length < (wide ? 520 : 260)) spawnFlame();
+        for (k = 0; k < ns; k++) if (sparks.length < (wide ? 300 : 110) && Math.random() < .75) spawnSpark();
+        for (var i = flames.length - 1; i >= 0; i--) {
+          var f = flames[i]; f.life++; f.wob += .15;
+          f.x += f.vx + Math.sin(f.wob) * .6; f.y += f.vy; f.vy *= 1.01;
+          f.x += (hotX() - f.x) * .002;
+          if (f.life >= f.max) flames.splice(i, 1);
+        }
+        for (i = sparks.length - 1; i >= 0; i--) {
+          var p = sparks[i]; p.life++; p.wob += .08; p.px = p.x; p.py = p.y;
+          p.x += p.vx + Math.sin(p.wob) * .35; p.y += p.vy; p.vy *= .996;
+          if (p.life >= p.max || p.y < -10) sparks.splice(i, 1);
+        }
+      };
+
+      var draw = function (t) {
         ctx.clearRect(0, 0, W, H);
         ctx.globalCompositeOperation = 'lighter';
-        var n = W > 820 ? 4 : 1;
-        for (var k = 0; k < n; k++) if (sparks.length < (W > 820 ? 320 : 120) && Math.random() < .75) spawn();
-        for (var i = sparks.length - 1; i >= 0; i--) {
-          var p = sparks[i];
-          p.life++; p.wob += .08; p.px = p.x; p.py = p.y;
-          p.x += p.vx + Math.sin(p.wob) * .35; p.y += p.vy; p.vy *= .996;
-          var f = 1 - p.life / p.max;
-          if (f <= 0 || p.y < -10) { sparks.splice(i, 1); continue; }
-          var g = Math.floor(80 + 150 * f * f), a = Math.min(1, f * 1.3) * .95;
+        // bed of coals under the flames
+        var flick = .8 + Math.sin(t * .006) * .08 + Math.sin(t * .017) * .06 + Math.random() * .06;
+        var bed = ctx.createRadialGradient(hotX(), B + 30, 10, hotX(), B + 30, W * (wide ? .45 : .8));
+        bed.addColorStop(0, 'rgba(255,170,60,' + .55 * flick + ')');
+        bed.addColorStop(.35, 'rgba(230,80,20,' + .32 * flick + ')');
+        bed.addColorStop(1, 'rgba(120,30,8,0)');
+        ctx.fillStyle = bed; ctx.fillRect(0, B - W * .5, W, W * .5 + 60);
+        // flames: young puffs burn white-yellow, old ones cool to red and shrink
+        for (var i = 0; i < flames.length; i++) {
+          var f = flames[i], age = f.life / f.max;
+          var k = age < .18 ? 0 : age < .45 ? 1 : age < .75 ? 2 : 3;
+          var r = f.r * (1 - age * .7);
+          ctx.globalAlpha = Math.min(1, (1 - age) * 1.6) * (k === 0 ? .3 : k === 3 ? .18 : .26);
+          ctx.drawImage(sprites[k], f.x - r, f.y - r * 2, r * 2, r * 3.6);
+        }
+        ctx.globalAlpha = 1;
+        for (i = 0; i < sparks.length; i++) {
+          var p = sparks[i], q = 1 - p.life / p.max;
+          var g = Math.floor(80 + 150 * q * q), a = Math.min(1, q * 1.3) * .95;
           var tx = p.x - (p.x - p.px) * 4, ty = p.y - (p.y - p.py) * 4;
           var grad = ctx.createLinearGradient(p.x, p.y, tx, ty);
-          grad.addColorStop(0, 'rgba(255,' + g + ',' + Math.floor(60 * f) + ',' + a + ')');
+          grad.addColorStop(0, 'rgba(255,' + g + ',' + Math.floor(60 * q) + ',' + a + ')');
           grad.addColorStop(1, 'rgba(255,70,10,0)');
           ctx.strokeStyle = grad; ctx.lineWidth = p.r * 1.1; ctx.lineCap = 'round';
-          ctx.shadowColor = 'rgba(255,110,20,' + a + ')'; ctx.shadowBlur = 10;
           ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tx, ty); ctx.stroke();
         }
       };
-      requestAnimationFrame(frame);
+
+      // warm the fire up so it's already burning on first paint
+      for (var w0 = 0; w0 < 90; w0++) step();
+      if (reduce) { draw(0); }
+      else {
+        var last = 0;
+        var frame = function (t) {
+          requestAnimationFrame(frame);
+          if (!visible || t - last < 16) return;
+          last = t; step(); draw(t);
+        };
+        requestAnimationFrame(frame);
+      }
     }
     var items = document.querySelectorAll('.reveal');
     if (reduce || !('IntersectionObserver' in window)) { items.forEach(function (n) { n.classList.add('in'); }); }
