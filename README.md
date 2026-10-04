@@ -8,26 +8,120 @@ Agentic "dark factory" tools and skills that I use across my repos.
 
 ## Install
 
-Every skill under `skills/` ships as one Claude Code plugin. The repo is its own marketplace, so
-two commands install all of them on any machine that can read this repo:
+Every skill under `skills/` ships as one Claude Code plugin named `nightforge`. Once it is
+installed, the skills show up namespaced: `error-sweep` becomes `/nightforge:error-sweep`.
+
+### How marketplaces work
+
+Claude Code installs plugins only from a marketplace. You can't point it at a folder and say
+"install this". A marketplace is a git repo (or a local path or URL) holding a
+`.claude-plugin/marketplace.json` that lists plugins and where each one's files are.
+
+This repo is its own marketplace, and it holds two files:
+
+- `.claude-plugin/marketplace.json` is the catalog. It lists one plugin, `nightforge`, whose
+  source is `./`, meaning this repo.
+- `.claude-plugin/plugin.json` is the plugin's manifest: name, description, author.
+
+So the plugin's full name is `nightforge@nightforge`, the plugin `nightforge` from the marketplace
+`nightforge`. Installing takes two steps: register the marketplace, then install a plugin from it.
+
+An installed plugin is a copy pinned to a commit, not a live link to the repo. A push to this
+repo reaches you only after you update (see below).
+
+### On your own machine
+
+Run these once per machine. `--scope user` puts the plugin in `~/.claude`, so it loads in every
+repo you open:
 
 ```bat
 claude plugin marketplace add jfreal/nightforge
 claude plugin install nightforge@nightforge --scope user
 ```
 
-The installed plugin is a copy pinned to a commit, not a live link to your clone. After you push a
-skill change, pull it in and restart Claude Code:
+After a skill change is pushed, pull it in and restart Claude Code:
 
 ```bat
 claude plugin marketplace update nightforge
 claude plugin update nightforge@nightforge
 ```
 
-Plugin skills are namespaced, so `error-sweep` shows up as `nightforge:error-sweep`. A scheduled
-task that reads a skill by file path should point at a clone (`<clone>\skills\error-sweep\SKILL.md`).
-The plugin copy lives under a folder named after a commit hash, and that name changes on every
-update.
+### In another repo, for teammates
+
+A repo can mark the plugin as the one to use, so everyone who works in it gets the same skills.
+Commit this `.claude/settings.json` at the repo's root. If the repo already has one, merge in these
+two keys:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "nightforge": {
+      "source": { "source": "github", "repo": "jfreal/nightforge" }
+    }
+  },
+  "enabledPlugins": {
+    "nightforge@nightforge": true
+  }
+}
+```
+
+- `extraKnownMarketplaces` registers the marketplace for the repo. It takes effect after you
+  trust the repo's folder.
+- `enabledPlugins` turns the plugin on for the repo but **doesn't download it**. Each teammate
+  installs it once on their own machine:
+
+  ```bat
+  claude plugin marketplace add jfreal/nightforge
+  claude plugin install nightforge@nightforge --scope project
+  ```
+
+  Until they do, `/plugin` shows the error `Plugin "nightforge" is enabled in project settings but
+  isn't installed here`.
+
+This repo commits the same `.claude/settings.json`. No credentials are needed, because the repo is
+public.
+
+### Cloud sessions don't load plugins
+
+Claude Code on the web (claude.ai/code) doesn't load plugins at all. That covers plugins installed
+on your own machine and plugins a repo's `.claude/settings.json` turns on. A cloud session also
+ignores `extraKnownMarketplaces`, because adding a marketplace needs the folder trust prompt, and a
+cloud session never shows one. See
+[Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web) and
+[plugin loading](https://code.claude.com/docs/en/plugins/loading).
+
+A cloud session reads only project skills committed under the repo's `.claude/skills/`. To use a
+nightforge skill there, commit a copy of its folder into that repo, for example
+`.claude/skills/codebase-cleanup/`. It then shows up as `/codebase-cleanup`, without the
+`nightforge:` prefix. `unslop` is shipped that way already. Copies don't update themselves, so
+copy the folder again after a change here.
+
+### What this plugin connects to
+
+The plugin has no server and sends no telemetry. Nothing contacts an outside service when it is
+installed or loaded. Network traffic happens only when you run a skill or script, it goes through
+CLIs you have already installed and signed in to, and it uses their credentials:
+
+| Service | Used by | How | What it does |
+|:---|:---|:---|:---|
+| GitHub | every sweep, `tools/coderabbit-sweep` | `gh` CLI | Reads repos, PRs, issues, Actions runs and caches. Writes branches, PRs, issues, comments and labels in the repos you point it at. `ci-cost-sweep` can delete Actions caches. |
+| CodeRabbit | `coderabbit-sweep`, `tools/coderabbit-sweep` | GitHub PR comments | Reads CodeRabbit's comments and posts review requests. There's no direct CodeRabbit API call. |
+| Netlify | `error-sweep` (Netlify adapter) | `netlify` CLI | Reads function logs and site/deploy data. |
+| Azure Application Insights | `error-sweep` (App Insights adapter) | `az` CLI | Reads exceptions and request telemetry. |
+| Supabase | `error-sweep` (Supabase adapter) | read-only queries | Reads errors. The adapter forbids `supabase db push` and all DDL. |
+| Your own sites | `error-sweep` (App Insights adapter) | `curl` | Sends `GET` requests to your own host to check that a fix took. |
+| NuGet | `error-sweep` (App Insights adapter) | `curl` | Reads public package version lists from `api.nuget.org`. |
+| Google Fonts | `tools/coderabbit-sweep` board | the browser | The generated `board.html` loads IBM Plex from `fonts.googleapis.com` when you open it. |
+
+An adapter only runs when a project card names it. A repo with no Netlify card never calls
+`netlify`. `tools/` holds Python 3.9+ with no third-party packages, so there are no
+dependencies or install scripts to fetch.
+
+### Pointing at skill files
+
+A scheduled task that reads a skill by file path should point at a clone
+(`<clone>\skills\error-sweep\SKILL.md`). The plugin copy lives under a folder named after a
+commit hash, and that name changes on every update.
 
 Install the ELI10 output style by hand, as its section below shows.
 
@@ -121,11 +215,13 @@ skills/simple-issue-description/
 .claude-plugin/
   plugin.json                   the repo as one plugin: every skill under skills/
   marketplace.json              the repo as its own marketplace, listing that plugin
+.claude/settings.json           registers the marketplace and enables the plugin for local sessions in this repo
 docs/project-card-template.md   the per-project input, and how to fill it in
 docs/docs-sweep-card-template.md  the docs-sweep roster card, and how to fill it in
 docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how to fill it in
 docs/sync-docs.md               how sync-docs works, and how this repo configures it
 docs/logo.png                   the NightForge logo shown at the top of this README
+docs/index.html                 the marketing page, served by GitHub Pages from docs/
 .claude/sync-docs/              this repo's own sync-docs config and registry
 ```
 

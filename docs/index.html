@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NightForge</title>
+<meta name="description" content="Claude Code skills that work your repos overnight: error sweeps, docs drift, CI cost, code cleanup. One small PR per fix, and they never merge.">
+<meta property="og:title" content="NightForge">
+<meta property="og:description" content="Claude Code skills that work your repos overnight. One small PR per fix, and they never merge.">
+<meta property="og:image" content="logo.png">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-raised: #151b24;
+    --bg-sunk: #0a0d12;
+    --line: #232c38;
+    --text: #e6e9ee;
+    --muted: #9aa4b2;
+    --ember: #ff8a3d;
+    --ember-hot: #ffb547;
+    --ember-deep: #c2410c;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--ember-hot); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  code, pre { font-family: var(--mono); }
+
+  /* nav */
+  nav { border-bottom: 1px solid var(--line); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; letter-spacing: .02em; }
+  .brand img { width: 26px; height: auto; filter: drop-shadow(0 0 6px rgba(255,120,40,.7)); }
+  .brand:hover { text-decoration: none; }
+  nav ul { display: flex; gap: 24px; list-style: none; margin: 0; padding: 0; font-size: 15px; }
+  nav ul a { color: var(--muted); }
+  nav ul a:hover { color: var(--text); text-decoration: none; }
+
+  /* hero */
+  .hero { position: relative; overflow: hidden; padding: 104px 0 112px; background: radial-gradient(ellipse at 50% -20%, #1b2433 0%, var(--bg) 60%); }
+  .hero .wrap { position: relative; display: grid; grid-template-columns: 1.05fr 1fr; gap: 56px; align-items: center; }
+  .eyebrow { font: 500 13px/1 var(--mono); color: var(--ember); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 20px; }
+  h1 { font-size: clamp(40px, 6vw, 64px); line-height: 1.05; letter-spacing: -.02em; margin: 0 0 24px; font-weight: 700; }
+  h1 em { font-style: normal; color: var(--ember); }
+  .lede { font-size: 20px; color: var(--muted); max-width: 34em; margin: 0 0 36px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 8px;
+    font-weight: 600; font-size: 16px; border: 1px solid var(--line); color: var(--text);
+  }
+  .btn:hover { text-decoration: none; border-color: var(--muted); }
+  .btn.primary { background: var(--ember); border-color: var(--ember); color: #1a0d03; }
+  .btn.primary:hover { background: var(--ember-hot); border-color: var(--ember-hot); }
+  /* stars */
+  .stars, .stars::before, .stars::after {
+    position: absolute; inset: 0; pointer-events: none;
+    background-repeat: repeat; background-size: 340px 340px;
+  }
+  .stars {
+    background-image:
+      radial-gradient(1px 1px at 20px 30px, #fff9 50%, transparent 51%),
+      radial-gradient(1px 1px at 140px 80px, #fff7 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 260px 40px, #fffb 50%, transparent 51%),
+      radial-gradient(1px 1px at 300px 190px, #fff6 50%, transparent 51%),
+      radial-gradient(1px 1px at 90px 220px, #fff8 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 200px 290px, #fff9 50%, transparent 51%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 45%, transparent 85%);
+  }
+  .stars::before {
+    content: ""; background-size: 520px 520px;
+    background-image:
+      radial-gradient(1px 1px at 60px 120px, #ffd9b0 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 380px 60px, #fff 50%, transparent 51%),
+      radial-gradient(1px 1px at 450px 330px, #fff 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 230px 440px, #ffe6c7 50%, transparent 51%);
+    animation: twinkle 5s ease-in-out infinite alternate;
+  }
+  .stars::after {
+    content: ""; background-size: 700px 700px;
+    background-image:
+      radial-gradient(2px 2px at 520px 140px, #fff 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 120px 560px, #fff 50%, transparent 51%),
+      radial-gradient(2px 2px at 330px 260px, #ffd9b0 50%, transparent 51%);
+    animation: twinkle 7s ease-in-out 2s infinite alternate;
+  }
+  @keyframes twinkle { from { opacity: .15; } to { opacity: 1; } }
+  .shooting {
+    position: absolute; top: 14%; left: 60%; width: 140px; height: 1px; pointer-events: none;
+    background: linear-gradient(90deg, #fff, transparent);
+    transform: rotate(-20deg); opacity: 0;
+    animation: shoot 9s ease-in 3s infinite;
+  }
+  @keyframes shoot {
+    0% { opacity: 0; transform: translate(0, 0) rotate(-20deg); }
+    2% { opacity: 1; }
+    8% { opacity: 0; transform: translate(-360px, 130px) rotate(-20deg); }
+    100% { opacity: 0; transform: translate(-360px, 130px) rotate(-20deg); }
+  }
+
+  /* glowing logo + terminal */
+  .hero-art { position: relative; }
+  .emblem {
+    position: absolute; width: 360px; right: -60px; top: -120px; opacity: .3; pointer-events: none;
+    filter: drop-shadow(0 0 50px rgba(255,110,30,.7));
+    animation: firelight 3.2s steps(1) infinite, firelight-soft 1.7s ease-in-out infinite;
+  }
+  @keyframes firelight {
+    0% { opacity: .3; } 12% { opacity: .38; } 19% { opacity: .27; } 31% { opacity: .35; }
+    44% { opacity: .42; } 52% { opacity: .29; } 67% { opacity: .37; } 81% { opacity: .31; } 93% { opacity: .4; }
+  }
+  @keyframes firelight-soft { 0%,100% { filter: drop-shadow(0 0 40px rgba(255,110,30,.55)); } 50% { filter: drop-shadow(0 0 80px rgba(255,140,40,.95)); } }
+  .ember-glow {
+    position: absolute; inset: 10% 0 -10% 0; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(255,110,30,.42), rgba(194,65,12,.15) 55%, transparent 75%);
+    filter: blur(24px); animation: breathe 2.6s ease-in-out infinite, flicker 4.3s linear infinite;
+  }
+  @keyframes breathe { 0%,100% { transform: scale(.95); } 50% { transform: scale(1.06); } }
+  @keyframes flicker {
+    0% { opacity: .75; } 7% { opacity: .95; } 11% { opacity: .7; } 23% { opacity: 1; } 29% { opacity: .82; }
+    41% { opacity: .68; } 47% { opacity: .96; } 58% { opacity: .78; } 66% { opacity: .9; } 79% { opacity: .72; } 88% { opacity: 1; } 100% { opacity: .75; }
+  }
+
+  /* the forge: molten floor, sparks, heat */
+  .forge-floor {
+    position: absolute; left: -10%; right: -10%; bottom: -120px; height: 620px; pointer-events: none; transform-origin: 50% 100%;
+    background:
+      radial-gradient(ellipse 30% 30% at 68% 100%, rgba(255,220,120,.75), transparent 70%),
+      radial-gradient(ellipse 50% 55% at 66% 100%, rgba(255,140,40,.55), transparent 70%),
+      radial-gradient(ellipse 80% 75% at 55% 100%, rgba(230,80,20,.38), transparent 72%),
+      radial-gradient(ellipse 120% 90% at 50% 100%, rgba(150,40,10,.3), transparent 78%);
+    filter: blur(10px); animation: flicker 3.7s linear infinite, heave 6s ease-in-out infinite;
+  }
+  @keyframes heave { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(1.12); } }
+  .sparks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; mix-blend-mode: screen; }
+  .hero::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(255,138,61,.9), rgba(255,200,90,1), rgba(255,138,61,.9), transparent);
+    box-shadow: 0 0 18px 2px rgba(255,120,40,.6);
+  }
+  .term {
+    position: relative; background: rgba(10,13,18,.88); border: 1px solid #2b3544; border-radius: 12px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,138,61,.12), 0 24px 70px -10px rgba(255,110,30,.35), inset 0 -40px 60px -40px rgba(255,120,40,.25);
+    border-bottom-color: rgba(255,150,70,.55);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
+  }
+  .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3544; }
+  .term-bar span { margin-left: 8px; font: 500 12px/1 var(--mono); color: var(--muted); }
+  .term-body { font: 13px/1.6 var(--mono); padding: 16px 18px 18px; min-height: 312px; color: var(--muted); }
+  .term-body .ln { display: grid; grid-template-columns: 5ch 17ch 1fr; gap: 0 12px; margin-bottom: 6px; animation: lnin .35s ease-out; }
+  @keyframes lnin { from { opacity: 0; transform: translateX(-6px); } }
+  .term-body .t { color: #5d6b7e; }
+  .term-body .k { color: var(--text); }
+  .term-body .ok { color: #7ee2a8; }
+  .term-body .hot { color: var(--ember-hot); }
+  .caret { display: inline-block; width: 8px; height: 15px; background: var(--ember); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .term-note { margin: 10px 2px 0; font: 12px/1.4 var(--mono); color: #5d6b7e; text-align: right; }
+
+  /* scroll reveal + hover */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  .card { transition: border-color .25s, transform .25s, box-shadow .25s; }
+  .card:hover { border-color: rgba(255,138,61,.45); transform: translateY(-3px); box-shadow: 0 12px 40px rgba(255,120,40,.08); }
+  .btn.primary { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: pulse 2.8s ease-out infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,138,61,.45); } 70%,100% { box-shadow: 0 0 0 14px rgba(255,138,61,0); } }
+  h1 em { background: linear-gradient(90deg, var(--ember-hot), var(--ember), var(--ember-deep), var(--ember-hot)); background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 8s linear infinite, heat 2.4s ease-in-out infinite; }
+  @keyframes heat { 0%,100% { filter: drop-shadow(0 0 10px rgba(255,120,40,.45)); } 50% { filter: drop-shadow(0 0 26px rgba(255,150,50,.85)); } }
+  @keyframes forge { to { background-position: 300% 0; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+
+  /* sections */
+  section { position: relative; padding: 88px 0; border-top: 1px solid var(--line); }
+  section::before { content: ""; position: absolute; top: -1px; left: 50%; width: 360px; max-width: 70%; height: 1px; transform: translateX(-50%); background: linear-gradient(90deg, transparent, rgba(255,138,61,.7), transparent); }
+  h2 { font-size: clamp(28px, 4vw, 38px); line-height: 1.15; letter-spacing: -.01em; margin: 0 0 16px; }
+  .sub { color: var(--muted); max-width: 40em; margin: 0 0 48px; font-size: 18px; }
+
+  /* night timeline */
+  .night { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; position: relative; }
+  .night::before { content: ""; position: absolute; top: 18px; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, var(--line), var(--ember-deep), var(--line)); }
+  .tick { position: relative; padding: 48px 20px 0 0; }
+  .tick::before { content: ""; position: absolute; top: 12px; left: 0; width: 13px; height: 13px; border-radius: 50%; background: radial-gradient(circle, var(--ember-hot), var(--ember-deep)); box-shadow: 0 0 12px 2px rgba(255,120,40,.7); }
+  .tick time { font: 500 14px/1 var(--mono); color: var(--ember); }
+  .tick h3 { margin: 10px 0 6px; font-size: 18px; }
+  .tick p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* skills */
+  .group { margin-bottom: 48px; }
+  .group:last-child { margin-bottom: 0; }
+  .group-label { font: 500 13px/1 var(--mono); color: var(--muted); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 24px; }
+  .card h3 { margin: 0 0 4px; font: 600 17px/1.3 var(--mono); color: var(--text); }
+  .card .when { font: 500 12px/1 var(--mono); color: var(--ember); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 14px; display: block; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* rules */
+  .rules { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 32px; }
+  .rule h3 { font-size: 18px; margin: 0 0 8px; }
+  .rule h3::before { content: "▸ "; color: var(--ember); }
+  .rule p { margin: 0; color: var(--muted); font-size: 15px; }
+  .story { margin-top: 56px; background: linear-gradient(90deg, rgba(255,110,30,.08), var(--bg-sunk) 40%); border-left: 3px solid var(--ember-hot); box-shadow: -6px 0 24px -6px rgba(255,120,40,.6); border-radius: 0 12px 12px 0; padding: 28px 32px; }
+  .story p { margin: 0; font-size: 18px; }
+  .story .big { font: 600 40px/1 var(--mono); color: var(--ember-hot); text-shadow: 0 0 18px rgba(255,140,50,.7); display: block; margin-bottom: 12px; }
+  .story .note { margin-top: 10px; color: var(--muted); font-size: 15px; }
+
+  /* install */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+  .step h3 { margin: 0 0 6px; font-size: 18px; }
+  .step p { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+  .code { position: relative; background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 10px; }
+  .code pre { margin: 0; padding: 18px 20px; overflow-x: auto; font-size: 14px; line-height: 1.7; color: var(--text); }
+  .code pre .c { color: var(--muted); }
+  .copy {
+    position: absolute; top: 8px; right: 8px; font: 500 12px/1 var(--mono); padding: 7px 10px; border-radius: 6px;
+    background: var(--bg-raised); color: var(--muted); border: 1px solid var(--line); cursor: pointer;
+  }
+  .copy:hover { color: var(--text); }
+  .callout { margin-top: 32px; padding: 20px 24px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 15px; }
+  .callout strong { color: var(--text); }
+
+  /* trust */
+  .trust { display: grid; grid-template-columns: 1fr 1.3fr; gap: 48px; align-items: start; }
+  .svc { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .svc li { display: flex; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+  .svc li span:last-child { color: var(--muted); font-family: var(--mono); font-size: 13px; text-align: right; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
+
+  @media (max-width: 820px) {
+    .hero { padding: 56px 0; }
+    .hero .wrap, .trust { grid-template-columns: 1fr; }
+    .emblem { width: 220px; right: -40px; top: -80px; }
+    .term-body { min-height: 0; font-size: 11.5px; }
+    .term-body .ln { grid-template-columns: 3.2em 1fr; }
+    .term-body .ln span:last-child { grid-column: 2; }
+    .night { grid-template-columns: 1fr 1fr; row-gap: 32px; }
+    .night::before { display: none; }
+    nav ul { display: none; }
+    section { padding: 64px 0; }
+  }
+  @media (max-width: 480px) {
+    .wrap { padding: 0 16px; }
+    .night { grid-template-columns: 1fr; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="logo.png" alt="">NightForge</a>
+    <ul>
+      <li><a href="#skills">Skills</a></li>
+      <li><a href="#rules">How it works</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="https://github.com/jfreal/nightforge">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="stars" aria-hidden="true"></div>
+  <div class="forge-floor" aria-hidden="true"></div>
+  <canvas class="sparks" id="sparks" aria-hidden="true"></canvas>
+  <div class="shooting" aria-hidden="true"></div>
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">A Claude Code plugin</p>
+      <h1>Your repos get fixed <em>overnight</em>.</h1>
+      <p class="lede">NightForge is a set of Claude Code skills that sweep your projects while you're away. They pick up production errors, docs that no longer match the code, wasted CI minutes and starved code reviews. Every fix lands as a small pull request you review in the morning.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install in two commands</a>
+        <a class="btn" href="https://github.com/jfreal/nightforge">View on GitHub →</a>
+      </div>
+    </div>
+    <div class="hero-art">
+      <div class="ember-glow" aria-hidden="true"></div>
+      <img class="emblem" src="logo.png" alt="">
+      <div class="term" role="img" aria-label="Example terminal log of an overnight NightForge run">
+        <div class="term-bar"><i></i><i></i><i></i><span>nightforge — overnight</span></div>
+        <div class="term-body" id="term"></div>
+      </div>
+      <p class="term-note">An illustrative run, not real data</p>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>One night with NightForge</h2>
+    <p class="sub">Each sweep runs as a scheduled task with its own small config card. When there's nothing new, the report is one line.</p>
+    <div class="night">
+      <div class="tick reveal"><time>Every hour</time><h3>Retry starved reviews</h3><p>coderabbit-sweep finds PRs that hit CodeRabbit's rate limit and spends the next free review on the one that has waited longest.</p></div>
+      <div class="tick reveal"><time>Overnight</time><h3>Sweep production errors</h3><p>error-sweep collects errors, dedupes them against the issue tracker, files an issue and opens a fix PR.</p></div>
+      <div class="tick reveal"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a draft PR wherever a page no longer matches its code.</p></div>
+      <div class="tick reveal"><time>Morning</time><h3>You review</h3><p>Small PRs, each with evidence and test output. Nothing gets merged until you merge it.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="skills">
+  <div class="wrap">
+    <h2>What's in the box</h2>
+    <p class="sub">Nine skills in one plugin. Once it's installed they're namespaced, so <code>error-sweep</code> runs as <code>/nightforge:error-sweep</code>.</p>
+
+    <div class="group">
+      <p class="group-label">Scheduled sweeps</p>
+      <div class="grid">
+        <div class="card reveal"><h3>error-sweep</h3><span class="when">Overnight</span><p>Collects production errors, normalizes them to stable signatures, triages each against the real source, files an issue and opens a fix PR from an isolated worktree. Adapters for Netlify, Supabase, Azure Application Insights and GitHub.</p></div>
+        <div class="card reveal"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a draft PR. Clean repos get one line.</p></div>
+        <div class="card reveal"><h3>coderabbit-sweep</h3><span class="when">Hourly</span><p>CodeRabbit's review allowance is shared across all your repos, and PRs that miss it are never retried. This is the retry. Label a PR to put it first in line.</p></div>
+        <div class="card reveal"><h3>onboarding-sweep</h3><span class="when">Hourly</span><p>A bot signs up as a new user and logs what it hit to a Notion board. This sweep turns each finding into a fix PR and tracks it through merge and deploy.</p></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="group-label">On demand</p>
+      <div class="grid">
+        <div class="card reveal"><h3>codebase-cleanup</h3><span class="when">/codebase-cleanup</span><p>Reads the whole repo, logs every finding with <code>path:line</code> evidence and a size, then ships one branch and one PR per small fix. Bigger findings become issues.</p></div>
+        <div class="card reveal"><h3>ci-cost-sweep</h3><span class="when">/ci-cost-sweep</span><p>Measures where your CI minutes actually go, down to each cache, then cuts them without cutting coverage. Run it with <code>fix</code> to get a PR.</p></div>
+        <div class="card reveal"><h3>sync-docs</h3><span class="when">/sync-docs</span><p>Links source files to the doc pages that describe them, and flags pages whose sources changed, orphaned pages and lists that no longer match disk.</p></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="group-label">Writing</p>
+      <div class="grid">
+        <div class="card reveal"><h3>unslop</h3><span class="when">Any prose</span><p>Strips the tells of AI-written prose and puts a voice back in.</p></div>
+        <div class="card reveal"><h3>simple-issue-description</h3><span class="when">/simple-issue-description</span><p>Turns a rough bug report, request or PR into a short issue about the problem and the behavior you want.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="rules">
+  <div class="wrap">
+    <h2>Built for unattended work</h2>
+    <p class="sub">Every sweep follows the same rules.</p>
+    <div class="rules">
+      <div class="rule reveal"><h3>It never merges</h3><p>Sweeps open PRs, issues and drafts. Merging, deploying and touching production stay with you.</p></div>
+      <div class="rule reveal"><h3>One finding, one PR</h3><p>Small, separate PRs that are quick to review and easy to revert. Each carries its evidence and test output.</p></div>
+      <div class="rule reveal"><h3>It checks before it fixes</h3><p>Each finding is re-checked against the current code. A finding that turns out wrong is recorded as rejected, not shipped.</p></div>
+      <div class="rule reveal"><h3>Quiet when it's clean</h3><p>When nothing new turned up, the report is a single line.</p></div>
+    </div>
+    <div class="story reveal">
+      <span class="big">+71s</span>
+      <p>A dependency cache that "obviously" saved time made every CI run 71 seconds slower.</p>
+      <p class="note">ci-cost-sweep came out of that measurement. Its one rule: measure, never assume.</p>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>Install</h2>
+    <p class="sub">The GitHub repo is its own plugin marketplace. Add it once, then install the plugin.</p>
+    <div class="steps">
+      <div class="step reveal">
+        <h3>On your machine</h3>
+        <p>Installs for every repo you open in Claude Code.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre>claude plugin marketplace add jfreal/nightforge
+claude plugin install nightforge@nightforge --scope user</pre></div>
+      </div>
+      <div class="step reveal">
+        <h3>For a team repo</h3>
+        <p>Commit this to the repo's <code>.claude/settings.json</code>. Then each teammate installs once with <code>--scope project</code>.</p>
+        <div class="code"><button class="copy" type="button">Copy</button><pre>{
+  "extraKnownMarketplaces": {
+    "nightforge": {
+      "source": { "source": "github", "repo": "jfreal/nightforge" }
+    }
+  },
+  "enabledPlugins": { "nightforge@nightforge": true }
+}</pre></div>
+      </div>
+    </div>
+    <div class="callout"><strong>Using Claude Code on the web?</strong> Cloud sessions don't load plugins. Commit the skill folders you want under the repo's <code>.claude/skills/</code> instead. <a href="https://github.com/jfreal/nightforge#install">The README has the details.</a></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap trust">
+    <div>
+      <h2>No server. No telemetry.</h2>
+      <p class="sub" style="margin-bottom:0">NightForge is plain Markdown skills plus a few dependency-free Python scripts. Nothing contacts an outside service when it's installed. A skill reaches out only when you run it, through CLIs you've already signed in to.</p>
+    </div>
+    <ul class="svc">
+      <li><span>GitHub</span><span>gh</span></li>
+      <li><span>CodeRabbit</span><span>PR comments</span></li>
+      <li><span>Netlify</span><span>netlify CLI</span></li>
+      <li><span>Azure Application Insights</span><span>az CLI</span></li>
+      <li><span>Supabase</span><span>read-only queries</span></li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>NightForge by <a href="https://github.com/jfreal">John Farrell</a>. Public domain (Unlicense).</span>
+    <span><a href="https://github.com/jfreal/nightforge">github.com/jfreal/nightforge</a></span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var lines = [
+      ['01:00', 'coderabbit-sweep', '2 PRs starved. Reviewing #48.', ''],
+      ['02:00', 'error-sweep', '214 errors → <span class="hot">3 new signatures</span>', ''],
+      ['02:06', 'error-sweep', 'triaged checkout.ts:88', ''],
+      ['02:19', 'error-sweep', '<span class="ok">PR #212</span> guard empty cart', ''],
+      ['02:31', 'error-sweep', '<span class="ok">PR #213</span> retry webhook on 429', ''],
+      ['03:00', 'docs-sweep', '6 repos audited, 1 drifted', ''],
+      ['03:12', 'docs-sweep', '<span class="ok">draft PR</span> sync API docs', ''],
+      ['07:00', 'report', '<span class="k">4 PRs to review. 0 merged.</span>', '']
+    ];
+    var el = document.getElementById('term');
+    function row(l) {
+      return '<div class="ln"><span class="t">' + l[0] + '</span><span class="k">' + l[1] + '</span><span>' + l[2] + '</span></div>';
+    }
+    if (reduce) { el.innerHTML = lines.map(row).join(''); }
+    else {
+      var i = 0;
+      var caret = document.createElement('span'); caret.className = 'caret';
+      var tick = function () {
+        if (i < lines.length) { caret.insertAdjacentHTML('beforebegin', row(lines[i++])); setTimeout(tick, 650 + Math.random() * 500); }
+        else { setTimeout(function () { i = 0; el.innerHTML = ''; el.appendChild(caret); setTimeout(tick, 600); }, 6000); }
+      };
+      el.appendChild(caret); setTimeout(tick, 700);
+    }
+    var cv = document.getElementById('sparks');
+    if (cv && !reduce && cv.getContext) {
+      var ctx = cv.getContext('2d'), hero = cv.parentElement, W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var sparks = [], visible = true;
+      var size = function () { W = hero.clientWidth; H = hero.clientHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+      size(); window.addEventListener('resize', size);
+      new IntersectionObserver(function (e) { visible = e[0].isIntersecting; }).observe(hero);
+      var spawn = function () {
+        var hotX = W * (W > 820 ? .72 : .55);
+        var x = Math.random() < .65 ? hotX + (Math.random() - .5) * W * .45 : Math.random() * W;
+        sparks.push({ x: x, y: H + 4, px: x, py: H + 4, vx: (Math.random() - .5) * .8, vy: -(1.4 + Math.random() * 3.2),
+          life: 0, max: 160 + Math.random() * 220, r: .6 + Math.random() * 1.8, wob: Math.random() * 6.28 });
+      };
+      for (var s0 = 0; s0 < (W > 820 ? 140 : 50); s0++) { spawn(); var q = sparks[sparks.length - 1]; q.life = Math.random() * q.max * .7; q.y = H - Math.random() * H * .9; q.px = q.x; q.py = q.y; }
+      var last = 0;
+      var frame = function (t) {
+        requestAnimationFrame(frame);
+        if (!visible || t - last < 16) return;
+        last = t;
+        ctx.clearRect(0, 0, W, H);
+        ctx.globalCompositeOperation = 'lighter';
+        var n = W > 820 ? 4 : 1;
+        for (var k = 0; k < n; k++) if (sparks.length < (W > 820 ? 320 : 120) && Math.random() < .75) spawn();
+        for (var i = sparks.length - 1; i >= 0; i--) {
+          var p = sparks[i];
+          p.life++; p.wob += .08; p.px = p.x; p.py = p.y;
+          p.x += p.vx + Math.sin(p.wob) * .35; p.y += p.vy; p.vy *= .996;
+          var f = 1 - p.life / p.max;
+          if (f <= 0 || p.y < -10) { sparks.splice(i, 1); continue; }
+          var g = Math.floor(80 + 150 * f * f), a = Math.min(1, f * 1.3) * .95;
+          var tx = p.x - (p.x - p.px) * 4, ty = p.y - (p.y - p.py) * 4;
+          var grad = ctx.createLinearGradient(p.x, p.y, tx, ty);
+          grad.addColorStop(0, 'rgba(255,' + g + ',' + Math.floor(60 * f) + ',' + a + ')');
+          grad.addColorStop(1, 'rgba(255,70,10,0)');
+          ctx.strokeStyle = grad; ctx.lineWidth = p.r * 1.1; ctx.lineCap = 'round';
+          ctx.shadowColor = 'rgba(255,110,20,' + a + ')'; ctx.shadowBlur = 10;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(tx, ty); ctx.stroke();
+        }
+      };
+      requestAnimationFrame(frame);
+    }
+    var items = document.querySelectorAll('.reveal');
+    if (reduce || !('IntersectionObserver' in window)) { items.forEach(function (n) { n.classList.add('in'); }); }
+    else {
+      var io = new IntersectionObserver(function (es) {
+        es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+      }, { threshold: .12 });
+      items.forEach(function (n, k) { n.style.transitionDelay = (k % 4) * 70 + 'ms'; io.observe(n); });
+    }
+  })();
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.parentElement.querySelector('pre').innerText;
+      var done = function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, function () {});
+    });
+  });
+</script>
+</body>
+</html>
