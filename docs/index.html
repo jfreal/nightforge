@@ -117,7 +117,7 @@
   .emblem {
     position: absolute; width: 360px; right: -60px; top: -120px; opacity: .3; pointer-events: none;
     filter: drop-shadow(0 0 50px rgba(255,110,30,.7));
-    animation: firelight 3.2s steps(1) infinite, firelight-soft 1.7s ease-in-out infinite;
+    animation: firelight 3.2s steps(1) infinite;
   }
   @keyframes firelight {
     0% { opacity: .3; } 12% { opacity: .38; } 19% { opacity: .27; } 31% { opacity: .35; }
@@ -156,7 +156,7 @@
     position: relative; background: rgba(10,13,18,.88); border: 1px solid #2b3544; border-radius: 12px;
     box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,138,61,.12), 0 24px 70px -10px rgba(255,110,30,.35), inset 0 -40px 60px -40px rgba(255,120,40,.25);
     border-bottom-color: rgba(255,150,70,.55);
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); overflow: hidden;
+    overflow: hidden;
   }
   .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
   .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3544; }
@@ -180,7 +180,7 @@
   .btn.primary { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: pulse 2.8s ease-out infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,138,61,.45); } 70%,100% { box-shadow: 0 0 0 14px rgba(255,138,61,0); } }
   h1 em { background: linear-gradient(90deg, var(--ember-hot), var(--ember), var(--ember-deep), var(--ember-hot)); background-size: 300% 100%;
-    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 8s linear infinite, heat 2.4s ease-in-out infinite; }
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: forge 8s linear infinite; filter: drop-shadow(0 0 16px rgba(255,130,45,.6)); }
   @keyframes heat { 0%,100% { filter: drop-shadow(0 0 10px rgba(255,120,40,.45)); } 50% { filter: drop-shadow(0 0 26px rgba(255,150,50,.85)); } }
   @keyframes forge { to { background-position: 300% 0; } }
 
@@ -252,7 +252,7 @@
     .hero { padding: 56px 0; }
     .hero .wrap, .trust { grid-template-columns: 1fr; }
     .emblem { width: 220px; right: -40px; top: -80px; }
-    .term-body { min-height: 0; font-size: 11.5px; }
+    .term-body { min-height: 400px; font-size: 11.5px; }
     .hero-art { margin-top: 96px; }
     .term-body .ln { grid-template-columns: 3.2em 1fr; }
     .term-body .ln span:last-child { grid-column: 2; }
@@ -458,6 +458,10 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
       var coals = [], embers = [], sparks = [], visible = true, wide = true;
       var rnd = function (a, b) { return a + Math.random() * (b - a); };
       var hotX = function () { return W * (wide ? .7 : .5); };
+      var glow = document.createElement('canvas'); glow.width = glow.height = 32;
+      (function () { var g = glow.getContext('2d'), rg = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+        rg.addColorStop(0, 'rgba(255,230,170,1)'); rg.addColorStop(.18, 'rgba(255,170,70,.9)'); rg.addColorStop(.45, 'rgba(255,100,25,.25)'); rg.addColorStop(1, 'rgba(255,80,20,0)');
+        g.fillStyle = rg; g.fillRect(0, 0, 32, 32); })();
 
       // a bed of irregular coals, two rows deep, hottest under the terminal
       var buildCoals = function () {
@@ -482,12 +486,14 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
       };
 
       var size = function () {
+        var oldW = W, oldB = B, oldH = H;
         W = hero.clientWidth; H = hero.clientHeight; wide = W > 820;
         var top = hero.getBoundingClientRect().top + window.scrollY;
         if (wide) { B = Math.min(H, window.innerHeight - top) - 18; if (B < 300) B = H - 18; }
         else { var cta = hero.querySelector('.cta'); B = cta ? cta.getBoundingClientRect().bottom + window.scrollY - top + 70 : H - 18; }
-        cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        buildCoals();
+        if (W !== oldW || H !== oldH) { cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+        // only lay a new bed when the width or the bed's line actually moved
+        if (W !== oldW || Math.abs(B - oldB) > 6) buildCoals();
       };
       size(); window.addEventListener('resize', size); window.addEventListener('load', size);
       if ('ResizeObserver' in window) new ResizeObserver(size).observe(hero);
@@ -502,22 +508,23 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
       var spawnEmber = function () {
         var c = coals[Math.floor(Math.random() * coals.length)];
         if (!c || Math.random() > c.base + .2) return;
-        embers.push({ x: c.x + rnd(-c.r * .4, c.r * .4), y: c.y - c.r * .3, vx: rnd(-.15, .15), vy: -rnd(.25, .8),
-          life: 0, max: rnd(160, 380), r: rnd(.8, 2.2), wob: rnd(0, 6.28), tw: rnd(.05, .15) });
+        embers.push({ x: c.x + rnd(-c.r * .4, c.r * .4), y: c.y - c.r * .3, vx: rnd(-.12, .12), vy: -rnd(.22, .55),
+          life: 0, max: rnd(420, 900), r: rnd(.9, 2), wob: rnd(0, 6.28), ws: rnd(.008, .02), amp: rnd(.2, .55),
+          drift: rnd(-.0015, .0015), tw: rnd(.03, .09), trail: [] });
       };
 
       var step = function () {
         for (var i = 0; i < coals.length; i++) {
           var c = coals[i];
           c.flare *= .93;
-          if (Math.random() < .0022 * (c.base + .3)) { c.flare = rnd(.35, .75); if (Math.random() < .6) emit(c, 2 + Math.floor(Math.random() * 6)); }
+          if (Math.random() < .0022 * (c.base + .3)) { c.flare = rnd(.35, .75); if (Math.random() < .15) emit(c, 1 + Math.floor(Math.random() * 3)); }
         }
-        if (embers.length < (wide ? 140 : 60) && Math.random() < (wide ? .6 : .3)) spawnEmber();
-        if (Math.random() < (wide ? .02 : .01) && coals.length) emit(coals[Math.floor(Math.random() * coals.length)], 1);
+        if (embers.length < (wide ? 90 : 40) && Math.random() < (wide ? .22 : .12)) spawnEmber();
         for (i = embers.length - 1; i >= 0; i--) {
-          var e = embers[i]; e.life++; e.wob += .03;
-          e.x += e.vx + Math.sin(e.wob) * .25; e.y += e.vy;
-          if (e.life >= e.max) embers.splice(i, 1);
+          var e = embers[i]; e.life++; e.wob += e.ws; e.vx += e.drift;
+          e.x += e.vx + Math.sin(e.wob) * e.amp; e.y += e.vy; e.vy *= .9995;
+          if (e.life % 3 === 0) { e.trail.push(e.x, e.y); if (e.trail.length > 36) e.trail.splice(0, 2); }
+          if (e.life >= e.max || e.y < -20) embers.splice(i, 1);
         }
         for (i = sparks.length - 1; i >= 0; i--) {
           var p = sparks[i]; p.life++; p.px = p.x; p.py = p.y;
@@ -567,14 +574,20 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
         }
         // drifting embers and popping sparks
         ctx.globalCompositeOperation = 'lighter';
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         for (i = 0; i < embers.length; i++) {
           var e = embers[i], q = e.life / e.max;
-          var a = Math.min(1, q * 8) * (1 - q) * (.6 + .4 * Math.sin(e.life * e.tw));
-          ctx.fillStyle = 'rgba(255,' + Math.floor(120 + 80 * (1 - q)) + ',40,' + a + ')';
-          ctx.shadowColor = 'rgba(255,100,20,' + a + ')'; ctx.shadowBlur = 8;
-          ctx.beginPath(); ctx.arc(e.x, e.y, e.r * (1 - q * .5), 0, 6.28); ctx.fill();
+          var a = Math.min(1, q * 10) * (1 - q) * (.65 + .35 * Math.sin(e.life * e.tw));
+          var tr = e.trail;
+          if (tr.length > 4) {
+            ctx.strokeStyle = 'rgba(255,110,30,' + a * .16 + ')'; ctx.lineWidth = e.r * .9;
+            ctx.beginPath(); ctx.moveTo(tr[0], tr[1]);
+            for (var j = 2; j < tr.length - 2; j += 2) ctx.quadraticCurveTo(tr[j], tr[j + 1], (tr[j] + tr[j + 2]) / 2, (tr[j + 1] + tr[j + 3]) / 2);
+            ctx.lineTo(e.x, e.y); ctx.stroke();
+          }
+          var rr = e.r * (1 - q * .4) * 5;
+          ctx.globalAlpha = a; ctx.drawImage(glow, e.x - rr, e.y - rr, rr * 2, rr * 2); ctx.globalAlpha = 1;
         }
-        ctx.shadowBlur = 0;
         for (i = 0; i < sparks.length; i++) {
           var p = sparks[i], f = 1 - p.life / p.max;
           var tx = p.x - (p.x - p.px) * 3, ty = p.y - (p.y - p.py) * 3;
