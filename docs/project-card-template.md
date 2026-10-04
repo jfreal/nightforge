@@ -104,6 +104,30 @@ Seed the knowledge store with at least one `fix-agent` row: how to install deps 
 how to typecheck, test, lint, build, and any deploy whitelist a new build input must be added to.
 The fix-agent brief pastes it verbatim.
 
+## The onboarding-sweep card
+
+`onboarding-sweep` takes a project card too, in its own `*-onboarding-sweep` scheduled task. It
+shares the app and repo identifiers with the error-sweep card above, but reads a different board and
+different limits. Its pipeline, `skills/onboarding-sweep/SKILL.md`, reads off the card:
+
+- **App** and **Repo**: app + URL, repo path + GitHub slug + default branch, as above.
+- **Notion board**: the "Onboarding dogfood" board page and its two data-source URLs, **runs** and
+  **findings**. The sweep never changes the board's schema; a column the card wants and the board
+  lacks is kept in the ledger and requested in the report.
+- **Ledger**: the path of its `seen.json`. The per-day fix count comes from it.
+- **Report** paths.
+- **Fix caps**: a per-run cap and a per-day cap. A run spends the per-run cap without pushing the
+  day's total past the per-day cap.
+- **Branch prefix** and **open-PR ceiling**: when the open PRs on branches with that prefix reach the
+  ceiling, the run spawns nothing.
+- **Verify commands**: dependency install, and the checks a fix must pass. The fix-agent brief pastes
+  them verbatim, with the card's known noise for the typecheck, if any.
+- **Deploy lookup**: how to learn which commit is live.
+
+Knowledge goes to a different place here. A gotcha about the project (a screen that moved, a verify
+command that changed) belongs in this card, and a gotcha about the Notion tools belongs in
+`skills/onboarding-sweep/SKILL.md`. The rules in "Where knowledge goes when you learn it", below, are error-sweep's.
+
 ## Why the card is thin
 
 Three sweeps that started as three hand-written procedures drifted into three different pipelines
