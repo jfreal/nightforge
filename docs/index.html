@@ -148,16 +148,13 @@
   .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
   .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3544; }
   .term-bar span { margin-left: 8px; font: 500 12px/1 var(--mono); color: var(--muted); }
-  .term-body { font: 13px/1.6 var(--mono); padding: 16px 18px 18px; min-height: 312px; color: var(--muted); }
-  .term-body .ln { display: grid; grid-template-columns: 5ch 17ch 1fr; gap: 0 12px; margin-bottom: 6px; animation: lnin .35s ease-out; }
-  @keyframes lnin { from { opacity: 0; transform: translateX(-6px); } }
-  .term-body .t { color: #5d6b7e; }
-  .term-body .k { color: var(--text); }
-  .term-body .ok { color: #7ee2a8; }
-  .term-body .hot { color: var(--ember-hot); }
-  .caret { display: inline-block; width: 8px; height: 15px; background: var(--ember); vertical-align: -2px; animation: blink 1s steps(1) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
+  .term-body { font: 13px/1.6 var(--mono); padding: 16px 18px 20px; color: var(--muted); }
+  .term-step { margin: 14px 0 8px; font: 500 12px/1.4 var(--mono); color: var(--ember); letter-spacing: .04em; }
+  .term-step:first-child { margin-top: 0; }
+  .term-body .code pre { padding: 14px 76px 14px 16px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
   .term-note { margin: 10px 2px 0; font: 12px/1.4 var(--mono); color: #5d6b7e; text-align: right; }
+  .term-note a { color: var(--muted); }
+  .term-note a:hover { color: var(--text); }
 
   /* scroll reveal + hover */
   .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
@@ -238,10 +235,8 @@
     .hero { padding: 56px 0 64px; }
     .hero .wrap, .trust { grid-template-columns: 1fr; }
     .emblem { width: 220px; right: -40px; top: -80px; }
-    .term-body { min-height: 400px; font-size: 11.5px; }
+    .term-body .code pre { font-size: 12px; }
     .hero-art { margin-top: 40px; }
-    .term-body .ln { grid-template-columns: 3.2em 1fr; }
-    .term-body .ln span:last-child { grid-column: 2; }
     .night { grid-template-columns: 1fr 1fr; row-gap: 32px; }
     .night::before { display: none; }
     nav ul { display: none; }
@@ -279,18 +274,25 @@
       <h1>Your repos get fixed <em>overnight</em>.</h1>
       <p class="lede">NightForge is a set of Claude Code skills that sweep your projects while you're away. They pick up production errors, docs that no longer match the code, wasted CI minutes and starved code reviews. Every fix lands as a small pull request you review in the morning.</p>
       <div class="cta">
-        <a class="btn primary" href="#install">Install in two commands</a>
-        <a class="btn" href="https://github.com/jfreal/nightforge">View on GitHub →</a>
+        <a class="btn primary" href="https://github.com/jfreal/nightforge">View on GitHub →</a>
+        <a class="btn" href="#skills">See the skills</a>
       </div>
     </div>
     <div class="hero-art">
       <div class="ember-glow" aria-hidden="true"></div>
       <img class="emblem" src="logo.png" alt="">
-      <div class="term" role="img" aria-label="Example terminal log of an overnight NightForge run">
-        <div class="term-bar"><i></i><i></i><i></i><span>nightforge — overnight</span></div>
-        <div class="term-body" id="term"></div>
+      <div class="term">
+        <div class="term-bar"><i></i><i></i><i></i><span>Install in two commands</span></div>
+        <div class="term-body">
+          <p class="term-step">1. Add the marketplace</p>
+          <div class="code"><button class="copy" type="button">Copy</button><pre>claude plugin marketplace add jfreal/nightforge</pre></div>
+          <p class="term-step">2. Install the plugin</p>
+          <div class="code"><button class="copy" type="button">Copy</button><pre>claude plugin install nightforge@nightforge --scope user</pre></div>
+          <p class="term-step">3. Run a skill in Claude Code</p>
+          <div class="code"><button class="copy" type="button">Copy</button><pre>/nightforge:codebase-cleanup</pre></div>
+        </div>
       </div>
-      <p class="term-note">An illustrative run, not real data</p>
+      <p class="term-note"><a href="#install">Team repo and web setup ↓</a></p>
     </div>
   </div>
 </header>
@@ -414,30 +416,6 @@ claude plugin install nightforge@nightforge --scope user</pre></div>
 <script>
   (function () {
     var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var lines = [
-      ['01:00', 'coderabbit-sweep', '2 PRs starved. Reviewing #48.', ''],
-      ['02:00', 'error-sweep', '214 errors → <span class="hot">3 new signatures</span>', ''],
-      ['02:06', 'error-sweep', 'triaged checkout.ts:88', ''],
-      ['02:19', 'error-sweep', '<span class="ok">PR #212</span> guard empty cart', ''],
-      ['02:31', 'error-sweep', '<span class="ok">PR #213</span> retry webhook on 429', ''],
-      ['03:00', 'docs-sweep', '6 repos audited, 1 drifted', ''],
-      ['03:12', 'docs-sweep', '<span class="ok">draft PR</span> sync API docs', ''],
-      ['07:00', 'report', '<span class="k">4 PRs to review. 0 merged.</span>', '']
-    ];
-    var el = document.getElementById('term');
-    function row(l) {
-      return '<div class="ln"><span class="t">' + l[0] + '</span><span class="k">' + l[1] + '</span><span>' + l[2] + '</span></div>';
-    }
-    if (reduce) { el.innerHTML = lines.map(row).join(''); }
-    else {
-      var i = 0;
-      var caret = document.createElement('span'); caret.className = 'caret';
-      var tick = function () {
-        if (i < lines.length) { caret.insertAdjacentHTML('beforebegin', row(lines[i++])); setTimeout(tick, 650 + Math.random() * 500); }
-        else { setTimeout(function () { i = 0; el.innerHTML = ''; el.appendChild(caret); setTimeout(tick, 600); }, 6000); }
-      };
-      el.appendChild(caret); setTimeout(tick, 700);
-    }
     var cv = document.getElementById('sparks');
     if (cv && cv.getContext) {
       var ctx = cv.getContext('2d'), hero = cv.parentElement, W = 0, H = 0, B = 0, dpr = Math.min(window.devicePixelRatio || 1, 2);
