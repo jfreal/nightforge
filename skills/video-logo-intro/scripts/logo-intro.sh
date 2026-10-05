@@ -58,9 +58,19 @@ fi
 py() { python -c "$1" | tr -d '\r'; }
 
 # Match the intro canvas to the source so xfade gets identical size, rate and timebase.
-read -r W H FPS < <(ffprobe -v error -select_streams v:0 \
-  -show_entries stream=width,height,r_frame_rate -of csv=p=0 "$VID" | tr -d '\r' | tr ',' ' ')
-FPS=$(py "n,d='$FPS'.split('/');print(round(int(n)/int(d)))")
+PROBE=$(ffprobe -v error -select_streams v:0 \
+  -show_entries stream=width,height,r_frame_rate,avg_frame_rate -of csv=p=0 "$VID" | tr -d '\r') \
+  || { echo "ffprobe could not read $VID" >&2; exit 1; }
+IFS=, read -r W H RFR AFR <<<"$PROBE" || true
+[[ ${W:-} =~ ^[0-9]+$ && ${H:-} =~ ^[0-9]+$ ]] || { echo "no video stream in $VID" >&2; exit 1; }
+# r_frame_rate first, avg_frame_rate if that is 0/0 or missing. No silent default.
+FPS=""
+for r in "${RFR:-}" "${AFR:-}"; do
+  if [[ $r =~ ^([1-9][0-9]*)/([1-9][0-9]*)$ ]]; then
+    FPS=$(py "print(max(1,round(${BASH_REMATCH[1]}/${BASH_REMATCH[2]})))"); break
+  fi
+done
+[ -n "$FPS" ] || { echo "no usable frame rate in $VID (r=${RFR:-} avg=${AFR:-})" >&2; exit 1; }
 HAS_AUDIO=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$VID" | tr -d '\r' | head -1)
 
 OFF=$(py "print($D-$XF)")
@@ -72,7 +82,7 @@ LOGO_DY=$(py "print(round($H*0.055))")
 TEXT_Y=$(py "print(round($H*0.20))")
 
 # drawtext needs colons escaped. expansion=none stops it reading % as a template code.
-FONT_ESC=${FONT/:/\\:}
+FONT_ESC=${FONT//:/\\:}
 # A straight ' would end the quoted value, so it becomes a typographic one.
 esc() { printf '%s' "$1" | sed "s/:/\\\\:/g; s/%/\\\\%/g; s/'/’/g"; }
 # fade(start): 0 -> 1 over 0.6 s. Every expression with a comma stays single-quoted.
