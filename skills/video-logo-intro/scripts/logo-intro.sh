@@ -5,6 +5,7 @@
 #
 # Options (defaults in brackets):
 #   --title TEXT        wordmark under the logo; "" for none           [""]
+#   --subtitle TEXT     smaller line under the title (the post's title)  [""]
 #   --bg HEX            intro background colour                         [0b1316]
 #   --glow HEX          colour of the blurred halo behind the logo      [33bff2]
 #   --transition NAME   any xfade transition (circleopen, wipeleft,
@@ -19,11 +20,11 @@
 # Needs ffmpeg/ffprobe (with libx264) and python on PATH. Runs in Git Bash, macOS, Linux.
 set -euo pipefail
 
-TITLE=""; BG=0b1316; GLOW=33bff2; TRANS=circleopen; D=3.8; XF=1.0; SCALE=0.30
+TITLE=""; SUB=""; BG=0b1316; GLOW=33bff2; TRANS=circleopen; D=3.8; XF=1.0; SCALE=0.30
 FONT="C:/Windows/Fonts/segoeuib.ttf"; PREVIEW=""; LOGO=""; VID=""; OUT=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --logo) LOGO=$2;; --video) VID=$2;; --out) OUT=$2;; --title) TITLE=$2;;
+    --logo) LOGO=$2;; --video) VID=$2;; --out) OUT=$2;; --title) TITLE=$2;; --subtitle) SUB=$2;;
     --bg) BG=${2#\#};; --glow) GLOW=${2#\#};; --transition) TRANS=$2;;
     --intro) D=$2;; --xfade) XF=$2;; --logo-scale) SCALE=$2;; --font) FONT=$2;;
     --preview) PREVIEW=$2;;
@@ -50,12 +51,20 @@ FS=$(py "print(round($H*0.06))")
 LOGO_DY=$(py "print(round($H*0.055))")
 TEXT_Y=$(py "print(round($H*0.20))")
 
+# drawtext needs colons escaped. expansion=none stops it reading % as a template code.
+FONT_ESC=${FONT/:/\\:}
+# A straight ' would end the quoted value, so it becomes a typographic one.
+esc() { printf '%s' "$1" | sed "s/:/\\\\:/g; s/%/\\\\%/g; s/'/’/g"; }
+# fade(start): 0 -> 1 over 0.6 s. Every expression with a comma stays single-quoted.
+fade() { echo "min(1,max(0,(t-$1)/0.6))"; }
 TEXT=""
 if [ -n "$TITLE" ]; then
-  # drawtext needs the drive colon escaped; quote every expression that contains a comma.
-  FONT_ESC=${FONT/:/\\:}
-  TITLE_ESC=$(printf '%s' "$TITLE" | sed "s/'/\\\\'/g; s/:/\\\\:/g")
-  TEXT=",drawtext=fontfile='$FONT_ESC':text='$TITLE_ESC':fontsize=$FS:fontcolor=white:x=(w-text_w)/2:y='h/2+$TEXT_Y-12*(1-min(1,max(0,(t-0.9)/0.6)))':alpha='min(1,max(0,(t-0.9)/0.6))'"
+  TEXT=",drawtext=expansion=none:fontfile='$FONT_ESC':text='$(esc "$TITLE")':fontsize=$FS:fontcolor=white:x=(w-text_w)/2:y='h/2+$TEXT_Y-12*(1-$(fade 0.9))':alpha='$(fade 0.9)'"
+fi
+if [ -n "$SUB" ]; then
+  SUB_FS=$(py "print(round($H*0.036))")
+  SUB_Y=$(py "print(round($H*0.20+($FS*1.45 if '$TITLE' else 0)))")
+  TEXT="$TEXT,drawtext=expansion=none:fontfile='$FONT_ESC':text='$(esc "$SUB")':fontsize=$SUB_FS:fontcolor=white@0.8:x=(w-text_w)/2:y='h/2+$SUB_Y-10*(1-$(fade 1.3))':alpha='$(fade 1.3)'"
 fi
 
 FC="color=c=0x$BG:s=${W}x${H}:r=$FPS:d=$D,format=rgba,vignette=PI/4[bg];

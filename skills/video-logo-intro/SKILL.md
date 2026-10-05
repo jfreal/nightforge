@@ -1,12 +1,13 @@
 ---
 name: video-logo-intro
-description: Put an animated logo opening on a video (logo fades and scales in with a glow, optional wordmark, then an ffmpeg xfade transition such as circleopen into the footage). Use when the user wants an intro, opener, logo sting, bumper, or "cool transition" at the start of a screen recording or clip, or invokes /video-logo-intro.
+description: Put an animated logo opening on a video (logo fades and scales in with a glow, wordmark and title card, then an ffmpeg xfade transition such as circleopen into the footage), and write the post title and hook-first opener that go with it on Facebook, LinkedIn, X and the rest. Use when the user wants an intro, opener, logo sting, bumper, or "cool transition" at the start of a screen recording or clip, a title or caption for a video post, or invokes /video-logo-intro.
 ---
 
 # Video logo intro
 
-Builds a short branded opening with ffmpeg and joins it to the user's video in one pass.
-`scripts/logo-intro.sh` does the work. You pick the inputs, preview, look, then render.
+Builds a short branded opening with ffmpeg and joins it to the user's video in one pass,
+then writes the post that carries it. `scripts/logo-intro.sh` does the video. The copy is
+yours, from the rules in [Title and opener](#title-and-opener).
 
 The default intro runs 3.8 s:
 
@@ -14,6 +15,7 @@ The default intro runs 3.8 s:
 |---|---|
 | 0.15 to 1.05 s | logo fades in and eases from 82% to 100% size, a tinted blur glowing behind it |
 | 0.9 to 1.5 s | wordmark (`--title`) fades in under the logo and drifts up 12 px |
+| 1.3 to 1.9 s | title card (`--subtitle`, usually the post's title) fades in under it |
 | 2.8 to 3.8 s | `xfade` transition (default `circleopen`) reveals the video |
 
 The source audio starts at the transition with a 0.6 s fade-in. The intro itself is silent.
@@ -48,12 +50,56 @@ The source audio starts at the transition with a 0.6 s fade-in. The intro itself
    source + intro - xfade.
 7. **Send the file** (SendUserFile) and list the easy changes: speed, transition, text, an
    outro, a sound effect.
+8. **Write the post.** Unless the user said video only, follow up with three title + opener
+   pairs (see below). Offer to burn the chosen title into the intro with `--subtitle` and
+   re-render; it costs one more pass and makes the first frame say what the video is.
+
+## Title and opener
+
+The video gets watched only if the first line of the post stops a thumb. Write the copy from
+what is actually in the video: grab six frames across it (one `ffmpeg -ss` per frame, then
+`hstack`/`vstack` into one sheet) and read them, plus the PR or commits behind the feature
+if there are any. Don't describe a screen you haven't seen.
+
+**Voice first.** If the project has a first-person voice file (`docs/founder-voice.md` in
+mergetel), read it before writing and obey it over anything here. Then run `unslop` on the
+drafts. Voice first, unslop second.
+
+**Deliver three pairs, three different angles.** Each pair is a title and an opener of one
+or two short paragraphs. No rationale, no hashtags unless asked. Good angles to pick from:
+
+- **The number.** A real figure from the screen: "300 PRs went in. 78 came out as posts."
+- **The confession.** The awkward, true reason the feature exists.
+- **The absurd literal.** The feature described flatly, in words that make it sound slightly
+  ridiculous: "I built a bouncer for my own pull requests."
+- **The small mess.** What broke while building it.
+
+**The hook line does the work.** The opener's first sentence is the only one most people
+see before "See more", so it has to land alone:
+
+- Under about 12 words. Concrete noun or number in it.
+- A claim or a confession, never a rhetorical question, never "Excited to share".
+- It should make a stranger want the second sentence. "I made a grid that..." explains;
+  "My refactors are banned from the internet now." pulls.
+- Front-load the surprise. The explanation comes after, in the second sentence or the
+  second paragraph.
+
+**Titles** are for the video card, YouTube, and `--subtitle`:
+
+- Sentence case, under about 8 words and 45 characters so it fits the intro frame.
+- A statement, not a question or a label. "Nobody wants my refactors" beats "Rules matrix demo".
+- It can be the hook line cut down, or a different angle from the opener so the two add up.
+
+**Per network.** Facebook and LinkedIn take the opener as written, a notch tidier on
+LinkedIn. X, Bluesky and Threads take only the hook line plus one more sentence. Never make
+up numbers, users or results; every figure comes from the frames or the user.
 
 ## Options
 
 | Flag | Default | Notes |
 |---|---|---|
 | `--title` | none | wordmark under the logo |
+| `--subtitle` | none | smaller title card under the wordmark, best kept under ~45 characters |
 | `--bg` | `0b1316` | intro background, with a vignette on top |
 | `--glow` | `33bff2` | halo colour |
 | `--transition` | `circleopen` | any [xfade transition](https://trac.ffmpeg.org/wiki/Xfade): `wipeleft`, `slideup`, `radial`, `pixelize`, `dissolve`, `circlecrop`, `zoomin`, ... |
@@ -75,6 +121,9 @@ The source audio starts at the transition with a 0.6 s fade-in. The intro itself
 - **Commas inside filter expressions** must be wrapped in single quotes (`y='...min(1,x)...'`),
   or ffmpeg splits the filter there and reports "No option name near ...".
 - **drawtext on Windows** needs the drive colon escaped: `fontfile='C\:/Windows/Fonts/...'`.
+- **A `%` in drawtext text** is a template code by default, so "78%" logs "Stray %" 180
+  times and draws nothing at all. The script sets `expansion=none`. A straight `'` would
+  end the quoted value, so the script swaps it for a typographic one.
 - **CRLF.** Windows `python` and `ffprobe` print `\r\n`. A stray `\r` inside a value passed
   to the next `python -c` gives "unterminated string literal". The script strips it.
 - **Don't fade the logo out before the transition.** Two fades at once read as a muddy
