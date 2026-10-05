@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Prepend an animated logo intro to a video and transition into it with ffmpeg xfade.
+#
+#   logo-intro.sh --logo logo-white.png --video in.mp4 --out out.mp4 [options]
+#
+# Options (defaults in brackets):
+#   --title TEXT        wordmark under the logo; "" for none           [""]
+#   --bg HEX            intro background colour                         [0b1316]
+#   --glow HEX          colour of the blurred halo behind the logo      [33bff2]
+#   --transition NAME   any xfade transition (circleopen, wipeleft,
+#                       slideup, pixelize, radial, dissolve, ...)      [circleopen]
+#   --intro SECONDS     intro length, transition included               [3.8]
+#   --xfade SECONDS     transition length                               [1.0]
+#   --logo-scale FRAC   logo width as a fraction of the video width     [0.30]
+#   --font PATH         TTF for --title         [C:/Windows/Fonts/segoeuib.ttf]
+#   --preview SECONDS   render only the first N seconds and write a
+#                       six-frame contact sheet next to --out           [off]
+#
+# Needs ffmpeg/ffprobe (with libx264) and python on PATH. Runs in Git Bash, macOS, Linux.
+set -euo pipefail
+
+TITLE=""; BG=0b1316; GLOW=33bff2; TRANS=circleopen; D=3.8; XF=1.0; SCALE=0.30
+FONT="C:/Windows/Fonts/segoeuib.ttf"; PREVIEW=""; LOGO=""; VID=""; OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --logo) LOGO=$2;; --video) VID=$2;; --out) OUT=$2;; --title) TITLE=$2;;
+    --bg) BG=${2#\#};; --glow) GLOW=${2#\#};; --transition) TRANS=$2;;
+    --intro) D=$2;; --xfade) XF=$2;; --logo-scale) SCALE=$2;; --font) FONT=$2;;
+    --preview) PREVIEW=$2;;
+    *) echo "unknown option: $1" >&2; exit 2;;
+  esac
+  shift 2
+done
+[ -n "$LOGO" ] && [ -n "$VID" ] && [ -n "$OUT" ] || { echo "need --logo, --video and --out" >&2; exit 2; }
+
+# Windows python and ffprobe end lines with CRLF; a stray \r breaks the next python -c.
+py() { python -c "$1" | tr -d '\r'; }
+
+# Match the intro canvas to the source so xfade gets identical size, rate and timebase.
+read -r W H FPS < <(ffprobe -v error -select_streams v:0 \
+  -show_entries stream=width,height,r_frame_rate -of csv=p=0 "$VID" | tr -d '\r' | tr ',' ' ')
+FPS=$(py "n,d='$FPS'.split('/');print(round(int(n)/int(d)))")
+HAS_AUDIO=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$VID" | tr -d '\r' | head -1)
+
+OFF=$(py "print($D-$XF)")
+LOGO_W=$(py "print(int($W*$SCALE/2)*2)")
+# Glow tint: colorchannelmixer turns the white logo into the glow colour (alpha untouched).
+read -r GR GG GB < <(py "h='$GLOW';print(*[round(int(h[i:i+2],16)/255,3) for i in (0,2,4)])")
+FS=$(py "print(round($H*0.06))")
+LOGO_DY=$(py "print(round($H*0.055))")
+TEXT_Y=$(py "print(round($H*0.20))")
+
+TEXT=""
+if [ -n "$TITLE" ]; then
+  # drawtext needs the drive colon escaped; quote every expression that contains a comma.
+  FONT_ESC=${FONT/:/\\:}
+  TITLE_ESC=$(printf '%s' "$TITLE" | sed "s/'/\\\\'/g; s/:/\\\\:/g")
+  TEXT=",drawtext=fontfile='$FONT_ESC':text='$TITLE_ESC':fontsize=$FS:fontcolor=white:x=(w-text_w)/2:y='h/2+$TEXT_Y-12*(1-min(1,max(0,(t-0.9)/0.6)))':alpha='min(1,max(0,(t-0.9)/0.6))'"
+fi
+
+FC="color=c=0x$BG:s=${W}x${H}:r=$FPS:d=$D,format=rgba,vignette=PI/4[bg];
+[0:v]format=rgba,pad=iw*1.26:ih*1.4:(ow-iw)/2:(oh-ih)/2:color=black@0,split[a][b];
+[b]colorchannelmixer=rr=$GR:rg=0:rb=0:gr=0:gg=$GG:gb=0:br=0:bg=0:bb=$GB,gblur=sigma=40,colorlevels=aimax=0.6,split[g1][g2];
+[g1][g2]overlay=format=auto[glow];
+[glow][a]overlay=0:0:format=auto,
+ scale=w='trunc($LOGO_W*1.26*(0.82+0.18*(1-pow(1-min(1,t/1.1),3)))/2)*2':h=-2:eval=frame,
+ fade=t=in:st=0.15:d=0.9:alpha=1[logo];
+[bg][logo]overlay=x=(W-w)/2:y=(H-h)/2-$LOGO_DY:format=auto:eval=frame$TEXT,
+ format=yuv420p,setsar=1,settb=AVTB[intro];
+[1:v]fps=$FPS,scale=$W:$H,format=yuv420p,setsar=1,settb=AVTB[main];
+[intro][main]xfade=transition=$TRANS:duration=$XF:offset=$OFF,format=yuv420p[v]"
+
+MAPS=(-map "[v]")
+if [ -n "$HAS_AUDIO" ]; then
+  FC="$FC;
+[1:a]adelay=$(py "print(int($OFF*1000))"):all=1,afade=t=in:st=$OFF:d=0.6[aud]"
+  MAPS+=(-map "[aud]" -c:a aac -b:a 192k)
+fi
+
+LIMIT=()
+[ -n "$PREVIEW" ] && LIMIT=(-t "$PREVIEW")
+
+# xfade quietly promotes to yuv444p, which Windows players reject as "invalid encoding
+# settings". The format=yuv420p after xfade plus -pix_fmt/-profile below pin it back.
+ffmpeg -v warning -stats -y -loop 1 -framerate "$FPS" -t "$D" -i "$LOGO" -i "$VID" \
+  -filter_complex "$FC" "${MAPS[@]}" \
+  -c:v libx264 -pix_fmt yuv420p -profile:v high -crf 18 -preset medium \
+  -movflags +faststart "${LIMIT[@]}" "$OUT"
+
+ffprobe -v error -show_entries format=duration,size:stream=codec_name,profile,pix_fmt \
+  -of compact "$OUT"
+
+if [ -n "$PREVIEW" ]; then
+  SHEET="${OUT%.*}-frames.png"
+  ARGS=(); i=0
+  for t in $(py "d,o,x=$D,$OFF,$XF;print(1.5,o+0.1,o+x*0.3,o+x*0.6,d+0.1,d+1)"); do
+    ARGS+=(-ss "$t" -i "$OUT"); i=$((i+1))
+  done
+  ffmpeg -v error -y "${ARGS[@]}" -filter_complex \
+    "[0]scale=480:-2[p0];[1]scale=480:-2[p1];[2]scale=480:-2[p2];[3]scale=480:-2[p3];[4]scale=480:-2[p4];[5]scale=480:-2[p5];[p0][p1][p2]hstack=3[t];[p3][p4][p5]hstack=3[u];[t][u]vstack" \
+    -frames:v 1 "$SHEET"
+  echo "contact sheet: $SHEET"
+fi
