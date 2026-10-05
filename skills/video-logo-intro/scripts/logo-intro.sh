@@ -13,7 +13,7 @@
 #   --intro SECONDS     intro length, transition included               [3.8]
 #   --xfade SECONDS     transition length                               [1.0]
 #   --logo-scale FRAC   logo width as a fraction of the video width     [0.30]
-#   --font PATH         TTF for --title         [C:/Windows/Fonts/segoeuib.ttf]
+#   --font PATH         TTF for --title/--subtitle   [a bold system font, found per OS]
 #   --preview SECONDS   render only the first N seconds and write a
 #                       six-frame contact sheet next to --out           [off]
 #
@@ -21,8 +21,10 @@
 set -euo pipefail
 
 TITLE=""; SUB=""; BG=0b1316; GLOW=33bff2; TRANS=circleopen; D=3.8; XF=1.0; SCALE=0.30
-FONT="C:/Windows/Fonts/segoeuib.ttf"; PREVIEW=""; LOGO=""; VID=""; OUT=""
+FONT=""; PREVIEW=""; LOGO=""; VID=""; OUT=""
 while [ $# -gt 0 ]; do
+  # Every option takes a value; refuse to swallow the next flag as one.
+  if [ $# -lt 2 ] || [ "${2#--}" != "$2" ]; then echo "missing value for $1" >&2; exit 2; fi
   case "$1" in
     --logo) LOGO=$2;; --video) VID=$2;; --out) OUT=$2;; --title) TITLE=$2;; --subtitle) SUB=$2;;
     --bg) BG=${2#\#};; --glow) GLOW=${2#\#};; --transition) TRANS=$2;;
@@ -33,6 +35,24 @@ while [ $# -gt 0 ]; do
   shift 2
 done
 [ -n "$LOGO" ] && [ -n "$VID" ] && [ -n "$OUT" ] || { echo "need --logo, --video and --out" >&2; exit 2; }
+
+# These values are spliced into python -c and the filter graph, so they must be plain.
+num='^[0-9]+([.][0-9]+)?$'
+for v in "$D" "$XF" "$SCALE" ${PREVIEW:+"$PREVIEW"}; do
+  [[ $v =~ $num ]] || { echo "not a number: $v" >&2; exit 2; }
+done
+for v in "$BG" "$GLOW"; do
+  [[ $v =~ ^[0-9a-fA-F]{6}$ ]] || { echo "not a 6-digit hex colour: $v" >&2; exit 2; }
+done
+[[ $TRANS =~ ^[a-z]+$ ]] || { echo "not an xfade transition name: $TRANS" >&2; exit 2; }
+
+if [ -n "$TITLE$SUB" ] && [ -z "$FONT" ]; then
+  for f in C:/Windows/Fonts/segoeuib.ttf C:/Windows/Fonts/arialbd.ttf            "/System/Library/Fonts/Supplementary/Arial Bold.ttf" "/Library/Fonts/Arial Bold.ttf"            /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf /usr/share/fonts/TTF/DejaVuSans-Bold.ttf; do
+    [ -f "$f" ] && { FONT=$f; break; }
+  done
+  [ -z "$FONT" ] && command -v fc-match >/dev/null && FONT=$(fc-match -f '%{file}' 'sans:bold' || true)
+  [ -n "$FONT" ] || { echo "no bold font found; pass --font /path/to/font.ttf" >&2; exit 2; }
+fi
 
 # Windows python and ffprobe end lines with CRLF; a stray \r breaks the next python -c.
 py() { python -c "$1" | tr -d '\r'; }
@@ -63,7 +83,8 @@ if [ -n "$TITLE" ]; then
 fi
 if [ -n "$SUB" ]; then
   SUB_FS=$(py "print(round($H*0.036))")
-  SUB_Y=$(py "print(round($H*0.20+($FS*1.45 if '$TITLE' else 0)))")
+  HAS_TITLE=0; [ -n "$TITLE" ] && HAS_TITLE=1
+  SUB_Y=$(py "print(round($H*0.20+$FS*1.45*$HAS_TITLE))")
   TEXT="$TEXT,drawtext=expansion=none:fontfile='$FONT_ESC':text='$(esc "$SUB")':fontsize=$SUB_FS:fontcolor=white@0.8:x=(w-text_w)/2:y='h/2+$SUB_Y-10*(1-$(fade 1.3))':alpha='$(fade 1.3)'"
 fi
 
@@ -102,7 +123,8 @@ ffprobe -v error -show_entries format=duration,size:stream=codec_name,profile,pi
 if [ -n "$PREVIEW" ]; then
   SHEET="${OUT%.*}-frames.png"
   ARGS=(); i=0
-  for t in $(py "d,o,x=$D,$OFF,$XF;print(1.5,o+0.1,o+x*0.3,o+x*0.6,d+0.1,d+1)"); do
+  # Clamp to the rendered length, or a short --preview asks for frames past its end.
+  for t in $(py "d,o,x,p=$D,$OFF,$XF,$PREVIEW;print(*[round(min(t,p-0.05),3) for t in (1.5,o+0.1,o+x*0.3,o+x*0.6,d+0.1,d+1)])"); do
     ARGS+=(-ss "$t" -i "$OUT"); i=$((i+1))
   done
   ffmpeg -v error -y "${ARGS[@]}" -filter_complex \

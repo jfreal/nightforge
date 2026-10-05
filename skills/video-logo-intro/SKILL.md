@@ -6,7 +6,8 @@ description: Put an animated logo opening on a video (logo fades and scales in w
 # Video logo intro
 
 Builds a short branded opening with ffmpeg and joins it to the user's video in one pass,
-then writes the post that carries it. `scripts/logo-intro.sh` does the video. The copy is
+then writes the post that carries it. `scripts/logo-intro.sh` (under this skill's base directory, which Claude Code prints when
+the skill loads; call it `$SKILL_DIR` below) does the video. The copy is
 yours, from the rules in [Title and opener](#title-and-opener).
 
 The default intro runs 3.8 s:
@@ -40,7 +41,7 @@ The source audio starts at the transition with a 0.6 s fade-in. The intro itself
    and two after it. Read the sheet and confirm the logo, text, and transition look right.
 
    ```bash
-   bash scripts/logo-intro.sh --logo public/logo-white.png --video in.mp4 \
+   bash "$SKILL_DIR/scripts/logo-intro.sh" --logo public/logo-white.png --video in.mp4 \
      --out "$SCRATCH/preview.mp4" --title "Merge & Tell" --glow 0d7ea4 --preview 6
    ```
 
@@ -106,7 +107,7 @@ up numbers, users or results; every figure comes from the frames or the user.
 | `--intro` | `3.8` | seconds, transition included |
 | `--xfade` | `1.0` | transition length |
 | `--logo-scale` | `0.30` | logo width / video width |
-| `--font` | `C:/Windows/Fonts/segoeuib.ttf` | TTF used for `--title` |
+| `--font` | Segoe UI Bold, Arial Bold or DejaVu Sans Bold, whichever exists | TTF for `--title` and `--subtitle` |
 | `--preview N` | off | first N seconds plus a contact sheet |
 
 ## Gotchas (each cost a round trip once)

@@ -454,7 +454,7 @@ Puts a short logo opening on a video. The logo fades and grows in with a coloure
 optional wordmark appears under it, and an ffmpeg transition (a circle opening, by default)
 reveals the footage. It previews the first few seconds as a contact sheet before the full
 render, and it always writes standard yuv420p H.264, so Windows players open the result.
-User-invokable: `/video-logo-intro`. Needs `ffmpeg` and `python` on PATH.
+User-invokable: `/nightforge:video-logo-intro`. Needs `ffmpeg` and `python` on PATH.
 
 ### Install
 
