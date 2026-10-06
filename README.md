@@ -212,6 +212,9 @@ skills/unslop/
 skills/simple-issue-description/
   SKILL.md                      turns a rough report or PR into a plain-language issue
   agents/openai.yaml            display metadata for Codex-style agent hosts
+skills/video-logo-intro/
+  SKILL.md                      prepends an animated logo opening to a video with ffmpeg
+  scripts/logo-intro.sh         the renderer: glow, wordmark, xfade, preview contact sheet
 .claude-plugin/
   plugin.json                   the repo as one plugin: every skill under skills/
   marketplace.json              the repo as its own marketplace, listing that plugin
@@ -440,6 +443,18 @@ Comes with the plugin (see [Install](#install)).
 Turns a rough bug report, feature request, support note or PR into a short issue about the
 problem and the behavior you want, with the implementation detail taken out. User-invokable:
 `/simple-issue-description`.
+
+### Install
+
+Comes with the plugin (see [Install](#install)).
+
+## `video-logo-intro`
+
+Puts a short logo opening on a video. The logo fades and grows in with a coloured glow, an
+optional wordmark appears under it, and an ffmpeg transition (a circle opening, by default)
+reveals the footage. It previews the first few seconds as a contact sheet before the full
+render, and it always writes standard yuv420p H.264, so Windows players open the result.
+User-invokable: `/nightforge:video-logo-intro`. Needs `ffmpeg` and `python` on PATH.
 
 ### Install
 
