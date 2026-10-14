@@ -225,6 +225,8 @@ docs/coderabbit-sweep-card-template.md  the coderabbit-sweep fleet card, and how
 docs/sync-docs.md               how sync-docs works, and how this repo configures it
 docs/logo.png                   the NightForge logo shown at the top of this README
 docs/index.html                 the marketing page, served by GitHub Pages from docs/
+docs/sitemap.xml                lists the Pages site's pages; update it when adding a page
+docs/a0b4cc5a5653b1278fbe1db5a316aaeb.txt  the IndexNow key, verified by the daily job in jfreal/johnf.build
 .claude/sync-docs/              this repo's own sync-docs config and registry
 ```
 
