@@ -97,7 +97,8 @@ Date windows (in the card's **Time zone**):
    - Call traffic_acquisition channel_group once per audit day (startDate = endDate = that day).
      dayDirect = that day's Direct sessions.
    - baseline = (the window's Direct sessions - the sum of dayDirect over all audit days) /
-     (7 - the number of audit days), rounded. With every day an audit day, baseline = 0.
+     (7 - the number of audit days), rounded. If every day of the window is an audit day there is
+     no normal day to compare with: leave that window unadjusted and say so in the fyi.
    - auditVisits = the sum over audit days of max(0, dayDirect - baseline), capped at the window's
      Direct sessions and at 1.1 x the sum of `pagesCrawled` of the candidate audits in it.
    - adjusted Direct = Direct - auditVisits. Audit visits never engage, so engaged Direct stays as
@@ -245,7 +246,8 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
      Only check types the run actually read: the card's **Issue severities**, and performance
      only when step 3 succeeded.
 5. Record it. Set the site's `audit-issues.json` entry to this audit's id, with `pending` as step
-   4 left it.
+   4 left it. If any `gh` write for the site failed this run, set `pending: true` as well, so the
+   next run retries it.
 6. Report it. One "fyi" action per site where anything was written,
    id `<site>:github-issues:audit`, title "Opened N and updated M GitHub issues from the <date>
    audit", why = the issue titles (and "K more wait for the next run" when pending), fix = "Work
