@@ -15,8 +15,8 @@ which one. Do not guess.
 Read-only toward every account: never change anything in OpenSEO, GA4 or Search Console, and never
 call an OpenSEO tool that spends credits (no get_serp_results, rank tracker runs, backlinks, keyword
 research). Exceptions: the site audits in Step 1.4 (run_site_audit, plus whoami to watch credits),
-and the GitHub issues in Step 2b, which open, comment on and reopen issues only in the repos the
-card's **Repos** field lists.
+and the GitHub writes in Step 2b: create or update the card's **Issue label**, and open, edit,
+comment on and reopen issues, only in the repos the card's **Repos** field lists.
 
 This skill's folder (the one holding this file, `build.py` and `template.html`) is the **skill
 folder**. The card's **Data folder** holds this run's files: `report.json`, `history.json` and
@@ -87,22 +87,29 @@ Date windows (in the card's **Time zone**):
    (`all:credits:audits`). If run_site_audit errors (for example, not enough credits), add it
    to `errors` and keep going.
 
-5. Audit visits. For each connected site, take the completed or running audits from 1.4's
-   list_site_audits call with `ranLighthouse: true` whose `startedAt` date (in the card's
-   **Time zone**) falls inside the current or previous window. For each one, call
-   traffic_acquisition channel_group for that day alone (startDate = endDate = that date; if
-   `completedAt` is on a later date, end there instead). Then:
-   - dayDirect = Direct sessions on the audit day(s).
-   - baseline = (that window's Direct sessions - dayDirect) / the window's other days, rounded.
-   - auditVisits = max(0, dayDirect - baseline x audit days), at most the audit's `pagesCrawled`
-     plus 10%.
-   Subtract auditVisits from that window's Direct sessions before the bot test in Step 2 and
-   before the headline. Keep `channels[].sessions` and site `sessions` as GA reports them (the
-   page must match GA), and say what was removed in a standout, for example "1,021 Direct visits
-   on Oct 16 were OpenSEO's full audit, not people." Add one "fyi" action per audit
-   (`<site>:audit-traffic:<auditId>`): title "OpenSEO's full audit added about N fake Direct
-   visits", why = date and dayDirect vs baseline, fix = "Nothing to do. Read Direct without that
-   day." If the day call fails, add it to `errors` and use the raw numbers.
+5. Audit visits. For each connected site, the candidate audits are the completed or running audits
+   from 1.4's list_site_audits call with `ranLighthouse: true` whose dates touch either window.
+   An audit's dates run from its `startedAt` date to its `completedAt` date (or today while it
+   runs), in the card's **Time zone**. Work each window on its own, because one audit can span the
+   boundary:
+   - audit days = every date in this window that any candidate audit touches, counted once even
+     when two audits share a day.
+   - Call traffic_acquisition channel_group once per audit day (startDate = endDate = that day).
+     dayDirect = that day's Direct sessions.
+   - baseline = (the window's Direct sessions - the sum of dayDirect over all audit days) /
+     (7 - the number of audit days), rounded. With every day an audit day, baseline = 0.
+   - auditVisits = the sum over audit days of max(0, dayDirect - baseline), capped at the window's
+     Direct sessions and at 1.1 x the sum of `pagesCrawled` of the candidate audits in it.
+   - adjusted Direct = Direct - auditVisits. Audit visits never engage, so engaged Direct stays as
+     GA reports it.
+   Use adjusted Direct, both weeks, for the bot test in Step 2 and the headline. Keep
+   `channels[].sessions` and site `sessions` as GA reports them (the page must match GA), and say
+   what was removed in a standout, for example "About 1,000 Direct visits on Oct 16 were
+   OpenSEO's full audit, not people." Add one "fyi" action per site per window with auditVisits
+   over 0 (`<site>:audit-traffic:<first audit day>`): title "OpenSEO's full audit added about N
+   fake Direct visits", why = the audit days and dayDirect vs baseline, fix = "Nothing to do.
+   Read Direct for that week with about N visits taken off." If a day call fails, add it to
+   `errors` and use the raw numbers for that window.
 
 How to read the tool output (learned on the first run, 2026-10-05):
 - Site totals: no call returns one. Sum `comparison.rows[].metrics.sessions.{current,previous}`
@@ -125,8 +132,9 @@ How to read the tool output (learned on the first run, 2026-10-05):
   desktop, 0-engagement session, mostly from the United States. Wooden Nutmeg's 1,000-page full
   audit on 2026-10-16 showed up as 1,021 Direct sessions that day (about 28 on a normal day).
   Plain audits do not run JS and do not fire the tag. list_site_audits has no renderJavaScript
-  field; this pipeline always pairs it with runLighthouse, so read `ranLighthouse: true` as
-  "rendered JS".
+  field, and OpenSEO treats JS rendering and Lighthouse as separate options. This pipeline always
+  sets both, so Step 1.5 uses `ranLighthouse: true` to find candidates. An audit started by hand
+  with Lighthouse only fires no tag, so its days show no spike and Step 1.5 removes about 0.
 
 ## Step 2 - triage (the "Needs you" list)
 
@@ -149,9 +157,10 @@ priority "soon" (worth doing this week):
   Search Console and rewrite the title and meta description to match the top query; name the path.
 - bot: a channel whose sessions jumped 40%+ with engagement rate under 5% (Direct is the usual
   one), or that sits under 5% engagement with 100+ sessions in both weeks (ongoing bot share).
-  Test Direct on the numbers with audit visits removed (Step 1.5); if the spike is gone, it is
-  not a bot action, only the audit fyi. Engagement rate for the test = engaged Direct sessions /
-  adjusted Direct sessions. Call what is left "likely bot or spam traffic", never real growth,
+  For Direct, run both tests on adjusted Direct from Step 1.5, both weeks. Engagement rate for the
+  test = engaged Direct sessions / adjusted Direct sessions. When adjusted Direct is 0 this week,
+  skip the test (no bot traffic left). If neither test fires, there is no bot action, only the
+  audit fyi. Call what is left "likely bot or spam traffic", never real growth,
   and leave it out of the headline growth story. Fix = these GA4 steps, in plain words: "In GA4
   open Reports > Acquisition > Traffic acquisition. Click Add filter, pick Session default
   channel group, exactly matches, Direct, Apply. Click the + next to the first column header and
@@ -180,19 +189,29 @@ Turn what the audits found into GitHub issues the owner can work from, one issue
 type per site. Only sites in the card's **Repos** field get issues; skip the rest silently. A
 site with no repo listed, or a repo you cannot reach, is not an error unless a `gh` call fails.
 
-When to file. Work from the site's newest completed audit (list_site_audits). File or update
-issues for a site only when that audit's `completedAt` is after `history.json` `lastRun`, or when
-the repo has no issue with the card's **Issue label** yet (a one-time backfill). Otherwise the
-site's issues are already current; leave them alone.
+State. `audit-issues.json` in the **Data folder** records, per site, the audit last turned into
+issues: `{"<site>": {"auditId": "...", "pending": true|false}}`. A missing file or site means
+nothing was filed yet. Rewrite the file at the end of this step, even when the page is not
+published later: it tracks what is in GitHub, not what is on the page.
+
+When to file. Work from the site's newest completed audit (list_site_audits). Handle a site when
+that audit's id differs from the recorded `auditId`, or when the record has `pending: true`
+(the cap below held some findings back). Otherwise leave its issues alone.
 
 1. Label. Once per repo per run: `gh label create "<Issue label>" -R <repo> --color 0E8A16
    --description "Found by the GA traffic report's site audits" --force` (creates or updates it).
 2. SEO findings. get_audit_issues for that audit, once per severity in the card's
    **Issue severities**, limit 1000. Group by `issueType`. One issue per type:
-   - title: `[site audit] <summary title>` (for example `[site audit] Thin content`).
+   - title: `[site audit] <site>: <summary title>` (for example
+     `[site audit] Pheidi: Thin content`).
    - body: what it is and why it matters in one or two plain sentences; the count and audit date;
      the first `howToFix`; up to 20 affected URLs as a checklist (`- [ ] <url>`), plus "and N more"
-     with the audit link (`meta.url`); and a last line `<!-- ga-traffic-report:<issueType> -->`.
+     with the audit link (`meta.url`); then two last lines, the marker
+     `<!-- ga-traffic-report:<site-slug>:<issueType> -->` and the state
+     `<!-- ga-traffic-report-state: audit=<auditId>; count=<N>; absent=none -->`.
+     site-slug = the site name lowercased, runs of other characters turned into `-`.
+   If any of these calls fails, add it to `errors` and file nothing for the site this run (its
+   record stays as it was, so the next run tries again).
 3. Performance. OpenSEO does not return Lighthouse scores, so read them from the PageSpeed
    Insights API, and only for sites whose newest completed audit has `ranLighthouse: true`. Test
    the site's home page plus its top 2 pages by views from Step 1.2 (production host only), mobile:
@@ -200,28 +219,38 @@ site's issues are already current; leave them alone.
    The key is `api_key` in `~/.config/claude-seo/google-api.json`. Send it only in that header:
    never in the URL, a file, the report or an issue. Without the key the shared quota is usually
    used up (429). A page fails when performance score < 0.9, or LCP > 2.5 s, CLS > 0.1 or TBT >
-   200 ms. If any page fails, one issue per site, title `[site audit] Mobile performance`:
+   200 ms. If any page fails, one issue per site, title `[site audit] <site>: Mobile performance`:
    a table of page, score, LCP, CLS and TBT; then the audits on failing pages with score under 0.9
-   and their `displayValue`, worst first, at most 10; and the marker
-   `<!-- ga-traffic-report:performance -->`. If the API errors, add it to `errors` and skip.
-4. Match before you write. List the repo's issues once:
-   `gh issue list -R <repo> --label "<Issue label>" --state all --limit 200 --json number,title,state,body`.
-   Match on the marker line, then on the exact title.
+   and their `displayValue`, worst first, at most 10; then the marker
+   `<!-- ga-traffic-report:<site-slug>:performance -->` and the state line, with count = the
+   number of failing pages. If any page's call errors, add it to `errors` and treat performance
+   as not checked this run: no new issue, no comment, no "not found".
+4. Match before you write. List every labeled issue in the repo once, all pages:
+   `gh api --paginate "repos/<repo>/issues?labels=<url-encoded label>&state=all&per_page=100"`,
+   and drop entries that have a `pull_request` key. Match on the marker line, then on the exact
+   title. Read the old numbers from the issue's state line, never from its text.
    - No match: open it with `gh issue create -R <repo> --label "<Issue label>"`, title and body
      from a temp file (`--body-file`). At most **Max new issues per run** across all sites, worst
-     first (critical, then performance, then warning, then info; bigger counts first). The rest
-     wait for the next run.
-   - Open match: comment only when the count or the failing pages changed: "Audit <date>: N pages
-     (was M)", plus any new URLs. No comment if nothing changed.
+     first (critical, then performance, then warning, then info; bigger counts first). Any site
+     with findings left over gets `pending: true`, and the next run files them.
+   - Open match: when the state line's count differs, or the audit is new and lists new URLs,
+     comment "Audit <date>: N pages (was M)" plus the new URLs. Then rewrite the state line
+     (audit, count, absent=none) with `gh issue edit -R <repo> <n> --body-file`, keeping the rest
+     of the body. No comment if nothing changed.
    - Closed match that came back: reopen it (`gh issue reopen`) with a comment saying which audit
-     found it again.
-   - An open issue whose type this audit no longer finds: comment once "Not found in the <date>
-     audit. Close this if the fix is live." Do not close it yourself.
-5. Report it. One "fyi" action per site where anything was written,
+     found it again, and rewrite its state line the same way.
+   - An open issue for this site whose type this audit checked and no longer finds: if its state
+     line says `absent=none`, comment "Not found in the <date> audit. Close this if the fix is
+     live." and set `absent=<auditId>`. If `absent` is already set, do nothing. Never close it.
+     Only check types the run actually read: the card's **Issue severities**, and performance
+     only when step 3 succeeded.
+5. Record it. Set the site's `audit-issues.json` entry to this audit's id, with `pending` as step
+   4 left it.
+6. Report it. One "fyi" action per site where anything was written,
    id `<site>:github-issues:audit`, title "Opened N and updated M GitHub issues from the <date>
-   audit", why = the issue titles, fix = "Work through them in GitHub.", link =
-   `https://github.com/<repo>/issues?q=label%3A<Issue label>`. Any failed `gh` call goes in
-   `errors` with its exact message; keep going.
+   audit", why = the issue titles (and "K more wait for the next run" when pending), fix = "Work
+   through them in GitHub.", link = `https://github.com/<repo>/issues?q=label%3A<Issue label>`.
+   Any failed `gh` call goes in `errors` with its exact message; keep going.
 
 ## Step 3 - write report.json
 

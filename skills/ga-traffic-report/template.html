@@ -250,7 +250,7 @@ function siteBlock(s) {
       </div>
       ${(s.standouts || []).length ? `<div class="block full"><h3>What stands out</h3><ul class="standouts">${s.standouts.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
       <div class="block"><h3>Channels</h3>${chans.length ? `<div class="tablebox"><table class="mini"><thead><tr><th>Channel</th><th class="r">Now</th><th class="r">Δ</th><th class="r">Eng.</th><th style="width:30%"></th></tr></thead><tbody>
-        ${chans.map(x => { const [a, b] = pair(x.sessions); return `<tr><td>${esc(x.name)}${x.bot ? ` <span class="pill p-soon" title="Engagement under 5% after a jump or two busy weeks, with full-audit visits removed">bot?</span>` : ""}</td>
+        ${chans.map(x => { const [a, b] = pair(x.sessions); return `<tr><td>${esc(x.name)}${x.bot ? ` <span class="pill p-soon" title="Engagement under 5% after a jump or two busy weeks. The test leaves out full-audit visits; the counts shown are what GA reports.">bot?</span>` : ""}</td>
           <td class="r num">${fmt(a)}</td><td class="r num">${delta(a, b)}</td><td class="r num">${pct(x.engagementRate)}</td>
           <td><div class="bar${x.bot ? " bot" : ""}" style="width:${((a || 0) / maxC * 100).toFixed(1)}%"></div></td></tr>`; }).join("")}</tbody></table></div>` : `<p class="empty">No channel data.</p>`}</div>
       <div class="block"><h3>Top pages</h3>${(s.topPages || []).length ? `<div class="tablebox"><table class="mini"><thead><tr><th>Page</th><th class="r">Views</th><th class="r">Users</th></tr></thead><tbody>
