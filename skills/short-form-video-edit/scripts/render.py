@@ -35,12 +35,15 @@ def t2s(v):
 
 def read_cuts(path):
     cuts = []
-    with open(path, encoding="utf-8") as f:
-        for row in csv.reader(f, delimiter="\t"):
+    # utf-8-sig: Windows editors may write a BOM onto the header cell
+    with open(path, encoding="utf-8-sig") as f:
+        for n, row in enumerate(csv.reader(f, delimiter="\t"), 1):
             if not row or not row[0].strip() or row[0].lstrip().startswith("#"):
                 continue
             if row[0].strip().lower() == "start":
                 continue
+            if len(row) < 2:
+                raise SystemExit(f"{path} line {n}: need tab-separated columns (spaces used?): {row[0]!r}")
             row += [""] * (5 - len(row))
             start, end = t2s(row[0]), t2s(row[1])
             if end <= start:
@@ -89,7 +92,10 @@ def plan_crop(cut, face, sw, sh, W, H, want_room):
 
 def plan_overlay(img, face, crop, W, H, side):
     cw, ch, x0, y0 = crop
-    ih, iw = cv2.imread(img, cv2.IMREAD_UNCHANGED).shape[:2]
+    im = cv2.imread(img, cv2.IMREAD_UNCHANGED)
+    if im is None:
+        raise SystemExit(f"cannot read overlay image: {img}")
+    ih, iw = im.shape[:2]
     k, m = W / cw, W * 0.04
     if face:
         fl = (face["x"] - x0) * k
@@ -261,12 +267,17 @@ def main():
         chains.append("[vc]subtitles=captions.ass[vs]")
         vout = "[vs]"
         print(f"captions: {n} words")
-    graph = os.path.join(tmp, "graph.txt")
-    with open(graph, "w", encoding="utf-8") as f:
-        f.write(";\n".join(chains))
+    graph = ";".join(chains)
+    if len(graph) < 24000:
+        # inline works on every ffmpeg version and fits the Windows command-line limit
+        fc = ["-filter_complex", graph]
+    else:
+        # long cut lists: read the graph from a file (-/ prefix needs ffmpeg 7.0 or newer)
+        with open(os.path.join(tmp, "graph.txt"), "w", encoding="utf-8") as f:
+            f.write(graph)
+        fc = ["-/filter_complex", "graph.txt"]
 
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats", *inputs,
-           "-/filter_complex", graph, "-map", vout]
+    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-stats", *inputs, *fc, "-map", vout]
     if audio:
         cmd += ["-map", "[ac]", "-c:a", "aac", "-b:a", "192k"]
     cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", str(a.crf), "-r", str(a.fps),
@@ -274,7 +285,7 @@ def main():
     # cwd=tmp so the subtitles filter gets a bare filename (no Windows path escaping)
     r = subprocess.run(cmd, cwd=tmp)
     if r.returncode:
-        raise SystemExit(f"ffmpeg failed; filter graph kept at {graph}")
+        raise SystemExit(f"ffmpeg failed; captions kept in {tmp}")
 
     total = sum(c["end"] - c["start"] for c in cuts)
     d = stream_durations(out)

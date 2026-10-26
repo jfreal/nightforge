@@ -21,7 +21,8 @@ it when the skill loads; call it `$SKILL_DIR`). All three are Python with
 
 ## Needs
 
-`ffmpeg`/`ffprobe` with libx264 and libass, Python with `openai-whisper` and
+`ffmpeg`/`ffprobe` with libx264 and libass (any recent version; 7.0 or newer
+for very long cut lists, which pass the filter graph as a file), Python with `openai-whisper` and
 `opencv-python`. On John's PC: ffmpeg 8 via winget, and `python` (3.14) has both
 packages. Run the scripts from Git Bash. Whisper on CPU: `base` takes ~10 s per
 minute of footage, `small` (default) is more accurate and slower.
