@@ -550,7 +550,7 @@ whole edit is a TSV file you approve before the render, so fixing a join means c
 The render adds one-word-at-a-time captions and places a screenshot in the empty side of the
 frame, then checks audio/video sync and writes one frame per cut to look at. Adapted from Brooke
 Lacey's workflow on ChatPRD's *How I AI*. User-invokable: `/nightforge:short-form-video-edit`.
-Needs `ffmpeg` (with libass) and `python` with `openai-whisper` and `opencv-python`.
+Needs `ffmpeg` and `ffprobe` (with libx264 and libass) and `python` with `openai-whisper` and `opencv-python`.
 
 ### Install
 

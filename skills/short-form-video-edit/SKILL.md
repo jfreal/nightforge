@@ -38,8 +38,8 @@ into the user's original file.
    with `ffprobe` and tell the user its size, length and fps.
 2. **Analyse.**
    ```
-   python $SKILL_DIR/scripts/transcribe.py raw.mov --out words.json
-   python $SKILL_DIR/scripts/faces.py raw.mov --out faces.json
+   python "$SKILL_DIR/scripts/transcribe.py" raw.mov --out words.json
+   python "$SKILL_DIR/scripts/faces.py" raw.mov --out faces.json
    ```
 3. **Pick the cuts.** This is the judgment part; do it yourself from
    `words.json`, not with a script.
@@ -70,7 +70,7 @@ into the user's original file.
    the full render. This is the cheapest place to fix pacing.
 6. **Render.**
    ```
-   python $SKILL_DIR/scripts/render.py --video raw.mov --cuts cuts.tsv \
+   python "$SKILL_DIR/scripts/render.py" --video raw.mov --cuts cuts.tsv \
      --words words.json --faces faces.json --overlay app.png --out short.mp4
    ```
    Options: `--size 1080x1920` (default), `--fps 30`, `--upper` (UPPERCASE
@@ -94,7 +94,7 @@ into the user's original file.
 | Face not found (`no face`) | Crop centres; if framing is wrong, the speaker may be in profile. Use `wide` for those cuts |
 | Captions missing | ffmpeg lacks libass, or the font is absent: check `ffmpeg -filters` lists `subtitles` |
 | Whisper mishears names | Use `--model medium`; caption text comes from `words.json`, so fix spellings there and re-render |
-| Clip is sideways | Phone rotation metadata. Both ffmpeg and OpenCV auto-rotate; if not, pre-rotate with `ffmpeg -vf transpose=1` |
+| Clip is sideways | Phone rotation tag. ffmpeg applies it, and both scripts tell OpenCV to apply it too, so analysis and render see the same frame. If it is still wrong, bake the rotation in first (`ffmpeg -i raw.mov -c:a copy fixed.mp4`) and run every step on `fixed.mp4` |
 
 ## Filming tips to pass on
 

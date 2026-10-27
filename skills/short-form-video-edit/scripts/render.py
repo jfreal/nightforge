@@ -177,6 +177,7 @@ def contact_sheet(out, cuts, W, H, sheet):
     for c in cuts:
         L = c["end"] - c["start"]
         cap = cv2.VideoCapture(out)
+        cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
         cap.set(cv2.CAP_PROP_POS_MSEC, (off + L / 2) * 1000)
         ok, fr = cap.read()
         cap.release()
@@ -217,6 +218,8 @@ def main():
     cuts = read_cuts(a.cuts)
     faces = json.load(open(a.faces, encoding="utf-8")) if a.faces else None
     cap = cv2.VideoCapture(video)
+    # same orientation as faces.py and ffmpeg, so crop sizes match the decoded frames
+    cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
     ok, fr = cap.read()
     cap.release()
     if not ok:

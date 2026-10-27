@@ -20,6 +20,8 @@ def main():
     a = p.parse_args()
 
     cap = cv2.VideoCapture(a.video)
+    # match ffmpeg, which applies phone rotation tags; OpenCV 4.11+ no longer does by default
+    cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 1)
     if not cap.isOpened():
         raise SystemExit(f"cannot open {a.video}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30
