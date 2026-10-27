@@ -100,6 +100,47 @@ class Commands(unittest.TestCase):
         worktree = cmd[cmd.index("-w", 4) + 1]
         self.assertTrue(worktree.startswith("pr-7-review-"), worktree)
 
+    def test_terminal_sessions_preallow_only_their_mode_commands(self):
+        review = launch.session_command(row(), Path("C:/repos/demo"), "review", "terminal")
+        merge = launch.session_command(row(), Path("C:/repos/demo"), "merge", "terminal")
+        self.assertIn("Bash(gh api *)", review)
+        self.assertIn("PowerShell(git *)", review)
+        self.assertNotIn("Bash(gh pr merge *)", review)
+        self.assertIn("Bash(gh pr merge *)", merge)
+        deny = merge[merge.index("--disallowedTools") + 1:merge.index("-n")]
+        self.assertIn("Bash(git push --force *)", deny)
+
+    def test_background_command_has_no_window_flags_and_remote_control(self):
+        cmd = launch.background_command(row(), "review")
+        self.assertEqual(cmd[1:4], ["--bg", "--remote-control", "demo #7 review"])
+        self.assertNotIn("wt.exe", cmd)
+        self.assertIn("Bash(gh api *)", cmd)
+        self.assertTrue(cmd[-1].startswith("Review PR jfreal/demo#7"))
+
+    def test_background_start_reads_the_session_id(self):
+        out = "Starting background service…\nbackgrounded · 8608c297 · demo #7 review\n  claude agents\n"
+        done = launch.subprocess.CompletedProcess([], 0, out.encode(), b"")
+        with mock.patch.object(launch.subprocess, "run", return_value=done):
+            self.assertEqual(launch.start_background(["claude"], Path("."))["sessionId"], "8608c297")
+
+    def test_background_start_reports_claude_error(self):
+        failed = launch.subprocess.CompletedProcess([], 1, b"", "Not logged in · Run /login\n".encode())
+        with mock.patch.object(launch.subprocess, "run", return_value=failed):
+            result = launch.start_background(["claude"], Path("."))
+        self.assertFalse(result["ok"])
+        self.assertIn("Not logged in", result["error"])
+
+    def test_unsigned_claude_is_refused_before_starting(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "demo" / ".git").mkdir(parents=True)
+        with mock.patch.object(launch, "remote_slug", return_value="jfreal/demo"), \
+             mock.patch.object(launch, "signed_in", return_value=False), \
+             mock.patch.object(launch, "start_background") as start:
+            result = launch.open_session(row(), d, mode="review", target="background")
+        self.assertFalse(result["ok"])
+        self.assertIn("claude auth login", result["error"])
+        start.assert_not_called()
+
     def test_unknown_target_is_refused(self):
         self.assertFalse(launch.open_session(row(), "C:/nowhere", dry_run=True, target="moon")["ok"])
 

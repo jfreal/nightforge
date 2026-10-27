@@ -67,17 +67,17 @@ function rowHtml(r, now) {
   let actions = '';
   // Every row can be merged: a ready PR merges now, any other hands Claude a fix-then-merge job.
   if (local.merged) actions += '<span class="done merged">Merged</span>';
-  else if (local.fixing) actions += '<span class="done">Claude is fixing it, then merging</span>';
+  else if (local.fixing) actions += `<span class="done">Claude is fixing it, then merging${esc(local.where)}</span>`;
   else if (r.lane === 'ready') actions += `<button class="btn" data-act="merge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Merge</button>`;
   else {
     actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
     actions += `<span class="why">Not plain Merge: ${esc(whyNotReady(r))}</span>`;
   }
   // No review yet (or only of an older commit): one click asks Claude for one.
-  if (local.reviewing) actions += '<span class="done">Claude is reviewing it</span>';
+  if (local.reviewing) actions += `<span class="done">Claude is reviewing it${esc(local.where)}</span>`;
   else if (!local.merged && (r.review === 'pending' || r.review === 'stale') && r.verify !== 'pass')
     actions += `<button class="btn" data-act="review" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.review}Review with Claude</button>`;
-  if (local.sent) actions += '<span class="done">Claude is on it</span>';
+  if (local.sent) actions += `<span class="done">Claude is on it${esc(local.where)}</span>`;
   else if (!local.merged && !local.fixing) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
   const shots = state.screens[r.key];
   if (shots && shots.ok && shots.assets.length) {
@@ -224,7 +224,8 @@ async function act(kind, key) {
   }
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
-  else state.local[key] = { merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true };
+  else state.local[key] = { ...({ merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true }),
+    where: { background: ' · open it in Claude desktop', cloud: ' · in the cloud, open it in Claude desktop' }[result.target] || '' };
   render();
   if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }

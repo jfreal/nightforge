@@ -58,9 +58,10 @@ DEFAULTS = {
     # Written every Monday by the night-forge-weekly routine; the header shows its headline numbers.
     "statsFile": str(Path.home() / ".claude" / "scheduled-tasks" / "pr-shipping-report" / "report.json"),
     "statsUrl": "https://claude.ai/artifact/5DELXS2AMoHrbGMWVYPkDm",
-    # Where Review, Fix and merge and Send to Claude run: "cloud" (pick it up in Claude desktop)
-    # or "terminal" (a local session in a new Windows Terminal tab).
-    "sessionTarget": "cloud",
+    # Where Review, Fix and merge and Send to Claude run: "background" (no window; pick it up in
+    # Claude desktop through Remote Control), "cloud" (Anthropic's servers, started from a
+    # terminal tab) or "terminal" (a local session in a new Windows Terminal tab).
+    "sessionTarget": "background",
     # Screenery project per repo, when it is not "<owner>/<repo>". "" turns a repo off.
     "screeneryProjects": {},
 }
