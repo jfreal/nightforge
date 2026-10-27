@@ -102,6 +102,46 @@ class Review(unittest.TestCase):
         self.assertIn({"text": "1 open review comment", "hard": True}, row["blockers"])
 
 
+def rollup(*contexts):
+    return {"nodes": [{"commit": {"oid": HEAD, "statusCheckRollup": {"state": "SUCCESS", "contexts": {"nodes": list(contexts)}}}}]}
+
+
+CI_OK = {"__typename": "CheckRun", "name": "ci", "status": "COMPLETED", "conclusion": "SUCCESS"}
+
+
+def claude_status(state):
+    return {"__typename": "StatusContext", "context": "claude-review", "state": state}
+
+
+class ClaudeReview(unittest.TestCase):
+    no_bot = {"nodes": []}
+
+    def test_passed_claude_review_counts_as_reviewed(self):
+        row = github.build_row(node(reviews=self.no_bot, commits=rollup(CI_OK, claude_status("SUCCESS"))))
+        self.assertEqual(row["review"], "done")
+        self.assertEqual(row["lane"], "ready")
+
+    def test_failed_claude_review_needs_a_fix_but_checks_stay_green(self):
+        row = github.build_row(node(reviews=self.no_bot, commits=rollup(CI_OK, claude_status("FAILURE"))))
+        self.assertEqual(row["checks"], "pass")
+        self.assertEqual(row["lane"], "fix")
+        self.assertIn({"text": "Claude review found problems", "hard": True}, row["blockers"])
+
+    def test_claude_review_alone_is_not_a_check(self):
+        row = github.build_row(node(commits=rollup(claude_status("SUCCESS"))))
+        self.assertEqual(row["checks"], "none")
+
+    def test_failed_or_running_ci_contexts(self):
+        failed = {**CI_OK, "conclusion": "TIMED_OUT"}
+        running = {"__typename": "CheckRun", "name": "ci", "status": "IN_PROGRESS", "conclusion": None}
+        self.assertEqual(github.build_row(node(commits=rollup(failed)))["checks"], "fail")
+        self.assertEqual(github.build_row(node(commits=rollup(running)))["checks"], "running")
+
+    def test_no_review_says_so(self):
+        row = github.build_row(node(reviews=self.no_bot))
+        self.assertIn({"text": "No review yet", "hard": False}, row["blockers"])
+
+
 class Risk(unittest.TestCase):
     def files(self, *paths):
         return {"nodes": [{"path": p, "additions": 1, "deletions": 0} for p in paths]}

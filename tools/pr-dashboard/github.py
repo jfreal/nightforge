@@ -21,7 +21,8 @@ number title url body createdAt isDraft state headRefOid headRefName baseRefName
 repository { name nameWithOwner mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed }
 mergeable additions deletions changedFiles
 labels(first: 20) { nodes { name } }
-commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
+commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first: 100) { nodes {
+  __typename ... on StatusContext { context state } ... on CheckRun { name status conclusion } } } } } } }
 reviews(last: 30) { nodes { author { login } state submittedAt commit { oid } } }
 reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved isOutdated } }
 comments { totalCount }
@@ -44,6 +45,9 @@ query($owner: String!, $name: String!, $num: Int!) {
 """ % FIELDS
 
 REVIEW_BOT = "coderabbitai"
+# The commit status a Review with Claude session sets on the head commit. A status belongs
+# to one commit, so a later push leaves the new head unreviewed again, as it should.
+CLAUDE_REVIEW = "claude-review"
 VERIFIED, VERIFY_FAILED = "verified", "verify-failed"
 
 # A pythonw.exe parent has no console, so each gh.exe child would flash its own window.
@@ -107,10 +111,34 @@ def fetch_nodes(owners) -> list:
 # status columns
 # --------------------------------------------------------------------------- #
 
-def checks_of(node) -> str:
+def rollup_of(node):
     commits = node["commits"]["nodes"]
-    rollup = commits[0]["commit"]["statusCheckRollup"] if commits else None
-    state = (rollup or {}).get("state")
+    return (commits[0]["commit"]["statusCheckRollup"] if commits else None) or {}
+
+
+CHECK_OK = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+
+
+def checks_of(node) -> str:
+    """CI only. The claude-review status is a review, not a check, so it is left out."""
+    rollup = rollup_of(node)
+    contexts = (rollup.get("contexts") or {}).get("nodes")
+    if contexts is not None:
+        states = []
+        for c in contexts:
+            if c.get("__typename") == "StatusContext":
+                if c["context"] != CLAUDE_REVIEW:
+                    states.append(c["state"])
+            elif c.get("status") != "COMPLETED":
+                states.append("PENDING")
+            else:
+                states.append("SUCCESS" if c.get("conclusion") in CHECK_OK else "FAILURE")
+        if not states:
+            return "none"
+        if any(s in ("FAILURE", "ERROR") for s in states):
+            return "fail"
+        return "running" if any(s in ("PENDING", "EXPECTED") for s in states) else "pass"
+    state = rollup.get("state")
     if state == "SUCCESS":
         return "pass"
     if state in ("FAILURE", "ERROR"):
@@ -129,11 +157,23 @@ def threads_truncated(node) -> bool:
     return bool((node["reviewThreads"].get("pageInfo") or {}).get("hasNextPage"))
 
 
+def claude_review_of(node) -> str:
+    """pass / fail from the claude-review status on the head commit, else none."""
+    for c in (rollup_of(node).get("contexts") or {}).get("nodes") or []:
+        if c.get("__typename") == "StatusContext" and c["context"] == CLAUDE_REVIEW:
+            return {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}.get(c["state"], "none")
+    return "none"
+
+
 def review_of(node) -> str:
-    """done: CodeRabbit reviewed the head commit. changes: unresolved threads remain.
-    stale: CodeRabbit only reviewed an older commit. pending: no CodeRabbit review yet."""
-    if open_threads(node) or threads_truncated(node):
+    """done: CodeRabbit or Claude reviewed the head commit. changes: unresolved threads remain,
+    or Claude's review found problems. stale: CodeRabbit only reviewed an older commit.
+    pending: no review yet."""
+    claude = claude_review_of(node)
+    if open_threads(node) or threads_truncated(node) or claude == "fail":
         return "changes"
+    if claude == "pass":
+        return "done"
     bot = [r for r in node["reviews"]["nodes"] if (r.get("author") or {}).get("login") == REVIEW_BOT]
     if any((r.get("commit") or {}).get("oid") == node["headRefOid"] for r in bot):
         return "done"
@@ -167,16 +207,19 @@ def blockers_of(row) -> list:
         out.append({"text": "Checks failed", "hard": True})
     if row["verify"] == "fail":
         out.append({"text": "Verify failed", "hard": True})
-    if row["review"] == "changes":
-        n, more = row["openThreads"], row["threadsTruncated"]
-        text = (f"{n}{'+' if more else ''} open review comment{'s' if n != 1 or more else ''}" if n
-                else "Over 100 review threads, check GitHub")
-        out.append({"text": text, "hard": True})
+    n, more = row["openThreads"], row["threadsTruncated"]
+    if n:
+        out.append({"text": f"{n}{'+' if more else ''} open review comment{'s' if n != 1 or more else ''}",
+                    "hard": True})
+    elif more:
+        out.append({"text": "Over 100 review threads, check GitHub", "hard": True})
+    if row["claudeReview"] == "fail":
+        out.append({"text": "Claude review found problems", "hard": True})
     if row["checks"] == "running":
         out.append({"text": "Checks running", "hard": False})
     # A verified PR does not wait on CodeRabbit (see lane_of), so do not say it does.
     if row["review"] == "pending" and row["verify"] != "pass":
-        out.append({"text": "No CodeRabbit review yet", "hard": False})
+        out.append({"text": "No review yet", "hard": False})
     if row["review"] == "stale" and row["verify"] != "pass":
         out.append({"text": "Review is for an older commit", "hard": False})
     if row["conflict"] == "checking":
@@ -309,7 +352,7 @@ def build_row(node) -> dict:
         "draft": node["isDraft"], "headSha": node["headRefOid"],
         "headBranch": node["headRefName"], "baseBranch": node["baseRefName"],
         "checks": checks_of(node), "review": review_of(node), "openThreads": open_threads(node),
-        "threadsTruncated": threads_truncated(node),
+        "threadsTruncated": threads_truncated(node), "claudeReview": claude_review_of(node),
         "verify": verify_of(node), "conflict": conflict_of(node),
         "files": node["changedFiles"], "plus": node["additions"], "minus": node["deletions"],
         "comments": node["comments"]["totalCount"],

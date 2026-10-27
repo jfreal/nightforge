@@ -8,6 +8,7 @@ Serves static/ and three endpoints on 127.0.0.1 only:
     GET  /api/screens one PR's Screenery screenshots (?key=owner/repo#n), changed ones first
     POST /api/merge     re-check one PR, then `gh pr merge` it with the repo's merge method
     POST /api/fixmerge  open a session told to fix one PR, wait for green, then merge it
+    POST /api/review    open a session that runs /code-review on one PR and records the verdict
     POST /api/send    open a Claude Code session on one PR (see launch.py)
 
 Both POSTs need the per-start token the page carries, so no other website can drive them
@@ -193,9 +194,21 @@ def fix_and_merge(cfg, body, dry_run) -> dict:
     owner, repo, num = parse_key(body.get("key"))
     if owner not in cfg["owners"]:
         return {"ok": False, "error": f"{owner} is not in this dashboard's owners"}
-    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run, merge=True)
-    log((("dry run, would run: " if dry_run else "fix and merge sent: ") + f"{owner}/{repo}#{num}")
-        if result["ok"] else f"fix and merge failed: {result['error']}")
+    return start_session(cfg, owner, repo, num, dry_run, "merge", "fix and merge")
+
+
+def review(cfg, body, dry_run) -> dict:
+    """Missing a review: a session runs /code-review and sets the claude-review status."""
+    owner, repo, num = parse_key(body.get("key"))
+    if owner not in cfg["owners"]:
+        return {"ok": False, "error": f"{owner} is not in this dashboard's owners"}
+    return start_session(cfg, owner, repo, num, dry_run, "review", "review")
+
+
+def start_session(cfg, owner, repo, num, dry_run, mode, what) -> dict:
+    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run, mode)
+    log((("dry run, would run: " if dry_run else f"{what} sent: ") + f"{owner}/{repo}#{num}")
+        if result["ok"] else f"{what} failed: {result['error']}")
     return result
 
 
@@ -203,10 +216,7 @@ def send(cfg, body, dry_run) -> dict:
     owner, repo, num = parse_key(body.get("key"))
     if owner not in cfg["owners"]:
         return {"ok": False, "error": f"{owner} is not in this dashboard's owners"}
-    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run)
-    log(("dry run, would run: " if dry_run else "sent: ") + " ".join(result.get("command", [])[:8])
-        if result["ok"] else f"send failed: {result['error']}")
-    return result
+    return start_session(cfg, owner, repo, num, dry_run, "send", "send")
 
 
 def make_handler(cfg, board, token, dry_run):
@@ -261,6 +271,8 @@ def make_handler(cfg, board, token, dry_run):
                 body = json.loads(self.rfile.read(min(length, 10_000)) or b"{}")
                 if self.path == "/api/merge":
                     result = merge(cfg, body, dry_run)
+                elif self.path == "/api/review":
+                    result = review(cfg, body, dry_run)
                 elif self.path == "/api/fixmerge":
                     result = fix_and_merge(cfg, body, dry_run)
                 elif self.path == "/api/send":

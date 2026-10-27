@@ -20,6 +20,7 @@ const ICON = {
   hard: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"></path><path d="M12 10v4"></path><path d="M12 17h.01"></path></svg>',
   soft: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4h3"></path></svg>',
   check: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>',
+  review: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path><path d="m8.5 11 2 2 3.5-4"></path></svg>',
   camera: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>',
   github: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M20 4 10 14"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>'
 };
@@ -72,6 +73,10 @@ function rowHtml(r, now) {
     actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
     actions += `<span class="why">Not plain Merge: ${esc(whyNotReady(r))}</span>`;
   }
+  // No review yet (or only of an older commit): one click asks Claude for one.
+  if (local.reviewing) actions += '<span class="done">Claude is reviewing it</span>';
+  else if (!local.merged && (r.review === 'pending' || r.review === 'stale') && r.verify !== 'pass')
+    actions += `<button class="btn" data-act="review" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.review}Review with Claude</button>`;
   if (local.sent) actions += '<span class="done">Claude is on it</span>';
   else if (!local.merged && !local.fixing) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
   const shots = state.screens[r.key];
@@ -219,7 +224,7 @@ async function act(kind, key) {
   }
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
-  else state.local[key] = kind === 'merge' ? { merged: true } : kind === 'fixmerge' ? { fixing: true } : { sent: true };
+  else state.local[key] = { merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true };
   render();
   if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }

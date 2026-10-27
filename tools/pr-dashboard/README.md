@@ -5,6 +5,7 @@ signals GitHub's own list hides: merge conflicts, checks, CodeRabbit review, the
 `verified` / `verify-failed` labels, a merge-risk guess, and a timer for how long each PR
 has waited. Buttons on each row act on it:
 - **Merge** merges a ready PR. Any other PR gets **Fix and merge** instead, which hands it to Claude to fix and then merge.
+- **Review with Claude** shows when a PR has no review of its latest commit. It runs `/code-review` in a Claude session.
 - **Send to Claude** opens a Claude Code session on it.
 - **Screenshots** opens the PR's Screenery gallery.
 
@@ -59,7 +60,7 @@ Rules live in `github.py`, and `test_github.py` covers each one.
   - no CodeRabbit review yet
   - review is for an older commit
   - GitHub still working out mergeability
-- **Ready to merge.** Checks passed (or the repo has none), no conflict, nothing hard blocking, and either CodeRabbit reviewed the head commit or the PR has the `verified` label.
+- **Ready to merge.** Checks passed (or the repo has none), no conflict, nothing hard blocking, and a review of the head commit: CodeRabbit's, a passed `claude-review` status, or the `verified` label.
 - **Risk.** High if it touches migrations or SQL, a schema, auth or security code, or CI workflows, changes more than 20 files, or its description has a GitHub `[!WARNING]`, `[!CAUTION]` or `[!IMPORTANT]` note. Low if it only touches docs. Medium if it changes more than 300 lines or config files like `package.json`, `*.csproj` or YAML. Low otherwise. Details lists the reasons.
 
 ## Merge
@@ -74,6 +75,16 @@ Rules live in `github.py`, and `test_github.py` covers each one.
 
    Those PRs get Fix and merge instead.
 3. Then it runs `gh pr merge <n> -R <owner>/<repo> --<method> --match-head-commit <sha>`, with the method the repo allows (squash first, then merge, then rebase).
+
+## Review with Claude
+
+This button opens a Claude session that runs `/code-review` on the PR. When it's done, Claude sets a commit status named `claude-review` on the head commit:
+- `success` if no finding is a real bug or security problem
+- `failure` otherwise, with the findings posted as one PR comment
+
+The dashboard counts a `success` the same as a CodeRabbit review of that commit, so the row turns Ready and gets plain Merge. A `failure` shows as "Claude review found problems" and the row gets Fix and merge. CI checks ignore this status, so a failed review never shows as failed checks.
+
+A status belongs to one commit, so a new push leaves the PR unreviewed again. The session never edits code, pushes, approves or merges.
 
 ## Fix and merge
 
