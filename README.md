@@ -246,6 +246,11 @@ skills/simple-issue-description/
 skills/video-logo-intro/
   SKILL.md                      prepends an animated logo opening to a video with ffmpeg
   scripts/logo-intro.sh         the renderer: glow, wordmark, xfade, preview contact sheet
+skills/short-form-video-edit/
+  SKILL.md                      cuts one raw phone take into a vertical short from a TSV cut list
+  scripts/transcribe.py         Whisper word timings, transcript with pauses and retake cues
+  scripts/faces.py              OpenCV face track, so cuts frame the speaker and graphics find empty space
+  scripts/render.py             the renderer: crop and zoom per cut, word captions, graphics, sync check
 .claude-plugin/
   plugin.json                   the repo as one plugin: every skill under skills/
   marketplace.json              the repo as its own marketplace, listing that plugin
@@ -531,6 +536,21 @@ optional wordmark appears under it, and an ffmpeg transition (a circle opening, 
 reveals the footage. It previews the first few seconds as a contact sheet before the full
 render, and it always writes standard yuv420p H.264, so Windows players open the result.
 User-invokable: `/nightforge:video-logo-intro`. Needs `ffmpeg` and `python` on PATH.
+
+### Install
+
+Comes with the plugin (see [Install](#install)).
+
+## `short-form-video-edit`
+
+Turns one continuous phone take into a 15-60 second vertical short. Whisper times every word,
+OpenCV finds the speaker's face, and Claude picks the cuts: the later take of a repeated line,
+no "cut that out" moments, cuts just outside word edges, a mix of wide, mid and close shots. The
+whole edit is a TSV file you approve before the render, so fixing a join means changing a number.
+The render adds one-word-at-a-time captions and places a screenshot in the empty side of the
+frame, then checks audio/video sync and writes one frame per cut to look at. Adapted from Brooke
+Lacey's workflow on ChatPRD's *How I AI*. User-invokable: `/nightforge:short-form-video-edit`.
+Needs `ffmpeg` and `ffprobe` (with libx264 and libass) and `python` with `openai-whisper` and `opencv-python`.
 
 ### Install
 
