@@ -12,7 +12,7 @@ const RISK = { low: 'Low', med: 'Medium', high: 'High' };
 const REFRESH_MS = 60000;
 const TICK_MS = 30000;
 
-const state = { rows: [], filter: 'all', open: new Set(), local: {}, error: '', fetchedAt: null };
+const state = { rows: [], filter: 'all', open: new Set(), local: {}, error: '', fetchedAt: null, screens: {} };
 
 const ICON = {
   merge: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="12" r="2.5"></circle><path d="M6 7.5v9M6 7.5c0 4 4 4.5 9.5 4.5"></path></svg>',
@@ -20,6 +20,7 @@ const ICON = {
   hard: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"></path><path d="M12 10v4"></path><path d="M12 17h.01"></path></svg>',
   soft: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4h3"></path></svg>',
   check: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>',
+  camera: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>',
   github: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6"></path><path d="M20 4 10 14"></path><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>'
 };
 
@@ -63,6 +64,11 @@ function rowHtml(r, now) {
   else actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
   if (local.sent) actions += '<span class="done">Claude is on it</span>';
   else if (!local.merged && !local.fixing) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
+  const shots = state.screens[r.key];
+  if (shots && shots.ok && shots.assets.length) {
+    const changed = (shots.summary.changed || 0) + (shots.summary.added || 0);
+    actions += `<button class="btn" data-act="screens" data-key="${esc(r.key)}">${ICON.camera}Screenshots${changed ? ` (${changed} changed)` : ''}</button>`;
+  }
   actions += `<button class="btn" data-act="toggle" data-key="${esc(r.key)}" aria-expanded="${open}" aria-label="Details for ${esc(r.repo)} #${r.num}">Details<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"></path></svg></button>`;
   if (local.error) actions += `<span class="err" role="alert">${esc(local.error)}</span>`;
   if (local.note) actions += `<span class="err" role="status">${esc(local.note)}</span>`;
@@ -145,6 +151,7 @@ async function load(force) {
     state.error = 'The dashboard server is not answering. Is the window still open?';
   }
   render();
+  probeScreens();
 }
 
 async function post(path, body) {
@@ -170,6 +177,7 @@ function confirmBox(title, body, yes, icon) {
 async function act(kind, key) {
   const r = state.rows.find((x) => x.key === key);
   if (!r) return;
+  if (kind === 'screens') return openGallery(r);
   if (kind === 'toggle') {
     state.open.has(key) ? state.open.delete(key) : state.open.add(key);
     return render();
@@ -209,6 +217,65 @@ document.addEventListener('click', (e) => {
 });
 $('refresh').addEventListener('click', () => load(true));
 $('dry').hidden = !window.DASH.dryRun;
+
+// Screenery screenshots. Ask once per PR, one at a time, after the list loads; the server
+// caches each answer for ten minutes, so a refresh costs nothing.
+let probing = false;
+async function probeScreens() {
+  if (probing) return;
+  probing = true;
+  try {
+    for (const r of state.rows) {
+      const known = state.screens[r.key];
+      if (known && Date.now() - known.at < 10 * 60000) continue;
+      try {
+        const res = await (await fetch('/api/screens?key=' + encodeURIComponent(r.key))).json();
+        state.screens[r.key] = { ...res, at: Date.now() };
+      } catch (e) { break; }
+      if (hasShots(state.screens[r.key])) render();
+    }
+  } finally { probing = false; }
+}
+const hasShots = (s) => s && s.ok && s.assets && s.assets.length > 0;
+
+const gal = { row: null, show: 'changed', before: new Set() };
+function openGallery(r) {
+  gal.row = r; gal.before = new Set();
+  const s = state.screens[r.key];
+  gal.show = (s.summary.changed || 0) + (s.summary.added || 0) > 0 ? 'changed' : 'all';
+  drawGallery();
+  $('gallery').showModal();
+  $('gallery-close').focus();
+}
+function drawGallery() {
+  const r = gal.row, s = state.screens[r.key];
+  const changed = s.assets.filter((a) => a.status !== 'unchanged');
+  const list = gal.show === 'changed' ? changed : s.assets;
+  $('gallery-title').textContent = `${r.repo} #${r.num} screenshots`;
+  $('gallery-sub').textContent = `${plural(s.summary.total || s.assets.length, 'screenshot')}, ${changed.length} changed or new, compared with the main branch.`;
+  $('gallery-open').href = s.url || '#';
+  $('gallery-open').hidden = !s.url;
+  $('gallery-filters').innerHTML =
+    `<button class="filter" data-gal="changed" aria-pressed="${gal.show === 'changed'}">Changed <span>${changed.length}</span></button>` +
+    `<button class="filter" data-gal="all" aria-pressed="${gal.show === 'all'}">All <span>${s.assets.length}</span></button>`;
+  $('gallery-grid').innerHTML = list.length ? list.map((a, i) => {
+    const showBefore = gal.before.has(a.name) && a.from;
+    const img = showBefore ? a.from : (a.to || a.from);
+    const word = { changed: 'Changed', added: 'New', removed: 'Removed', unchanged: 'Same' }[a.status] || a.status;
+    return `<figure class="shot ${esc(a.status)}" style="margin: 0">
+<div class="shot-head"><div><div class="shot-name">${esc(a.label)}</div><div class="shot-group">${esc(a.group)}${a.flaky ? ' · flaky' : ''}</div></div><span class="tag ${esc(a.status)}">${word}</span></div>
+<a class="shot-img" href="${esc(img.url)}" target="_blank" rel="noopener" title="Open full size"><img loading="lazy" src="${esc(img.url)}" alt="${esc(a.label)}, ${showBefore ? 'before' : 'this PR'}"></a>
+${a.status === 'changed' && a.from ? `<div class="shot-foot"><button class="btn" data-shot="${esc(a.name)}" data-side="new" aria-pressed="${!showBefore}">This PR</button><button class="btn" data-shot="${esc(a.name)}" data-side="before" aria-pressed="${!!showBefore}">Before (main)</button></div>` : ''}
+</figure>`;
+  }).join('') : '<div class="empty">No changed screenshots. Pick All to see every one.</div>';
+}
+$('gallery-close').addEventListener('click', () => $('gallery').close());
+$('gallery').addEventListener('click', (e) => {
+  const g = e.target.closest('[data-gal]');
+  if (g) { gal.show = g.dataset.gal; return drawGallery(); }
+  const b = e.target.closest('[data-shot]');
+  if (b) { b.dataset.side === 'before' ? gal.before.add(b.dataset.shot) : gal.before.delete(b.dataset.shot); drawGallery(); }
+});
 
 // Shipping numbers from the weekly Night Forge report. The file changes once a week, so
 // reading it every half hour is plenty.

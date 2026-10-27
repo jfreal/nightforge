@@ -3,8 +3,12 @@
 A local page with every open PR across your repos in one table, oldest first. It shows the
 signals GitHub's own list hides: merge conflicts, checks, CodeRabbit review, the
 `verified` / `verify-failed` labels, a merge-risk guess, and a timer for how long each PR
-has waited. Two buttons act on a row: **Merge** merges it for real, and **Send to Claude**
-opens a Claude Code session on it.
+has waited. Buttons on each row act on it:
+- **Merge** merges a ready PR. Any other PR gets **Fix and merge** instead, which hands it to Claude to fix and then merge.
+- **Send to Claude** opens a Claude Code session on it.
+- **Screenshots** opens the PR's Screenery gallery.
+
+The header also shows this week's shipping numbers from the Night Forge weekly report.
 
 Plain Python, standard library only. The only outside dependency is the `gh` CLI, signed in.
 
@@ -35,6 +39,9 @@ gitignored) and edit it:
 | `reposRoot` | the folder this repo sits in | Where local clones live, as `<reposRoot>/<repo>`. Send to Claude starts there. |
 | `port` | `8765` | Port on 127.0.0.1. |
 | `refreshSeconds` | `60` | How often the page reloads the list. The server asks GitHub at most every half of this. |
+| `statsFile` | `~/.claude/scheduled-tasks/pr-shipping-report/report.json` | The Night Forge weekly report's data. If it is missing, the header shows no stats. |
+| `statsUrl` | the Night Forge artifact | Where the "report" link in the header goes. |
+| `screeneryProjects` | `{}` | Screenery project per repo name, when it isn't `<owner>/<repo>`. `""` turns a repo off. |
 
 ## What the columns mean
 
@@ -60,6 +67,36 @@ Rules live in `github.py`, and `test_github.py` covers each one.
 1. Merge asks you to confirm first.
 2. The server then re-reads the PR from GitHub. It refuses if anyone pushed since the page loaded, if the PR is a draft, has a conflict, or checks have not passed.
 3. Then it runs `gh pr merge <n> -R <owner>/<repo> --<method> --match-head-commit <sha>`, with the method the repo allows (squash first, then merge, then rebase).
+
+## Fix and merge
+
+Every PR that is not ready gets this button instead of Merge. After you confirm, it opens a Claude session. Claude merges the base branch in, fixes the blockers and pushes. If the PR is a draft, Claude marks it ready. Then Claude waits for checks with `gh pr checks --watch` and merges with the repo's method.
+
+Claude stops and asks you before merging if:
+- the risk is high
+- the description warns against merging yet
+- a fix needs a judgement call
+- checks still fail after two tries
+
+It uses its own endpoint, `/api/fixmerge`. An older server that doesn't know it answers "not found", so a click never turns into a direct merge.
+
+## Stats
+
+Every Monday, the `night-forge-weekly` routine writes `report.json`. The header reads it and shows:
+- this week's merges, and the week before
+- merges per day
+- median time to merge
+- the all-time count
+
+It also shows the date of the report, linked to its artifact. The page re-reads the file every half hour.
+
+## Screenshots
+
+Screenery keeps each PR's CI screenshots on a channel named `pr-<n>`. After the list loads, the server asks for each PR's gallery once, at `https://app.screenery.dev/v1/projects/<owner>/<repo>/channels/pr-<n>/gallery`. It keeps each answer for 10 minutes.
+
+A row with screenshots gets a **Screenshots (N changed)** button. The gallery shows changed and new shots first. Each changed shot can switch between this PR and `main`, and clicking an image opens it full size.
+
+Public Screenery projects need no token. A private project, or a PR whose CI pushed nothing, shows no button.
 
 ## Send to Claude
 
@@ -90,7 +127,7 @@ Every prompt ends with "Do not merge the PR."
 ## Test
 
 ```bash
-python -m unittest test_github.py
+python -m unittest test_github.py test_screenery.py
 ```
 
-The tests use made-up PRs shaped like the real GraphQL reply. Real PR bodies from private repos don't belong in this public repo.
+The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.

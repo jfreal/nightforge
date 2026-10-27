@@ -5,6 +5,7 @@ Serves static/ and three endpoints on 127.0.0.1 only:
 
     GET  /api/prs     every open PR as a row (cached for refreshSeconds/2)
     GET  /api/stats   headline numbers from the Night Forge shipping report, if it exists
+    GET  /api/screens one PR's Screenery screenshots (?key=owner/repo#n), changed ones first
     POST /api/merge     re-check one PR, then `gh pr merge` it with the repo's merge method
     POST /api/fixmerge  open a session told to fix one PR, wait for green, then merge it
     POST /api/send    open a Claude Code session on one PR (see launch.py)
@@ -26,6 +27,7 @@ import secrets
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +35,7 @@ from pathlib import Path
 
 import github
 import launch
+import screenery
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -54,6 +57,8 @@ DEFAULTS = {
     # Written every Monday by the night-forge-weekly routine; the header shows its headline numbers.
     "statsFile": str(Path.home() / ".claude" / "scheduled-tasks" / "pr-shipping-report" / "report.json"),
     "statsUrl": "https://claude.ai/artifact/5DELXS2AMoHrbGMWVYPkDm",
+    # Screenery project per repo, when it is not "<owner>/<repo>". "" turns a repo off.
+    "screeneryProjects": {},
 }
 
 
@@ -131,6 +136,20 @@ def stats(cfg) -> dict:
     except (OSError, ValueError, KeyError, StopIteration) as exc:
         log(f"stats file unreadable: {exc}")
         return {"ok": False}
+
+
+def screens(cfg, raw_path) -> dict:
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(raw_path).query)
+    try:
+        owner, repo, num = parse_key((query.get("key") or [""])[0])
+    except ValueError as exc:
+        return {"ok": False, "reason": str(exc)}
+    if owner not in cfg["owners"]:
+        return {"ok": False, "reason": f"{owner} is not in this dashboard's owners"}
+    project = cfg["screeneryProjects"].get(repo, f"{owner}/{repo}")
+    if not project:
+        return {"ok": False, "reason": "none"}
+    return screenery.gallery(project, num)
 
 
 def merge(cfg, body, dry_run) -> dict:
@@ -212,6 +231,8 @@ def make_handler(cfg, board, token, dry_run):
                 return self.reply(200, board.get(force="force=1" in self.path))
             if path == "/api/stats":
                 return self.reply(200, stats(cfg))
+            if path == "/api/screens":
+                return self.reply(200, screens(cfg, self.path))
             name = "index.html" if path == "/" else path.lstrip("/")
             # Only plain file names inside static/: no folders, no `..`.
             file = LOGO if name == "logo.png" else STATIC / name

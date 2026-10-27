@@ -133,6 +133,7 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 | NuGet | `error-sweep` (App Insights adapter) | `curl` | Reads public package version lists from `api.nuget.org`. |
 | OpenSEO | `index-sweep` | OpenSEO MCP | Reads Google Search Console index status for your own sites' pages. Free. |
 | Omega Indexer | `index-sweep` | Omega Indexer MCP | Reads campaign history and credits. Creates indexing campaigns, at 1 credit per link. |
+| Screenery | `tools/pr-dashboard` | HTTPS, no token | Reads public PR screenshot galleries from `app.screenery.dev`. The page loads the images from `cdn.screenery.dev`. |
 | Google Fonts | `tools/coderabbit-sweep` board, `tools/pr-dashboard` page | the browser | The generated `board.html` and the dashboard page load their fonts from `fonts.googleapis.com` when you open them. |
 
 An adapter only runs when a project card names it. A repo with no Netlify card never calls
