@@ -247,7 +247,8 @@ async function probeScreens() {
   try {
     for (const r of state.rows) {
       const known = state.screens[r.key];
-      if (known && Date.now() - known.at < 10 * 60000) continue;
+      // A miss may be a CI run still uploading, so ask again after a minute, not ten.
+      if (known && Date.now() - known.at < (known.ok ? 10 : 1) * 60000) continue;
       try {
         const res = await (await fetch('/api/screens?key=' + encodeURIComponent(r.key))).json();
         state.screens[r.key] = { ...res, at: Date.now() };
@@ -272,7 +273,8 @@ function drawGallery() {
   const changed = s.assets.filter((a) => a.status !== 'unchanged');
   const list = gal.show === 'changed' ? changed : s.assets;
   $('gallery-title').textContent = `${r.repo} #${r.num} screenshots`;
-  $('gallery-sub').textContent = `${plural(s.summary.total || s.assets.length, 'screenshot')}, ${changed.length} changed or new, compared with the main branch.`;
+  $('gallery-sub').textContent = `${plural(s.summary.total || s.assets.length, 'screenshot')}, ${changed.length} changed or new, compared with the main branch.`
+    + (s.incomplete ? ` Showing the first ${s.assets.length}; open Screenery for the rest.` : '');
   $('gallery-open').href = s.url || '#';
   $('gallery-open').hidden = !s.url;
   $('gallery-filters').innerHTML =

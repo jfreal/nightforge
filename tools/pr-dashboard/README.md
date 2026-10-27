@@ -42,6 +42,7 @@ gitignored) and edit it:
 | `refreshSeconds` | `60` | How often the page reloads the list. The server asks GitHub at most every half of this. |
 | `statsFile` | `~/.claude/scheduled-tasks/pr-shipping-report/report.json` | The Night Forge weekly report's data. If it is missing, the header shows no stats. |
 | `statsUrl` | the Night Forge artifact | Where the "report" link in the header goes. |
+| `sessionTarget` | `"cloud"` | Where Review with Claude, Fix and merge and Send to Claude run: `"cloud"` (pick it up in Claude desktop or claude.ai/code) or `"terminal"` (a local session on this PC). |
 | `screeneryProjects` | `{}` | Screenery project per repo name, when it isn't `<owner>/<repo>`. `""` turns a repo off. |
 
 ## What the columns mean
@@ -118,13 +119,23 @@ Public Screenery projects need no token. A private project, or a PR whose CI pus
 
 ## Send to Claude
 
-It opens a new Windows Terminal tab in the repo's local clone and runs:
+All three Claude buttons start their session from a new Windows Terminal tab in the repo's local clone. `sessionTarget` decides where the session then runs.
+
+**Cloud (the default).** The tab runs:
 
 ```text
-claude.exe -n "<repo> #<n>" -w pr-<n>-<time> "<prompt>"
+claude.exe --cloud "<prompt>"
 ```
 
-The `-w` worktree keeps the clone's own checkout untouched.
+The session runs on Anthropic's servers, against the clone's GitHub remote, and appears in Claude desktop and at claude.ai/code. Once it has started, you can close the tab and follow the session there instead. It needs a claude.ai sign-in, and the repo must be on GitHub with the Claude GitHub app installed.
+
+Cloud sessions block `gh pr` and other GraphQL commands, so cloud prompts use `git` and `gh api` REST calls instead. One thing can't be done over REST: taking a PR out of draft. So a cloud Fix and merge on a draft stops and asks you to mark it ready.
+
+**Terminal.** The tab runs a local session in a fresh worktree, so the clone's own checkout is untouched:
+
+```text
+claude.exe -n "<repo> #<n>" -w pr-<n>-<mode>-<time> "<prompt>"
+```
 
 The prompt depends on the row:
 - A PR that **needs a fix** gets told to merge the base branch, fix the blockers and push.
@@ -150,7 +161,7 @@ No prompt contains the PR's title, description or branch name, because the PR's 
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.

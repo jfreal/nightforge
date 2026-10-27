@@ -20,7 +20,8 @@ import urllib.request
 
 API = "https://app.screenery.dev"
 TTL = 600          # a PR's screenshots change only when its CI runs again
-MAX_PAGES = 5
+MISS_TTL = 60      # but a miss may be a CI run still uploading, so ask again soon
+MAX_PAGES = 20     # a safety stop; hitting it marks the gallery incomplete
 # Changed shots first: they are the ones worth a look before merging.
 ORDER = {"changed": 0, "added": 1, "removed": 2, "unchanged": 3}
 
@@ -61,20 +62,20 @@ def gallery(project: str, num: int, api: str = API) -> dict:
     key = (project, num)
     with _lock:
         hit = _cache.get(key)
-        if hit and time.time() - hit[0] < TTL:
+        if hit and time.time() - hit[0] < (TTL if hit[1].get("ok") else MISS_TTL):
             return hit[1]
     base = f"{api}/v1/projects/{urllib.parse.quote(project, safe='/')}/channels/pr-{num}/gallery"
     try:
         doc = _get(base)
-        groups, page = list(doc.get("groups", [])), doc.get("page") or {}
-        for _ in range(MAX_PAGES - 1):
-            if not page.get("has_more") or not page.get("next_cursor"):
-                break
+        groups, page, pages = list(doc.get("groups", [])), doc.get("page") or {}, 1
+        while page.get("has_more") and page.get("next_cursor") and pages < MAX_PAGES:
             more = _get(base + "?cursor=" + urllib.parse.quote(page["next_cursor"]))
             groups += more.get("groups", [])
-            page = more.get("page") or {}
+            page, pages = more.get("page") or {}, pages + 1
         doc["groups"] = groups
         result = trim(doc)
+        # Never pass off part of a gallery as all of it.
+        result["incomplete"] = bool(page.get("has_more"))
     except urllib.error.HTTPError as exc:
         result = {"ok": False, "reason": "none" if exc.code == 404 else f"Screenery answered {exc.code}"}
     except (urllib.error.URLError, TimeoutError, ValueError, KeyError) as exc:

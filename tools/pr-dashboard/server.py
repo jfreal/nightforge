@@ -58,6 +58,9 @@ DEFAULTS = {
     # Written every Monday by the night-forge-weekly routine; the header shows its headline numbers.
     "statsFile": str(Path.home() / ".claude" / "scheduled-tasks" / "pr-shipping-report" / "report.json"),
     "statsUrl": "https://claude.ai/artifact/5DELXS2AMoHrbGMWVYPkDm",
+    # Where Review, Fix and merge and Send to Claude run: "cloud" (pick it up in Claude desktop)
+    # or "terminal" (a local session in a new Windows Terminal tab).
+    "sessionTarget": "cloud",
     # Screenery project per repo, when it is not "<owner>/<repo>". "" turns a repo off.
     "screeneryProjects": {},
 }
@@ -169,6 +172,10 @@ def merge(cfg, body, dry_run) -> dict:
                         else "GitHub is still checking for conflicts")
     if row["checks"] not in ("pass", "none"):
         problems.append(f"checks are {row['checks']}")
+    # Same review gate as github.lane_of: a missing review is only a soft blocker on the page,
+    # but a label removed since the page loaded must still stop a direct merge.
+    if row["review"] != "done" and row["verify"] != "pass":
+        problems.append("this commit has no review yet (CodeRabbit, Claude or the verified label)")
     # Verify failed or open review comments: green checks alone are not enough. Use Fix and merge.
     problems += [b["text"].lower() for b in row["blockers"]
                  if b["hard"] and b["text"] not in ("Merge conflict", "Checks failed")]
@@ -206,7 +213,8 @@ def review(cfg, body, dry_run) -> dict:
 
 
 def start_session(cfg, owner, repo, num, dry_run, mode, what) -> dict:
-    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run, mode)
+    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run, mode,
+                                 cfg["sessionTarget"])
     log((("dry run, would run: " if dry_run else f"{what} sent: ") + f"{owner}/{repo}#{num}")
         if result["ok"] else f"{what} failed: {result['error']}")
     return result

@@ -4,6 +4,8 @@
 """
 
 import unittest
+import urllib.error
+from unittest import mock
 
 import screenery
 
@@ -23,6 +25,38 @@ DOC = {
             asset("marketing/c", "added", before=False), asset("marketing/d", "changed", ignored=True)]},
     ],
 }
+
+
+class Paging(unittest.TestCase):
+    def setUp(self):
+        screenery._cache.clear()
+
+    def pages(self, n, more_after_last=False):
+        out = []
+        for i in range(n):
+            last = i == n - 1
+            out.append({**DOC, "groups": [{"name": f"g{i}", "label": f"g{i}", "assets": [asset(f"g{i}/a", "changed")]}],
+                        "page": {"has_more": (not last) or more_after_last, "next_cursor": f"c{i + 1}"}})
+        return out
+
+    def test_follows_every_cursor(self):
+        with mock.patch.object(screenery, "_get", side_effect=self.pages(3)) as get:
+            got = screenery.gallery("jfreal/demo", 7)
+        self.assertEqual(len(got["assets"]), 3)
+        self.assertFalse(got["incomplete"])
+        self.assertTrue(get.call_args_list[2].args[0].endswith("?cursor=c2"))
+
+    def test_safety_stop_marks_incomplete(self):
+        with mock.patch.object(screenery, "MAX_PAGES", 2), \
+             mock.patch.object(screenery, "_get", side_effect=self.pages(2, more_after_last=True)):
+            self.assertTrue(screenery.gallery("jfreal/demo", 7)["incomplete"])
+
+    def test_miss_is_asked_again_after_a_minute(self):
+        miss = urllib.error.HTTPError("u", 404, "nf", {}, None)
+        with mock.patch.object(screenery, "_get", side_effect=[miss, *self.pages(1)]), \
+             mock.patch.object(screenery.time, "time", side_effect=[0, 61, 61]):
+            self.assertFalse(screenery.gallery("jfreal/demo", 7)["ok"])
+            self.assertTrue(screenery.gallery("jfreal/demo", 7)["ok"])
 
 
 class Trim(unittest.TestCase):

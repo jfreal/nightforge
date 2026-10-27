@@ -6,7 +6,10 @@ repos must not land in it.
     python -m unittest test_github.py
 """
 
+import json
+import subprocess
 import unittest
+from unittest import mock
 
 import github
 
@@ -211,6 +214,34 @@ class Misc(unittest.TestCase):
                            for p in ("src/a.py", "src/b.py", "README.md")]}
         areas = github.build_row(node(files=files))["areas"]
         self.assertEqual([(a["name"], a["count"]) for a in areas], [("src/", 2), ("(root)", 1)])
+
+
+class GhCalls(unittest.TestCase):
+    def test_timeout_becomes_gh_error(self):
+        with mock.patch.object(github.subprocess, "run", side_effect=subprocess.TimeoutExpired("gh", 90)):
+            with self.assertRaisesRegex(github.GhError, "did not answer"):
+                github.gh(["api", "user"])
+
+    def test_missing_gh_becomes_gh_error(self):
+        with mock.patch.object(github.subprocess, "run", side_effect=FileNotFoundError("gh")):
+            with self.assertRaisesRegex(github.GhError, "could not run gh"):
+                github.gh(["api", "user"])
+
+    def test_auth_failure_carries_gh_message(self):
+        failed = subprocess.CompletedProcess(["gh"], 4, b"", b"To get started with GitHub CLI, please run: gh auth login")
+        with mock.patch.object(github.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(github.GhError, "gh auth login"):
+                github.gh(["api", "user"])
+
+    def test_second_page_passes_the_cursor_as_a_string(self):
+        page = lambda more, cursor, n: json.dumps({"data": {"search": {
+            "pageInfo": {"hasNextPage": more, "endCursor": cursor}, "nodes": [node(number=n)]}}})
+        with mock.patch.object(github, "gh", side_effect=[page(True, "CUR1", 1), page(False, None, 2)]) as gh:
+            nodes = github.fetch_nodes(["jfreal"])
+        self.assertEqual([n["number"] for n in nodes], [1, 2])
+        second = gh.call_args_list[1].args[0]
+        self.assertIn("after=CUR1", second)
+        self.assertEqual(second[second.index("after=CUR1") - 1], "-f")
 
 
 if __name__ == "__main__":

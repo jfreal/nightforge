@@ -14,7 +14,7 @@ HEAD = "a" * 40
 
 def row(**over):
     r = {"key": "jfreal/demo#7", "headSha": HEAD, "draft": False, "conflict": "no", "checks": "pass",
-         "mergeMethod": "squash", "blockers": []}
+         "mergeMethod": "squash", "blockers": [], "review": "done", "verify": "none"}
     r.update(over)
     return r
 
@@ -50,6 +50,18 @@ class OtherGates(unittest.TestCase):
     def test_verify_failed_refuses(self):
         result = self.refused(blockers=[{"text": "Verify failed", "hard": True}])
         self.assertEqual(result["error"], "Not merged: verify failed.")
+
+    def test_no_review_refuses_even_with_same_head(self):
+        result = self.refused(review="pending", verify="none")
+        self.assertIn("no review yet", result["error"])
+
+    def test_verified_label_stands_in_for_review(self):
+        fresh = row(review="pending", verify="pass")
+        with mock.patch.object(server.github, "fetch_row", return_value=fresh), \
+             mock.patch.object(server.github, "gh", return_value="") as gh:
+            result = server.merge(CFG, {"key": "jfreal/demo#7", "headSha": HEAD}, dry_run=False)
+        self.assertTrue(result["ok"])
+        gh.assert_called_once()
 
     def test_conflict_refuses(self):
         self.assertIn("merge conflict", self.refused(conflict="yes")["error"])
