@@ -86,6 +86,13 @@ class Review(unittest.TestCase):
         self.assertEqual(row["lane"], "ready")
         self.assertEqual(row["blockers"], [])
 
+    def test_threads_past_the_first_page_still_mean_changes_asked(self):
+        threads = {"pageInfo": {"hasNextPage": True}, "nodes": [{"isResolved": True, "isOutdated": False}]}
+        row = github.build_row(node(reviewThreads=threads))
+        self.assertEqual(row["review"], "changes")
+        self.assertEqual(row["lane"], "fix")
+        self.assertIn({"text": "Over 100 review threads, check GitHub", "hard": True}, row["blockers"])
+
     def test_open_threads_mean_changes_asked(self):
         threads = {"nodes": [{"isResolved": False, "isOutdated": False},
                              {"isResolved": True, "isOutdated": False},

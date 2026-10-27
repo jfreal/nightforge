@@ -124,7 +124,7 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 
 | Service | Used by | How | What it does |
 |:---|:---|:---|:---|
-| GitHub | every sweep, `tools/coderabbit-sweep`, `tools/pr-dashboard` | `gh` CLI | Reads repos, PRs, issues, Actions runs and caches. Writes branches, PRs, issues, comments and labels in the repos you point it at. `ci-cost-sweep` can delete Actions caches. `pr-dashboard` merges a PR only when you press Merge and confirm. |
+| GitHub | every sweep, `tools/coderabbit-sweep`, `tools/pr-dashboard` | `gh` CLI | Reads repos, PRs, issues, Actions runs and caches. Writes branches, PRs, issues, comments and labels in the repos you point it at. `ci-cost-sweep` can delete Actions caches. `pr-dashboard` merges a PR only after you confirm. **Merge** runs `gh pr merge` itself. **Fix and merge** opens a Claude Code session that may push fixes to the PR branch and then run `gh pr merge` once checks pass. |
 | CodeRabbit | `coderabbit-sweep`, `tools/coderabbit-sweep` | GitHub PR comments | Reads CodeRabbit's comments and posts review requests. There's no direct CodeRabbit API call. |
 | Netlify | `error-sweep` (Netlify adapter) | `netlify` CLI | Reads function logs and site/deploy data. |
 | Azure Application Insights | `error-sweep` (App Insights adapter) | `az` CLI | Reads exceptions and request telemetry. |

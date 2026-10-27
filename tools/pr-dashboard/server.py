@@ -211,6 +211,9 @@ def send(cfg, body, dry_run) -> dict:
 
 def make_handler(cfg, board, token, dry_run):
     origins = {f"http://127.0.0.1:{cfg['port']}", f"http://localhost:{cfg['port']}"}
+    # A DNS-rebinding page can point its own name at 127.0.0.1 and read the token and the
+    # PR list. It cannot fake the Host header, so only loopback names are served.
+    hosts = {f"127.0.0.1:{cfg['port']}", f"localhost:{cfg['port']}"}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -221,11 +224,16 @@ def make_handler(cfg, board, token, dry_run):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Cache-Control", "no-store")
+            # No framing: a hostile page could overlay this one and steer clicks onto Merge.
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
 
         def do_GET(self):
+            if self.headers.get("Host") not in hosts:
+                return self.reply(403, {"error": "Forbidden host."})
             path = self.path.split("?", 1)[0]
             if path == "/api/prs":
                 return self.reply(200, board.get(force="force=1" in self.path))
@@ -245,7 +253,8 @@ def make_handler(cfg, board, token, dry_run):
             self.reply(200, data, TYPES[file.suffix])
 
         def do_POST(self):
-            if self.headers.get("Origin") not in origins or self.headers.get("X-Dash-Token") != token:
+            if (self.headers.get("Host") not in hosts or self.headers.get("Origin") not in origins
+                    or self.headers.get("X-Dash-Token") != token):
                 return self.reply(403, {"ok": False, "error": "Forbidden. Reload the page."})
             try:
                 length = int(self.headers.get("Content-Length") or 0)

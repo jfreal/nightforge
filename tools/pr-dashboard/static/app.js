@@ -112,6 +112,11 @@ function render() {
     const o = state.rows[0];
     $('oldest-text').textContent = `${ageOf(o.created, now).text} · ${o.repo} #${o.num}`;
     $('oldest').hidden = false;
+  } else {
+    // Empty list: say why, so "nothing open" never looks like "still loading" or "broken".
+    $('sub').textContent = state.error ? 'Could not load pull requests from GitHub.'
+      : state.fetchedAt ? 'No open pull requests.' : 'Loading from GitHub…';
+    $('oldest').hidden = true;
   }
   $('error').hidden = !state.error;
   $('error').textContent = state.error ? 'GitHub refresh failed, showing the last list: ' + state.error : '';

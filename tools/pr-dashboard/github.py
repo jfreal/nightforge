@@ -23,7 +23,7 @@ mergeable additions deletions changedFiles
 labels(first: 20) { nodes { name } }
 commits(last: 1) { nodes { commit { oid statusCheckRollup { state } } } }
 reviews(last: 30) { nodes { author { login } state submittedAt commit { oid } } }
-reviewThreads(first: 100) { nodes { isResolved isOutdated } }
+reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved isOutdated } }
 comments { totalCount }
 files(first: 100) { nodes { path additions deletions } }
 """
@@ -48,6 +48,8 @@ VERIFIED, VERIFY_FAILED = "verified", "verify-failed"
 
 # A pythonw.exe parent has no console, so each gh.exe child would flash its own window.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# The PR list is fetched under Board's lock, so a hung gh would stall every request.
+GH_TIMEOUT = 90
 
 
 class GhError(RuntimeError):
@@ -55,13 +57,20 @@ class GhError(RuntimeError):
 
 
 def gh(args, input_text=None) -> str:
-    proc = subprocess.run(
-        ["gh", *args],
-        input=input_text.encode("utf-8") if input_text is not None else None,
-        capture_output=True,
-        creationflags=NO_WINDOW,
-        env={**os.environ, "GH_PAGER": "cat", "NO_COLOR": "1"},
-    )
+    try:
+        proc = subprocess.run(
+            ["gh", *args],
+            input=input_text.encode("utf-8") if input_text is not None else None,
+            capture_output=True,
+            creationflags=NO_WINDOW,
+            env={**os.environ, "GH_PAGER": "cat", "NO_COLOR": "1"},
+            timeout=GH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise GhError(f"gh did not answer within {GH_TIMEOUT}s") from exc
+    except OSError as exc:
+        # Most often gh is not installed or not on PATH.
+        raise GhError(f"could not run gh: {exc}") from exc
     out = proc.stdout.decode("utf-8", errors="replace")
     err = proc.stderr.decode("utf-8", errors="replace").strip()
     if proc.returncode != 0:
@@ -82,9 +91,10 @@ def fetch_nodes(owners) -> list:
     for owner in owners:
         after = None
         while True:
-            args = ["-F", f"q=is:pr is:open archived:false owner:{owner}", "-f", f"query={SEARCH_QUERY}"]
+            # -f keeps a value a string; -F would turn a repo named `true` or `2024` into JSON.
+            args = ["-f", f"q=is:pr is:open archived:false owner:{owner}", "-f", f"query={SEARCH_QUERY}"]
             if after:
-                args += ["-F", f"after={after}"]
+                args += ["-f", f"after={after}"]
             search = graphql(args)["search"]
             nodes += [n for n in search["nodes"] if n]
             if not search["pageInfo"]["hasNextPage"]:
@@ -114,10 +124,15 @@ def open_threads(node) -> int:
     return sum(1 for t in node["reviewThreads"]["nodes"] if not t["isResolved"] and not t["isOutdated"])
 
 
+def threads_truncated(node) -> bool:
+    # Only the first 100 threads are fetched; an open one past them must still count.
+    return bool((node["reviewThreads"].get("pageInfo") or {}).get("hasNextPage"))
+
+
 def review_of(node) -> str:
     """done: CodeRabbit reviewed the head commit. changes: unresolved threads remain.
     stale: CodeRabbit only reviewed an older commit. pending: no CodeRabbit review yet."""
-    if open_threads(node):
+    if open_threads(node) or threads_truncated(node):
         return "changes"
     bot = [r for r in node["reviews"]["nodes"] if (r.get("author") or {}).get("login") == REVIEW_BOT]
     if any((r.get("commit") or {}).get("oid") == node["headRefOid"] for r in bot):
@@ -153,8 +168,10 @@ def blockers_of(row) -> list:
     if row["verify"] == "fail":
         out.append({"text": "Verify failed", "hard": True})
     if row["review"] == "changes":
-        n = row["openThreads"]
-        out.append({"text": f"{n} open review comment{'s' if n != 1 else ''}", "hard": True})
+        n, more = row["openThreads"], row["threadsTruncated"]
+        text = (f"{n}{'+' if more else ''} open review comment{'s' if n != 1 or more else ''}" if n
+                else "Over 100 review threads, check GitHub")
+        out.append({"text": text, "hard": True})
     if row["checks"] == "running":
         out.append({"text": "Checks running", "hard": False})
     # A verified PR does not wait on CodeRabbit (see lane_of), so do not say it does.
@@ -292,6 +309,7 @@ def build_row(node) -> dict:
         "draft": node["isDraft"], "headSha": node["headRefOid"],
         "headBranch": node["headRefName"], "baseBranch": node["baseRefName"],
         "checks": checks_of(node), "review": review_of(node), "openThreads": open_threads(node),
+        "threadsTruncated": threads_truncated(node),
         "verify": verify_of(node), "conflict": conflict_of(node),
         "files": node["changedFiles"], "plus": node["additions"], "minus": node["deletions"],
         "comments": node["comments"]["totalCount"],
@@ -312,7 +330,7 @@ def build_rows(nodes, exclude_repos=()) -> list:
 
 def fetch_row(owner, repo, num) -> dict:
     """Re-read one PR right before acting on it, so a merge never trusts a stale list."""
-    data = graphql(["-F", f"owner={owner}", "-F", f"name={repo}", "-F", f"num={num}",
+    data = graphql(["-f", f"owner={owner}", "-f", f"name={repo}", "-F", f"num={num}",
                     "-f", f"query={ONE_QUERY}"])
     node = (data.get("repository") or {}).get("pullRequest")
     if not node or node["state"] != "OPEN":

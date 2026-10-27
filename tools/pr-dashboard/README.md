@@ -65,7 +65,14 @@ Rules live in `github.py`, and `test_github.py` covers each one.
 ## Merge
 
 1. Merge asks you to confirm first.
-2. The server then re-reads the PR from GitHub. It refuses if anyone pushed since the page loaded, if the PR is a draft, has a conflict, or checks have not passed.
+2. The server then re-reads the PR from GitHub. It refuses if anyone pushed since the page loaded, or if the PR:
+   - is a draft
+   - has a conflict
+   - has checks that have not passed
+   - has the `verify-failed` label
+   - has open review comments
+
+   Those PRs get Fix and merge instead.
 3. Then it runs `gh pr merge <n> -R <owner>/<repo> --<method> --match-head-commit <sha>`, with the method the repo allows (squash first, then merge, then rebase).
 
 ## Fix and merge
@@ -113,7 +120,9 @@ The prompt depends on the row:
 - A **ready** PR (the button says "Ask Claude first") gets asked for a review and a plain safe-to-merge answer.
 - Anything else gets asked to find out what it needs.
 
-Every prompt ends with "Do not merge the PR."
+Send to Claude and Ask Claude first prompts end with "Do not merge the PR." Only Fix and merge lets Claude run `gh pr merge`, and only after checks pass.
+
+No prompt contains the PR's title, description or branch name, because the PR's author wrote that text. Each prompt names the PR by owner, repo and number. It tells Claude to read the rest with `gh` and to treat it as untrusted data.
 
 `wt.exe` re-parses its command line, so two characters get swapped: `;` is escaped, and straight double quotes become curly ones. Without that, a PR title could cut the prompt into pieces. The npm `claude.cmd` shim can't be started by `wt.exe`, so the launcher finds the real `claude.exe` next to it.
 
@@ -122,12 +131,15 @@ Every prompt ends with "Do not merge the PR."
 - The server listens on `127.0.0.1` only.
 - Each start makes a random token, which the page sends with every Merge and Send.
 - The server also checks the request's `Origin`. Another website open in your browser can't press the buttons for you.
+- Every request must name `127.0.0.1` or `localhost` as its `Host`. This blocks DNS rebinding, where a website points its own name at your PC to read the page and its token.
+- Every response forbids framing (`X-Frame-Options: DENY`, `frame-ancestors 'none'`). Another site can't hide the page under its own and trick you into clicking Merge.
+- `gh` calls time out after 90 seconds, so a hung call can't freeze the page.
 - No GitHub token is stored. Everything goes through `gh`.
 
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py
+python -m unittest test_github.py test_screenery.py test_server.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.
