@@ -31,6 +31,10 @@ nav img { width: 40px; height: 47px; object-fit: contain; margin-right: 6px; }
 .head-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 24px; }
 h1 { margin: 0; font-size: 44px; line-height: 1.1; color: #FFFFFF; }
 .sub { margin: 4px 0 0; font-size: 21px; color: var(--head-ink); }
+.head-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px 20px; font-size: 18px; color: var(--head-ink); }
+.stats strong { font-family: var(--mono); font-size: 20px; color: #FFFFFF; }
+.stats a { color: var(--head-ink); }
 .oldest { display: flex; align-items: center; gap: 8px; font-size: 18px; color: var(--head-ink); }
 .oldest strong { font-family: var(--mono); font-size: 20px; color: var(--ember); }
 

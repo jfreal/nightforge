@@ -56,10 +56,13 @@ function rowHtml(r, now) {
     ? r.blockers.map((b) => `<span class="blocker ${b.hard ? '' : 'soft'}">${b.hard ? ICON.hard : ICON.soft}${esc(b.text)}</span>`).join('')
     : `<span class="blocker clear">${ICON.check}Nothing blocking</span>`;
   let actions = '';
+  // Every row can be merged: a ready PR merges now, any other hands Claude a fix-then-merge job.
   if (local.merged) actions += '<span class="done merged">Merged</span>';
+  else if (local.fixing) actions += '<span class="done">Claude is fixing it, then merging</span>';
   else if (r.lane === 'ready') actions += `<button class="btn" data-act="merge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Merge</button>`;
+  else actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
   if (local.sent) actions += '<span class="done">Claude is on it</span>';
-  else if (!local.merged) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
+  else if (!local.merged && !local.fixing) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
   actions += `<button class="btn" data-act="toggle" data-key="${esc(r.key)}" aria-expanded="${open}" aria-label="Details for ${esc(r.repo)} #${r.num}">Details<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${open ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'}"></path></svg></button>`;
   if (local.error) actions += `<span class="err" role="alert">${esc(local.error)}</span>`;
   if (local.note) actions += `<span class="err" role="status">${esc(local.note)}</span>`;
@@ -149,12 +152,12 @@ async function post(path, body) {
   return res.json();
 }
 
-function confirmBox(title, body, yes) {
+function confirmBox(title, body, yes, icon) {
   return new Promise((resolve) => {
     const d = $('confirm');
     $('confirm-title').textContent = title;
     $('confirm-body').textContent = body;
-    $('confirm-yes').innerHTML = ICON.merge + esc(yes);
+    $('confirm-yes').innerHTML = (icon || ICON.merge) + esc(yes);
     const done = (ok) => { d.close(); resolve(ok); };
     $('confirm-yes').onclick = () => done(true);
     $('confirm-no').onclick = () => done(false);
@@ -175,6 +178,14 @@ async function act(kind, key) {
     const ok = await confirmBox(`Merge ${r.repo} #${r.num}?`, `"${r.title}" will be merged with ${r.mergeMethod}. This cannot be undone from here.`, `Yes, ${r.mergeMethod} merge`);
     if (!ok) return;
   }
+  if (kind === 'fixmerge') {
+    const todo = r.blockers.map((b) => b.text).join(', ') || 'nothing listed';
+    const careful = r.risk.level === 'high' ? ' This one is high risk, so Claude will ask you before the final merge.' : '';
+    const ok = await confirmBox(`Fix and merge ${r.repo} #${r.num}?`,
+      `Claude opens in a new terminal tab, works on: ${todo}${r.draft ? ', marks the draft ready' : ''}, waits for checks to pass, then merges with ${r.mergeMethod}.${careful}`,
+      'Yes, start Claude', ICON.claude);
+    if (!ok) return;
+  }
   state.local[key] = { busy: true };
   render();
   let result;
@@ -185,7 +196,7 @@ async function act(kind, key) {
   }
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
-  else state.local[key] = kind === 'merge' ? { merged: true } : { sent: true };
+  else state.local[key] = kind === 'merge' ? { merged: true } : kind === 'fixmerge' ? { fixing: true } : { sent: true };
   render();
   if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }
@@ -199,6 +210,27 @@ document.addEventListener('click', (e) => {
 $('refresh').addEventListener('click', () => load(true));
 $('dry').hidden = !window.DASH.dryRun;
 
+// Shipping numbers from the weekly Night Forge report. The file changes once a week, so
+// reading it every half hour is plenty.
+async function loadStats() {
+  let s;
+  try { s = await (await fetch('/api/stats')).json(); } catch (e) { return; }
+  if (!s.ok) return;
+  const n = (x) => Number(x).toLocaleString();
+  const asOf = new Date(s.generatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  $('stats').innerHTML = [
+    `<span>Merged this week <strong>${n(s.week)}</strong></span>`,
+    `<span>week before <strong>${n(s.prevWeek)}</strong></span>`,
+    `<span><strong>${s.perDay.toFixed(1)}</strong> a day</span>`,
+    `<span>median <strong>${s.medianMergeHours} h</strong> to merge</span>`,
+    `<span><strong>${n(s.allTime)}</strong> all time</span>`,
+    `<a href="${esc(s.url)}" target="_blank" rel="noopener">report, ${esc(asOf)}</a>`
+  ].join('');
+  $('stats').hidden = false;
+}
+
 load(false);
+loadStats();
 setInterval(() => load(false), REFRESH_MS);
+setInterval(loadStats, 30 * 60000);
 setInterval(tick, TICK_MS);

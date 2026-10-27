@@ -4,7 +4,9 @@
 Serves static/ and three endpoints on 127.0.0.1 only:
 
     GET  /api/prs     every open PR as a row (cached for refreshSeconds/2)
-    POST /api/merge   re-check one PR, then `gh pr merge` it with the repo's merge method
+    GET  /api/stats   headline numbers from the Night Forge shipping report, if it exists
+    POST /api/merge     re-check one PR, then `gh pr merge` it with the repo's merge method
+    POST /api/fixmerge  open a session told to fix one PR, wait for green, then merge it
     POST /api/send    open a Claude Code session on one PR (see launch.py)
 
 Both POSTs need the per-start token the page carries, so no other website can drive them
@@ -49,6 +51,9 @@ DEFAULTS = {
     "reposRoot": str(HERE.parents[2]),
     "port": 8765,
     "refreshSeconds": 60,
+    # Written every Monday by the night-forge-weekly routine; the header shows its headline numbers.
+    "statsFile": str(Path.home() / ".claude" / "scheduled-tasks" / "pr-shipping-report" / "report.json"),
+    "statsUrl": "https://claude.ai/artifact/5DELXS2AMoHrbGMWVYPkDm",
 }
 
 
@@ -63,6 +68,13 @@ def load_config(path: Path) -> dict:
     if not cfg["owners"]:
         raise SystemExit("config error: 'owners' must name at least one GitHub owner")
     return cfg
+
+
+class Server(ThreadingHTTPServer):
+    # Python sets SO_REUSEADDR, which on Windows lets a second copy bind the same port and
+    # silently share it. A dashboard that can merge must fail loudly instead.
+    allow_reuse_address = False
+    allow_reuse_port = False
 
 
 class Board:
@@ -103,6 +115,24 @@ def parse_key(key: str):
     return owner, repo, int(num)
 
 
+def stats(cfg) -> dict:
+    """The few numbers worth a glance, picked out of the weekly shipping report."""
+    path = Path(cfg["statsFile"])
+    if not cfg["statsFile"] or not path.exists():
+        return {"ok": False}
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        week = next(w for w in d["windows"] if w["days"] == 7)
+        month = next((m for m in d.get("forecast", {}).get("months", []) if m.get("partial")), None)
+        return {"ok": True, "url": cfg["statsUrl"], "generatedAt": d["generated_at"],
+                "week": week["prs"], "prevWeek": d["prev7"], "perDay": week["per_day"],
+                "medianMergeHours": week["median_merge_hours"], "allTime": d["totals"]["prs"],
+                "monthForecast": month and {"month": month["month"], "prs": month["prs"]}}
+    except (OSError, ValueError, KeyError, StopIteration) as exc:
+        log(f"stats file unreadable: {exc}")
+        return {"ok": False}
+
+
 def merge(cfg, body, dry_run) -> dict:
     owner, repo, num = parse_key(body.get("key"))
     if owner not in cfg["owners"]:
@@ -119,6 +149,9 @@ def merge(cfg, body, dry_run) -> dict:
                         else "GitHub is still checking for conflicts")
     if row["checks"] not in ("pass", "none"):
         problems.append(f"checks are {row['checks']}")
+    # Verify failed or open review comments: green checks alone are not enough. Use Fix and merge.
+    problems += [b["text"].lower() for b in row["blockers"]
+                 if b["hard"] and b["text"] not in ("Merge conflict", "Checks failed")]
     if not row["mergeMethod"]:
         problems.append("the repo allows no merge method")
     if problems:
@@ -134,6 +167,17 @@ def merge(cfg, body, dry_run) -> dict:
         return {"ok": False, "error": str(exc)}
     log(f"merged {owner}/{repo}#{num} ({row['mergeMethod']})")
     return {"ok": True, "method": row["mergeMethod"]}
+
+
+def fix_and_merge(cfg, body, dry_run) -> dict:
+    """Not mergeable yet: hand it to a session that fixes it, waits for green, then merges."""
+    owner, repo, num = parse_key(body.get("key"))
+    if owner not in cfg["owners"]:
+        return {"ok": False, "error": f"{owner} is not in this dashboard's owners"}
+    result = launch.open_session(github.fetch_row(owner, repo, num), cfg["reposRoot"], dry_run, merge=True)
+    log((("dry run, would run: " if dry_run else "fix and merge sent: ") + f"{owner}/{repo}#{num}")
+        if result["ok"] else f"fix and merge failed: {result['error']}")
+    return result
 
 
 def send(cfg, body, dry_run) -> dict:
@@ -166,6 +210,8 @@ def make_handler(cfg, board, token, dry_run):
             path = self.path.split("?", 1)[0]
             if path == "/api/prs":
                 return self.reply(200, board.get(force="force=1" in self.path))
+            if path == "/api/stats":
+                return self.reply(200, stats(cfg))
             name = "index.html" if path == "/" else path.lstrip("/")
             # Only plain file names inside static/: no folders, no `..`.
             file = LOGO if name == "logo.png" else STATIC / name
@@ -185,6 +231,8 @@ def make_handler(cfg, board, token, dry_run):
                 body = json.loads(self.rfile.read(min(length, 10_000)) or b"{}")
                 if self.path == "/api/merge":
                     result = merge(cfg, body, dry_run)
+                elif self.path == "/api/fixmerge":
+                    result = fix_and_merge(cfg, body, dry_run)
                 elif self.path == "/api/send":
                     result = send(cfg, body, dry_run)
                 else:
@@ -210,7 +258,11 @@ def main():
         cfg["port"] = args.port
     token = secrets.token_urlsafe(24)
     board = Board(cfg)
-    server = ThreadingHTTPServer(("127.0.0.1", cfg["port"]), make_handler(cfg, board, token, args.dry_run))
+    try:
+        server = Server(("127.0.0.1", cfg["port"]), make_handler(cfg, board, token, args.dry_run))
+    except OSError:
+        raise SystemExit(f"Port {cfg['port']} is already in use. Is the dashboard already running?"
+                         " Close that window first, or pass --port.")
     url = f"http://127.0.0.1:{cfg['port']}/"
     log(f"PR dashboard on {url}{'  (dry run: Merge and Send only log)' if args.dry_run else ''}")
     if not args.no_open:
