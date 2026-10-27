@@ -106,7 +106,9 @@ def claude_exe() -> str:
 
 def session_command(row, clone: Path, mode="send") -> list:
     title = f"{row['repo']} #{row['num']}"
-    worktree = f"pr-{row['num']}-{datetime.now():%m%d%H%M}"
+    # Mode and seconds in the name: two clicks on one PR in the same minute (a review and a
+    # fix, say) must not land in one worktree.
+    worktree = f"pr-{row['num']}-{mode}-{datetime.now():%m%d%H%M%S}"
     inner = [claude_exe(), "-n", title, "-w", worktree, build_prompt(row, mode)]
     return ["wt.exe", "-w", "0", "nt", "--title", wt_escape(title), "-d", str(clone),
             *[wt_escape(a) for a in inner]]
