@@ -163,6 +163,9 @@ async function load(force) {
   try {
     const res = await fetch('/api/prs' + (force ? '?force=1' : ''));
     const data = await res.json();
+    // A new bootId means the server restarted (new code, new token): reload to match it.
+    if (state.bootId && data.bootId && data.bootId !== state.bootId) return location.reload();
+    state.bootId = data.bootId;
     state.rows = data.rows; state.error = data.error; state.fetchedAt = data.fetchedAt;
     const live = new Set(state.rows.map((r) => r.key));
     // A merged PR drops out of the list; keep its "Merged" note only while it is still listed.

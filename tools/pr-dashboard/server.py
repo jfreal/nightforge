@@ -18,6 +18,8 @@ Usage:
     python server.py                 # uses config.json next to this file if present
     python server.py --dry-run       # Merge and Send log their command instead of running it
     python server.py --no-open       # do not open the browser
+    python server.py --watch         # exit with RESTART when a .py file changes (supervise.py
+                                     # starts it again, so a git pull needs no manual restart)
 """
 
 from __future__ import annotations
@@ -67,8 +69,46 @@ DEFAULTS = {
 }
 
 
+LOG_FILE = HERE / "dashboard.log"
+LOG_MAX_BYTES = 1_000_000
+RESTART = 75          # exit code that tells supervise.py "code changed, start me again"
+
+
 def log(msg: str) -> None:
-    print(f"[{datetime.now():%H:%M:%S}] {msg}", flush=True)
+    line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
+    if sys.stdout is not None:
+        print(line, flush=True)
+    else:
+        # Under pythonw.exe (supervise.py, the logon task) there is no console; keep a file.
+        try:
+            if LOG_FILE.exists() and LOG_FILE.stat().st_size > LOG_MAX_BYTES:
+                LOG_FILE.replace(LOG_FILE.with_suffix(".log.1"))
+            with LOG_FILE.open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:
+            pass
+
+
+def code_stamp() -> dict:
+    return {p.name: p.stat().st_mtime for p in HERE.glob("*.py")}
+
+
+def watch_code(server, every=2.0) -> None:
+    """Stop the server when its own Python changes. Static files are read per request, so
+    only .py edits need a restart, and supervise.py does that restart."""
+    first = code_stamp()
+    while True:
+        time.sleep(every)
+        try:
+            now = code_stamp()
+        except OSError:
+            continue
+        if now != first:
+            changed = sorted(k for k in set(now) | set(first) if now.get(k) != first.get(k))
+            log(f"code changed ({', '.join(changed)}), restarting")
+            server.restart_requested = True
+            server.shutdown()
+            return
 
 
 def load_config(path: Path) -> dict:
@@ -78,6 +118,11 @@ def load_config(path: Path) -> dict:
     if not cfg["owners"]:
         raise SystemExit("config error: 'owners' must name at least one GitHub owner")
     return cfg
+
+
+# Changes on every start. The page reloads itself when it sees a new one, so it picks up the
+# new per-start token and page code after a restart without anyone pressing anything.
+BOOT_ID = secrets.token_hex(6)
 
 
 class Server(ThreadingHTTPServer):
@@ -108,7 +153,7 @@ class Board:
                     self.error = str(exc)[:500]
                     log(f"refresh failed: {self.error}")
                 self.fetched_at = time.time()
-            return {"rows": self.rows, "error": self.error,
+            return {"rows": self.rows, "error": self.error, "bootId": BOOT_ID,
                     "fetchedAt": datetime.fromtimestamp(self.fetched_at, timezone.utc).isoformat()}
 
     def invalidate(self):
@@ -303,6 +348,7 @@ def main():
     ap.add_argument("--port", type=int)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-open", action="store_true")
+    ap.add_argument("--watch", action="store_true")
     args = ap.parse_args()
     cfg = load_config(Path(args.config))
     if args.port:
@@ -318,11 +364,16 @@ def main():
     log(f"PR dashboard on {url}{'  (dry run: Merge and Send only log)' if args.dry_run else ''}")
     if not args.no_open:
         webbrowser.open(url)
+    server.restart_requested = False
+    if args.watch:
+        threading.Thread(target=watch_code, args=(server,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    server.server_close()
+    return RESTART if server.restart_requested else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

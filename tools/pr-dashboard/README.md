@@ -23,10 +23,31 @@ python server.py
 
 It opens `http://127.0.0.1:8765/` in your browser. Close the window to stop it.
 
+## Keep it running
+
+To have it start at every log on, with no window, run this once in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pr-dashboard\install-startup.ps1
+```
+
+It adds one Task Scheduler task for your user, "Nightforge PR dashboard", and starts it now. It also stops any copy you started by hand.
+
+The task runs `supervise.py` with `pythonw.exe`, which starts `server.py --watch` and starts it again whenever it stops:
+- **After a code change**, such as a `git pull`, the server exits on purpose and comes straight back with the new code. Page files load fresh on every refresh. An open tab notices the restart and reloads itself.
+- **After a crash**, the supervisor waits 2 seconds and starts it again. If it keeps crashing, the wait doubles each time, up to 5 minutes.
+
+Output goes to `dashboard.log` next to the script. To remove the task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\pr-dashboard\install-startup.ps1 -Uninstall
+```
+
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Merge and Send print the command they would run, and do nothing else. |
 | `--no-open` | Don't open the browser. |
+| `--watch` | Exit with code 75 when a `.py` file changes, so `supervise.py` restarts it. |
 | `--port N` | Use another port. |
 | `--config PATH` | Read another config file. |
 
