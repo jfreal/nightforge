@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pull requests · Nightforge</title>
+<link rel="icon" href="logo.png">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&amp;family=Atkinson+Hyperlegible+Next:wght@400;700&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>window.DASH = { token: "__TOKEN__", dryRun: __DRY_RUN__ };</script>
+</head>
+<body>
+<div class="page">
+
+<header>
+<span class="nf-ember" aria-hidden="true" style="left: 8%; animation-delay: 0s; animation-duration: 7s"></span>
+<span class="nf-ember" aria-hidden="true" style="left: 24%; animation-delay: -3s; animation-duration: 9s"></span>
+<span class="nf-ember" aria-hidden="true" style="left: 41%; animation-delay: -5s; animation-duration: 6s"></span>
+<span class="nf-ember" aria-hidden="true" style="left: 59%; animation-delay: -1s; animation-duration: 8s"></span>
+<span class="nf-ember" aria-hidden="true" style="left: 76%; animation-delay: -6s; animation-duration: 7.5s"></span>
+<span class="nf-ember" aria-hidden="true" style="left: 92%; animation-delay: -2s; animation-duration: 9.5s"></span>
+<div class="head-inner">
+<nav aria-label="Pages">
+<img src="logo.png" alt="">
+<span class="brand">Nightforge</span>
+<a class="pill" href="/" aria-current="page">Pull requests</a>
+<span class="pill later" title="Coming next">Routines · coming next</span>
+</nav>
+<div class="head-row">
+<div>
+<h1>Pull requests, oldest first</h1>
+<p class="sub" id="sub">Loading from GitHub…</p>
+</div>
+<div class="oldest" id="oldest" hidden>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFA95E" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>
+Oldest <strong id="oldest-text"></strong>
+</div>
+</div>
+</div>
+</header>
+
+<div class="banner dry" id="dry" hidden>Dry run: Merge and Send to Claude only print what they would do in the server window.</div>
+<div class="banner" id="error" hidden></div>
+
+<div class="toolbar">
+<div class="filters" id="filters" aria-label="Filter"></div>
+<div class="status"><span id="fetched"></span><button class="btn" id="refresh" type="button">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"></path><path d="M20 4v4h-4"></path></svg>Refresh</button></div>
+</div>
+
+<div class="table">
+<div class="table-inner">
+<div class="grid thead"><span>Waiting</span><span>Pull request</span><span>What blocks it</span><span>Risk</span><span>Do</span></div>
+<div id="rows"><div class="empty">Loading…</div></div>
+</div>
+</div>
+
+</div>
+
+<dialog id="confirm">
+<h2 id="confirm-title"></h2>
+<p id="confirm-body" style="margin: 0"></p>
+<div class="row-btns">
+<button class="btn" id="confirm-yes" type="button"></button>
+<button class="btn" id="confirm-no" type="button">Cancel</button>
+</div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

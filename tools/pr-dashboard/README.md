@@ -1,0 +1,96 @@
+# pr-dashboard
+
+A local page with every open PR across your repos in one table, oldest first. It shows the
+signals GitHub's own list hides: merge conflicts, checks, CodeRabbit review, the
+`verified` / `verify-failed` labels, a merge-risk guess, and a timer for how long each PR
+has waited. Two buttons act on a row: **Merge** merges it for real, and **Send to Claude**
+opens a Claude Code session on it.
+
+Plain Python, standard library only. The only outside dependency is the `gh` CLI, signed in.
+
+## Run it
+
+Double-click `run.cmd`, or:
+
+```bash
+python server.py
+```
+
+It opens `http://127.0.0.1:8765/` in your browser. Close the window to stop it.
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | Merge and Send print the command they would run, and do nothing else. |
+| `--no-open` | Don't open the browser. |
+| `--port N` | Use another port. |
+| `--config PATH` | Read another config file. |
+
+No setup is needed. To change the defaults, copy `config.example.json` to `config.json` (it's
+gitignored) and edit it:
+
+| Key | Default | What it does |
+|---|---|---|
+| `owners` | `["jfreal"]` | GitHub accounts whose open PRs are listed. |
+| `excludeRepos` | `["archive"]` | Repo names to leave out. |
+| `reposRoot` | the folder this repo sits in | Where local clones live, as `<reposRoot>/<repo>`. Send to Claude starts there. |
+| `port` | `8765` | Port on 127.0.0.1. |
+| `refreshSeconds` | `60` | How often the page reloads the list. The server asks GitHub at most every half of this. |
+
+## What the columns mean
+
+Rules live in `github.py`, and `test_github.py` covers each one.
+
+- **Waiting.** Time since the PR opened, with a heat level for the bar: New (under 24 h), Warming (under 72 h), Hot (under 120 h), Burning.
+- **What blocks it.** Hard blockers put the PR in **Needs a fix**:
+  - merge conflict
+  - failed checks
+  - `verify-failed` label
+  - open, unresolved review comments
+
+  Soft ones only mean it is **Waiting**:
+  - checks running
+  - no CodeRabbit review yet
+  - review is for an older commit
+  - GitHub still working out mergeability
+- **Ready to merge.** Checks passed (or the repo has none), no conflict, nothing hard blocking, and either CodeRabbit reviewed the head commit or the PR has the `verified` label.
+- **Risk.** High if it touches migrations or SQL, a schema, auth or security code, or CI workflows, changes more than 20 files, or its description has a GitHub `[!WARNING]`, `[!CAUTION]` or `[!IMPORTANT]` note. Low if it only touches docs. Medium if it changes more than 300 lines or config files like `package.json`, `*.csproj` or YAML. Low otherwise. Details lists the reasons.
+
+## Merge
+
+1. Merge asks you to confirm first.
+2. The server then re-reads the PR from GitHub. It refuses if anyone pushed since the page loaded, if the PR is a draft, has a conflict, or checks have not passed.
+3. Then it runs `gh pr merge <n> -R <owner>/<repo> --<method> --match-head-commit <sha>`, with the method the repo allows (squash first, then merge, then rebase).
+
+## Send to Claude
+
+It opens a new Windows Terminal tab in the repo's local clone and runs:
+
+```text
+claude.exe -n "<repo> #<n>" -w pr-<n>-<time> "<prompt>"
+```
+
+The `-w` worktree keeps the clone's own checkout untouched.
+
+The prompt depends on the row:
+- A PR that **needs a fix** gets told to merge the base branch, fix the blockers and push.
+- A **ready** PR (the button says "Ask Claude first") gets asked for a review and a plain safe-to-merge answer.
+- Anything else gets asked to find out what it needs.
+
+Every prompt ends with "Do not merge the PR."
+
+`wt.exe` re-parses its command line, so two characters get swapped: `;` is escaped, and straight double quotes become curly ones. Without that, a PR title could cut the prompt into pieces. The npm `claude.cmd` shim can't be started by `wt.exe`, so the launcher finds the real `claude.exe` next to it.
+
+## Safety
+
+- The server listens on `127.0.0.1` only.
+- Each start makes a random token, which the page sends with every Merge and Send.
+- The server also checks the request's `Origin`. Another website open in your browser can't press the buttons for you.
+- No GitHub token is stored. Everything goes through `gh`.
+
+## Test
+
+```bash
+python -m unittest test_github.py
+```
+
+The tests use made-up PRs shaped like the real GraphQL reply. Real PR bodies from private repos don't belong in this public repo.

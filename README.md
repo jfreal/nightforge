@@ -124,7 +124,7 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 
 | Service | Used by | How | What it does |
 |:---|:---|:---|:---|
-| GitHub | every sweep, `tools/coderabbit-sweep` | `gh` CLI | Reads repos, PRs, issues, Actions runs and caches. Writes branches, PRs, issues, comments and labels in the repos you point it at. `ci-cost-sweep` can delete Actions caches. |
+| GitHub | every sweep, `tools/coderabbit-sweep`, `tools/pr-dashboard` | `gh` CLI | Reads repos, PRs, issues, Actions runs and caches. Writes branches, PRs, issues, comments and labels in the repos you point it at. `ci-cost-sweep` can delete Actions caches. `pr-dashboard` merges a PR only when you press Merge and confirm. |
 | CodeRabbit | `coderabbit-sweep`, `tools/coderabbit-sweep` | GitHub PR comments | Reads CodeRabbit's comments and posts review requests. There's no direct CodeRabbit API call. |
 | Netlify | `error-sweep` (Netlify adapter) | `netlify` CLI | Reads function logs and site/deploy data. |
 | Azure Application Insights | `error-sweep` (App Insights adapter) | `az` CLI | Reads exceptions and request telemetry. |
@@ -133,7 +133,7 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 | NuGet | `error-sweep` (App Insights adapter) | `curl` | Reads public package version lists from `api.nuget.org`. |
 | OpenSEO | `index-sweep` | OpenSEO MCP | Reads Google Search Console index status for your own sites' pages. Free. |
 | Omega Indexer | `index-sweep` | Omega Indexer MCP | Reads campaign history and credits. Creates indexing campaigns, at 1 credit per link. |
-| Google Fonts | `tools/coderabbit-sweep` board | the browser | The generated `board.html` loads IBM Plex from `fonts.googleapis.com` when you open it. |
+| Google Fonts | `tools/coderabbit-sweep` board, `tools/pr-dashboard` page | the browser | The generated `board.html` and the dashboard page load their fonts from `fonts.googleapis.com` when you open them. |
 
 An adapter only runs when a project card names it. A repo with no Netlify card never calls
 `netlify`. `tools/` holds Python 3.9+ with no third-party packages, so there are no
