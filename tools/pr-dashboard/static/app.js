@@ -213,7 +213,7 @@ async function act(kind, key) {
     const todo = r.blockers.map((b) => b.text).join(', ') || 'nothing listed';
     const careful = r.risk.level === 'high' ? ' This one is high risk, so Claude will ask you before the final merge.' : '';
     const ok = await confirmBox(`Fix and merge ${r.repo} #${r.num}?`,
-      `Claude opens in a new terminal tab, works on: ${todo}${r.draft ? ', marks the draft ready' : ''}, waits for checks to pass, then merges with ${r.mergeMethod}.${careful}`,
+      `Claude starts a session that works on:${todo}${r.draft ? ', marks the draft ready' : ''}, waits for checks to pass, then merges with ${r.mergeMethod}.${careful}`,
       'Yes, start Claude', ICON.claude);
     if (!ok) return;
   }
@@ -228,7 +228,7 @@ async function act(kind, key) {
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
   else state.local[key] = { ...({ merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true }),
-    where: { background: ' · open it in Claude desktop', cloud: ' · in the cloud, open it in Claude desktop' }[result.target] || '' };
+    where: { background: ' · open it in Claude desktop', cloud: ' · finish the setup in the new terminal tab, then open it in Claude desktop' }[result.target] || '' };
   render();
   if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }

@@ -30,15 +30,12 @@ import secrets
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-
-import github
-import launch
-import screenery
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -87,6 +84,22 @@ def log(msg: str) -> None:
                 fh.write(line + "\n")
         except OSError:
             pass
+
+
+if sys.stderr is None:
+    # Under pythonw an uncaught error has nowhere to print, so it would vanish and leave only
+    # supervise.py's exit-code line. Send its traceback to the log instead. Set before the
+    # imports below, so a broken github.py or launch.py is logged too.
+    def log_crash(kind, exc, tb, where="crash"):
+        log(f"{where}:\n" + "".join(traceback.format_exception(kind, exc, tb)).rstrip())
+
+    sys.excepthook = log_crash
+    threading.excepthook = lambda a: log_crash(a.exc_type, a.exc_value, a.exc_traceback,
+                                               f"crash in thread {a.thread.name if a.thread else '?'}")
+
+import github  # noqa: E402
+import launch  # noqa: E402
+import screenery  # noqa: E402
 
 
 def code_stamp() -> dict:

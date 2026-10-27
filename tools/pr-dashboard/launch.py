@@ -32,14 +32,20 @@ BG_ID = re.compile(r"backgrounded\s*·\s*([0-9a-f]{6,})")
 
 # A local session asks before every command, and nobody is watching its tab, so the git and
 # gh commands each mode's prompt names are allowed up front. Anything else still asks.
+# {slug} is the PR's owner/repo. `gh api` is open only for the review verdict's status call:
+# a wider rule would let a send or review session merge over REST.
 ALLOW = {
-    "all": ["git *", "gh pr view *", "gh pr diff *", "gh pr checkout *", "gh pr checks *", "gh api *"],
+    "all": ["git *", "gh pr view *", "gh pr diff *", "gh pr checkout *", "gh pr checks *"],
     "send": ["gh pr comment *"],
-    "review": ["gh pr comment *"],
+    "review": ["gh pr comment *", "gh api repos/{slug}/statuses/*"],
     "merge": ["gh pr comment *", "gh pr merge *", "gh pr ready *"],
 }
-# Never rewrite a PR's history behind the reviewer's back.
-DENY = ["git push --force *", "git push -f *", "git push --force-with-lease *"]
+# Denied even where ALLOW matches. Never rewrite a PR's history behind the reviewer's back
+# (any force flag or +refspec, wherever it sits after `git … push`), never merge past branch
+# protection, and never let the status rule reach a merge (`..` in the path, or another method).
+DENY = ["git *push*--force*", "git *push* -f*", "git *push* +*", "git *push*--mirror*",
+        "gh pr merge *--admin*",
+        "gh api */merge*", "gh api -X *", "gh api * -X *", "gh api --method *", "gh api * --method *"]
 
 
 def tool_rules(commands) -> list:
@@ -179,8 +185,9 @@ def local_flags(row, mode, title) -> list:
     # Mode and seconds in the name: two clicks on one PR in the same minute (a review and a
     # fix, say) must not land in one worktree.
     worktree = f"pr-{row['num']}-{mode}-{datetime.now():%m%d%H%M%S}"
+    allow = [c.format(slug=f"{row['owner']}/{row['repo']}") for c in ALLOW["all"] + ALLOW.get(mode, [])]
     # --allowedTools and --disallowedTools take a list, so -n after them closes it.
-    return ["--allowedTools", *tool_rules(ALLOW["all"] + ALLOW.get(mode, [])),
+    return ["--allowedTools", *tool_rules(allow),
             "--disallowedTools", *tool_rules(DENY), "-n", title, "-w", worktree]
 
 

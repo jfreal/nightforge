@@ -153,11 +153,17 @@ The session runs on this PC in its own worktree. Remote Control makes it appear 
 **Sign in once.** Background and cloud sessions use the command-line `claude`, which signs in separately from Claude desktop. Run `claude auth login` once in a terminal. Until you do, the dashboard refuses these buttons with that instruction, instead of starting a session that would wait at a login screen you can't see.
 
 **Commands that don't need your OK.** Background and terminal sessions skip the question for the `git` and `gh` commands their prompt names:
-- every session: `gh pr view`, `diff`, `checkout`, `checks` and `gh api`
-- Send to Claude and Review with Claude: also `gh pr comment`
+- every session: any `git` command, and `gh pr view`, `diff`, `checkout` and `checks`
+- Send to Claude: also `gh pr comment`
+- Review with Claude: also `gh pr comment`, and `gh api` only for `repos/<owner>/<repo>/statuses/…` (the verdict)
 - Fix and merge: also `gh pr comment`, `gh pr merge` and `gh pr ready`
 
-`git push --force` is blocked outright. Anything else, like editing files or running tests, still asks.
+Some forms are refused even though a rule above would allow them:
+- force pushes: `--force`, `--force-with-lease`, `-f`, `--mirror` or a `+refspec` anywhere after `git … push`
+- `gh pr merge --admin`, which skips branch protection
+- `gh api` with `-X` or `--method`, or a path containing `/merge`
+
+These rules match the command's text, so they are a guard rail, not a sandbox. A command written in an unusual form (an alias, say) goes to the normal question instead. Anything else, like editing files or running tests, still asks.
 
 **Cloud.** The server opens a terminal tab, because `claude --cloud` shows its setup steps there. The tab runs:
 
