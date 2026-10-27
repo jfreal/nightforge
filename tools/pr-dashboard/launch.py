@@ -184,14 +184,28 @@ def local_flags(row, mode, title) -> list:
             "--disallowedTools", *tool_rules(DENY), "-n", title, "-w", worktree]
 
 
+ACTION = {"review": "Review", "merge": "Fix and merge", "send": "Fix"}
+
+
+def session_name(row, mode) -> str:
+    """What the session list shows: the job, the PR and its title, short."""
+    # The PR title goes in the display name (-n), never in the prompt. Control characters
+    # and runs of spaces go, and long titles are cut.
+    pr_title = " ".join("".join(c if c.isprintable() else " " for c in row.get("title", "")).split())
+    if len(pr_title) > 60:
+        pr_title = pr_title[:59].rstrip() + "…"
+    name = f"{ACTION.get(mode, mode)} · {row['repo']} #{row['num']}"
+    return f"{name} · {pr_title}" if pr_title else name
+
+
 def background_command(row, mode="send") -> list:
-    title = f"{row['repo']} #{row['num']} {mode}"
+    title = session_name(row, mode)
     return [claude_exe(), "--bg", "--remote-control", title, *local_flags(row, mode, title),
             build_prompt(row, mode, cloud=False)]
 
 
 def session_command(row, clone: Path, mode="send", target="cloud") -> list:
-    title = f"{row['repo']} #{row['num']}"
+    title = session_name(row, mode)
     prompt = build_prompt(row, mode, cloud=target == "cloud")
     if target == "cloud":
         # The cloud session clones the GitHub remote itself; the local checkout is not touched.
