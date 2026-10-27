@@ -51,6 +51,13 @@ function chips(r) {
           ['Verify', word.verify[r.verify]], ['Conflicts', word.conflict[r.conflict]]];
 }
 
+// Why a row gets Fix and merge instead of Merge, in the words of its blockers.
+function whyNotReady(r) {
+  const reasons = r.blockers.map((b) => b.text.charAt(0).toLowerCase() + b.text.slice(1));
+  if (r.draft) reasons.unshift('it is a draft');
+  return reasons.length ? reasons.join(', ') + '.' : 'GitHub has not marked it ready yet.';
+}
+
 function rowHtml(r, now) {
   const age = ageOf(r.created, now), h = heat(age.hours), local = state.local[r.key] || {}, open = state.open.has(r.key);
   const blockers = r.blockers.length
@@ -61,7 +68,10 @@ function rowHtml(r, now) {
   if (local.merged) actions += '<span class="done merged">Merged</span>';
   else if (local.fixing) actions += '<span class="done">Claude is fixing it, then merging</span>';
   else if (r.lane === 'ready') actions += `<button class="btn" data-act="merge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Merge</button>`;
-  else actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
+  else {
+    actions += `<button class="btn" data-act="fixmerge" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.merge}Fix and merge</button>`;
+    actions += `<span class="why">Not plain Merge: ${esc(whyNotReady(r))}</span>`;
+  }
   if (local.sent) actions += '<span class="done">Claude is on it</span>';
   else if (!local.merged && !local.fixing) actions += `<button class="btn" data-act="send" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.claude}${r.lane === 'ready' ? 'Ask Claude first' : 'Send to Claude'}</button>`;
   const shots = state.screens[r.key];
