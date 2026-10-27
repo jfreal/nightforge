@@ -37,10 +37,12 @@ into the user's original file.
    simulator / site"), and the one point the video must land. Probe the clip
    with `ffprobe` and tell the user its size, length and fps.
 2. **Analyse.**
+
    ```
    python "$SKILL_DIR/scripts/transcribe.py" raw.mov --out words.json
    python "$SKILL_DIR/scripts/faces.py" raw.mov --out faces.json
    ```
+
 3. **Pick the cuts.** This is the judgment part; do it yourself from
    `words.json`, not with a script.
    - When a line is said twice, keep the **later** take unless the earlier one
@@ -57,22 +59,26 @@ into the user's original file.
    - Put a graphic on cuts where the words talk about the product. Sum the cut
      lengths and stay within the target length.
 4. **Write `cuts.tsv`** (tabs, one row per cut):
+
    ```
    start	end	shot	label	overlay
    5.76	7.30	wide	hook	-
    7.30	9.00	close	payoff	yes
    9.80	11.40	mid	speed	shots/pricing.png
    ```
+
    `overlay` is `-`, `yes` (the `--overlay` image) or an image path. Times may be
    seconds or `m:ss.xx`.
 5. **Human checkpoint.** Show the user the cut list as a table with each cut's
    spoken words and the total length. Ask them to approve or change it before
    the full render. This is the cheapest place to fix pacing.
 6. **Render.**
+
    ```
    python "$SKILL_DIR/scripts/render.py" --video raw.mov --cuts cuts.tsv \
      --words words.json --faces faces.json --overlay app.png --out short.mp4
    ```
+
    Options: `--size 1080x1920` (default), `--fps 30`, `--upper` (UPPERCASE
    captions), `--overlay-side left|right`, `--no-captions`. Each cut prints its
    crop and graphic box; `TIGHT` means the graphic had little room.
