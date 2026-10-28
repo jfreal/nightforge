@@ -117,7 +117,7 @@ function rowHtml(r, now) {
   return `<div class="row ${open ? 'open' : ''}">
 <div class="grid">
 <div data-created="${esc(r.created)}"><div class="age" style="color: ${h.text}">${age.text}</div><div class="bar" aria-hidden="true"><div style="width: ${Math.min(100, Math.round(age.hours / 168 * 100))}%; background: ${h.bar}"></div></div><div class="heat" style="color: ${h.text}">${h.label}</div></div>
-<div style="min-width: 0"><div class="slug">${esc(r.repo)} #${r.num}${r.draft ? ' · <b>Draft</b>' : ''}</div><a class="title" href="${esc(r.url)}" target="_blank" rel="noopener" style="color: inherit; text-decoration: none">${esc(r.title)}</a>${r.summary ? `<div class="summary">${esc(r.summary)}</div>` : ''}</div>
+<div style="min-width: 0"><div class="slug"><a class="pr-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repo)} #${r.num}</a>${r.draft ? ' · <b>Draft</b>' : ''}</div><a class="title pr-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.summary ? `<div class="summary">${esc(r.summary)}</div>` : ''}</div>
 <div class="blockers">${blockers}</div>
 <div class="risk"><span class="risk-tag risk-${r.risk.level}">${RISK[r.risk.level]}</span><span class="size">${plural(r.files, 'file')} · ${plural(r.plus + r.minus, 'line')}</span></div>
 <div class="actions">${actions}</div>

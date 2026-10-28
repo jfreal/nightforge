@@ -67,6 +67,8 @@ h1 { margin: 0; font-size: 44px; line-height: 1.1; color: #FFFFFF; }
 .heat { font-size: 16px; font-weight: 700; }
 .slug { font-family: var(--mono); font-size: 17px; color: var(--muted); }
 .title { font-size: 22px; font-weight: 700; line-height: 1.25; }
+.pr-link { color: inherit; text-decoration: underline; text-decoration-color: #B8C2D0; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.pr-link:hover { color: var(--blue); text-decoration-color: currentColor; }
 .summary { font-size: 18px; color: var(--muted); margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .blockers { display: flex; flex-direction: column; gap: 6px; }
 .blocker { display: flex; align-items: center; gap: 8px; font-size: 19px; font-weight: 700; }
