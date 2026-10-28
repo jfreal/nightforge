@@ -135,7 +135,8 @@ function render() {
   }
   $('error').hidden = !state.error;
   $('error').textContent = state.error ? 'GitHub refresh failed, showing the last list: ' + state.error : '';
-  if (state.fetchedAt) $('fetched').textContent = 'Updated ' + new Date(state.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (state.fetchedAt) $('fetched').textContent = 'Updated ' + new Date(state.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    + (state.awake ? ` · keeping this PC awake for ${state.awake} session${state.awake === 1 ? '' : 's'}` : '');
   // Re-rendering replaces the buttons; put keyboard focus back where it was.
   if (focused.act || focused.filter) {
     const sel = focused.filter ? `[data-filter="${focused.filter}"]` : `[data-act="${focused.act}"][data-key="${CSS.escape(focused.key || '')}"]`;
@@ -166,7 +167,7 @@ async function load(force) {
     // A new bootId means the server restarted (new code, new token): reload to match it.
     if (state.bootId && data.bootId && data.bootId !== state.bootId) return location.reload();
     state.bootId = data.bootId;
-    state.rows = data.rows; state.error = data.error; state.fetchedAt = data.fetchedAt;
+    state.rows = data.rows; state.error = data.error; state.fetchedAt = data.fetchedAt; state.awake = data.awake || 0;
     const live = new Set(state.rows.map((r) => r.key));
     // A merged PR drops out of the list; keep its "Merged" note only while it is still listed.
     for (const k of Object.keys(state.local)) if (!live.has(k)) delete state.local[k];

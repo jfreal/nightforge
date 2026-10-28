@@ -8,5 +8,6 @@
   "reposRoot": "C:\\Users\\John\\source\\repos\\jfreal",
   "port": 8765,
   "refreshSeconds": 60,
-  "sessionTarget": "background"
+  "sessionTarget": "background",
+  "keepAwake": true
 }

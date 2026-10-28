@@ -63,6 +63,8 @@ DEFAULTS = {
     "sessionTarget": "background",
     # Screenery project per repo, when it is not "<owner>/<repo>". "" turns a repo off.
     "screeneryProjects": {},
+    # Hold off idle sleep while a background session under reposRoot is working (awake.py).
+    "keepAwake": True,
 }
 
 
@@ -97,6 +99,7 @@ if sys.stderr is None:
     threading.excepthook = lambda a: log_crash(a.exc_type, a.exc_value, a.exc_traceback,
                                                f"crash in thread {a.thread.name if a.thread else '?'}")
 
+import awake  # noqa: E402
 import github  # noqa: E402
 import launch  # noqa: E402
 import screenery  # noqa: E402
@@ -152,6 +155,7 @@ class Board:
         self.cfg = cfg
         self.lock = threading.Lock()
         self.rows, self.fetched_at, self.error = [], 0.0, ""
+        self.keeper = None   # awake.KeepAwake once main() starts it
 
     def get(self, force=False) -> dict:
         with self.lock:
@@ -167,6 +171,7 @@ class Board:
                     log(f"refresh failed: {self.error}")
                 self.fetched_at = time.time()
             return {"rows": self.rows, "error": self.error, "bootId": BOOT_ID,
+                    "awake": self.keeper.held if self.keeper else 0,
                     "fetchedAt": datetime.fromtimestamp(self.fetched_at, timezone.utc).isoformat()}
 
     def invalidate(self):
@@ -380,6 +385,9 @@ def main():
     server.restart_requested = False
     if args.watch:
         threading.Thread(target=watch_code, args=(server,), daemon=True).start()
+    if cfg["keepAwake"]:
+        board.keeper = awake.KeepAwake(cfg["reposRoot"], launch.claude_exe(), log)
+        threading.Thread(target=board.keeper.run, daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

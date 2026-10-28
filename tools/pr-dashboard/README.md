@@ -37,6 +37,11 @@ The task runs `supervise.py` with `pythonw.exe`, which starts `server.py --watch
 - **After a code change**, such as a `git pull`, the server exits on purpose and comes straight back with the new code. Page files load fresh on every refresh. An open tab notices the restart and reloads itself.
 - **After a crash**, the supervisor waits 2 seconds and starts it again. If it keeps crashing, the wait doubles each time, up to 5 minutes.
 
+**The PC stays awake while sessions work.** Background sessions run on this PC, so they stop when it sleeps. Claude desktop's "keep awake" setting covers only its own sessions, not these. So every minute the server asks `claude agents --json` which background sessions under `reposRoot` are still running. While any of them is working, it tells Windows not to idle-sleep, and the header shows "keeping this PC awake for N sessions".
+- A session waiting for your answer keeps the PC awake for 1 more hour, so you can still answer it from your phone. After that the PC may sleep again.
+- When the last session finishes, the hold is released within a minute.
+- It only blocks *idle* sleep. Closing the lid, pressing the power button or picking Sleep still puts the PC to sleep.
+
 Output goes to `dashboard.log` next to the script. To remove the task:
 
 ```powershell
@@ -64,6 +69,7 @@ gitignored) and edit it:
 | `statsFile` | `~/.claude/scheduled-tasks/pr-shipping-report/report.json` | The Night Forge weekly report's data. If it is missing, the header shows no stats. |
 | `statsUrl` | the Night Forge artifact | Where the "report" link in the header goes. |
 | `sessionTarget` | `"background"` | Where Review with Claude, Fix and merge and Send to Claude run. `"background"`: no window, and the session shows up in Claude desktop and claude.ai/code through Remote Control. `"cloud"`: Anthropic's servers, started from a terminal tab. `"terminal"`: a local session in a terminal tab. |
+| `keepAwake` | `true` | Keep the PC from idle-sleeping while a background session under `reposRoot` is working (see above). |
 | `screeneryProjects` | `{}` | Screenery project per repo name, when it isn't `<owner>/<repo>`. `""` turns a repo off. |
 
 ## What the columns mean
@@ -205,7 +211,7 @@ No prompt contains the PR's title, description or branch name, because the PR's 
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py test_launch.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.
