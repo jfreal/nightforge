@@ -146,11 +146,15 @@ Screenery keeps each PR's CI screenshots on a channel named `pr-<n>`. After the 
 
 A row with screenshots gets a **Screenshots (N changed)** button. The gallery shows changed and new shots first. Each changed shot can switch between this PR and `main`, and clicking an image opens it full size.
 
+When there is no `pr-<n>` channel, the server asks Screenery for the PR's builds instead (`/v1/projects/<owner>/<repo>/builds?pr=<n>`, public like the gallery) and shows the newest finalized one's gallery (`/v1/builds/<id>/gallery`). A PR with neither a channel nor a build is asked again after 5 minutes, not 1.
+
+Screenery allows 60 anonymous reads a minute from one IP, then answers 429. So the server sends its Screenery reads one at a time, 1.5 seconds apart. When Screenery says to wait, it waits as told (up to 10 seconds) and tries once more. If a refresh still fails, the row keeps the gallery it had. With about 30 PRs, every button shows up within a minute or two of starting. Anything else reading Screenery anonymously from your IP shares that limit.
+
 Public Screenery projects need no token. A private project, or a PR whose CI pushed nothing, shows no button.
 
 ### When a PR has no screenshots
 
-A Screenery project holds at most 100 channels. Each CI push makes two, `pr-<n>` and one named after the branch, and nothing deletes them when the PR closes. Once a project is full, new PRs' shots still upload but get no channel, so they show no button. The CI log says `No channel was created for "pr-<n>" (channel_limit)`.
+A Screenery project holds at most 100 channels. Each CI push makes two, `pr-<n>` and one named after the branch, and nothing deletes them when the PR closes. Once a project is full, new PRs' shots still upload but get no channel. Screenery posts no PR comment for them either. The dashboard still finds them through the PR's builds (above), but the project stays full. The CI log says `No channel was created for "pr-<n>" (channel_limit)`.
 
 `prune_screenery.py` deletes the channels closed PRs left behind: `pr-<n>` of a closed PR, and a closed PR's branch channel when no open PR uses that branch. It never touches protected channels, the default branch or `latest`. It needs a Screenery publish token for the project, and it changes nothing without `--apply`:
 

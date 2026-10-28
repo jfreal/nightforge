@@ -52,11 +52,88 @@ class Paging(unittest.TestCase):
             self.assertTrue(screenery.gallery("jfreal/demo", 7)["incomplete"])
 
     def test_miss_is_asked_again_after_a_minute(self):
+        # A build still uploading: CI is running, so the shots are minutes away.
         miss = urllib.error.HTTPError("u", 404, "nf", {}, None)
-        with mock.patch.object(screenery, "_get", side_effect=[miss, *self.pages(1)]), \
+        with mock.patch.object(screenery, "_get", side_effect=[miss, builds(("b_1", "uploading")), *self.pages(1)]), \
              mock.patch.object(screenery.time, "time", side_effect=[0, 61, 61]):
             self.assertFalse(screenery.gallery("jfreal/demo", 7)["ok"])
             self.assertTrue(screenery.gallery("jfreal/demo", 7)["ok"])
+
+
+MISS = urllib.error.HTTPError("u", 404, "nf", {}, None)
+
+
+def builds(*items):
+    return {"builds": [{"build_id": b, "status": st} for b, st in items], "page": {}}
+
+
+class BuildFallback(unittest.TestCase):
+    def setUp(self):
+        screenery._cache.clear()
+
+    def test_channel_miss_shows_the_newest_finalized_build(self):
+        answers = [MISS, builds(("b_NEW", "uploading"), ("b_MID", "finalized"), ("b_OLD", "finalized")),
+                   {**DOC, "page": {}}]
+        with mock.patch.object(screenery, "_get", side_effect=answers) as get:
+            got = screenery.gallery("jfreal/demo", 7)
+        self.assertTrue(got["ok"])
+        self.assertTrue(get.call_args_list[1].args[0].endswith("/v1/projects/jfreal/demo/builds?pr=7"))
+        self.assertTrue(get.call_args_list[2].args[0].endswith("/v1/builds/b_MID/gallery"))
+
+    def test_channel_hit_never_lists_builds(self):
+        with mock.patch.object(screenery, "_get", return_value={**DOC, "page": {}}) as get:
+            self.assertTrue(screenery.gallery("jfreal/demo", 7)["ok"])
+        self.assertEqual(get.call_count, 1)
+
+    def test_odd_build_ids_are_never_put_in_a_url(self):
+        self.assertIsNone(screenery.newest_build(builds(("../../x", "finalized"), ("b_1/../y", "finalized"))))
+
+    def test_no_build_is_a_longer_miss(self):
+        with mock.patch.object(screenery, "_get", side_effect=[MISS, builds()]),              mock.patch.object(screenery.time, "time", side_effect=[0, 61]):
+            self.assertEqual(screenery.gallery("jfreal/demo", 7)["reason"], "none")
+            self.assertEqual(screenery.gallery("jfreal/demo", 7)["reason"], "none")
+
+    def test_other_errors_are_not_hidden_by_the_fallback(self):
+        busy = urllib.error.HTTPError("u", 429, "slow down", {}, None)
+        with mock.patch.object(screenery, "_get", side_effect=busy) as get:
+            self.assertEqual(screenery.gallery("jfreal/demo", 7)["reason"], "Screenery answered 429")
+        self.assertEqual(get.call_count, 1)
+
+
+class RateLimit(unittest.TestCase):
+    def setUp(self):
+        screenery._cache.clear()
+
+    def busy(self, after="2"):
+        return urllib.error.HTTPError("u", 429, "slow down", {"Retry-After": after}, None)
+
+    def test_429_waits_as_told_and_tries_once_more(self):
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.read.return_value = b'{"groups": []}'
+        with mock.patch.object(screenery.urllib.request, "urlopen", side_effect=[self.busy("2"), ok]), \
+             mock.patch.object(screenery.time, "sleep") as sleep:
+            self.assertEqual(screenery._get("https://app.test/x"), {"groups": []})
+        self.assertGreaterEqual(sleep.call_args.args[0], 1.9)
+
+    def test_second_429_gives_up(self):
+        with mock.patch.object(screenery.urllib.request, "urlopen", side_effect=[self.busy(), self.busy()]), \
+             mock.patch.object(screenery.time, "sleep"):
+            with self.assertRaises(urllib.error.HTTPError):
+                screenery._get("https://app.test/x")
+
+    def test_failed_refresh_keeps_the_last_gallery(self):
+        with mock.patch.object(screenery, "_get", side_effect=[{**DOC, "page": {}}, self.busy()]), \
+             mock.patch.object(screenery.time, "time", side_effect=[0, 601, 601]):
+            first = screenery.gallery("jfreal/demo", 7)
+            again = screenery.gallery("jfreal/demo", 7)
+        self.assertTrue(first["ok"])
+        self.assertIs(again, first)
+
+    def test_a_real_miss_still_clears_it(self):
+        with mock.patch.object(screenery, "_get", side_effect=[{**DOC, "page": {}}, MISS, builds()]), \
+             mock.patch.object(screenery.time, "time", side_effect=[0, 601, 601]):
+            screenery.gallery("jfreal/demo", 7)
+            self.assertEqual(screenery.gallery("jfreal/demo", 7)["reason"], "none")
 
 
 class Trim(unittest.TestCase):
