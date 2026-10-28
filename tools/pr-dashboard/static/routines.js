@@ -157,7 +157,7 @@ function render() {
   $('error').textContent = state.error;
   const bad = state.collectors.filter((c) => c.error || c.problems.length);
   $('sources').hidden = !bad.length;
-  $('sources').innerHTML = bad.length ? 'Some sources could not be read:<ul>' + bad.map((c) =>
+  $('sources').innerHTML = bad.length ? 'Some sources need attention:<ul>' + bad.map((c) =>
     `<li><b>${esc(c.source)}</b>: ${esc(c.error || c.problems.slice(0, 3).join('; '))}</li>`).join('') + '</ul>' : '';
   $('howto').hidden = !!state.rows.length || !!state.error;
   $('howto-cmd').textContent = 'python botlog.py report my-bot ok "Checked 12 sites, nothing new"' + (state.db ? `\n\n(writes to ${state.db})` : '');

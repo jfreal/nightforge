@@ -19,6 +19,8 @@ Other commands:
     python botlog.py list               every bot and where it stands
     python botlog.py runs notion-pickup recent runs of one bot
     python botlog.py collect            run the collectors in config.json once
+    python botlog.py desktop            list Claude desktop scheduled tasks; --apply adds the
+                                        report-back step to each one's prompt
     python botlog.py remove BOT         forget a bot and its runs
 
 The database is config.json's `routinesDb`, else $NIGHTFORGE_DB, else ~/.nightforge/routines.db.
@@ -128,6 +130,38 @@ def cmd_collect(store, a) -> int:
     return 1 if any(s["error"] for s in status) else 0
 
 
+def cmd_desktop(store, a) -> int:
+    import desktop
+    root = Path(a.dir).expanduser() if a.dir else desktop.tasks_dir()
+    tasks = [t for t in desktop.discover(root) if not a.only or t["folder"] in a.only or t["id"] in a.only]
+    if not tasks:
+        print(f"No scheduled tasks found in {root}" + (" matching --only" if a.only else "") + ".")
+        return 1
+    changed = 0
+    for t in tasks:
+        store.ensure_bot_now(t["id"], t["name"], "desktop task", description=t["description"][:300])
+        will = desktop.remove(t, a.apply) if a.remove else desktop.install(t, a.apply)
+        changed += will
+        now = "reports" if t["reports"] else "silent"
+        verb = ("removed" if a.apply else "would remove") if a.remove else \
+               ("updated" if t["reports"] else "added") if a.apply else \
+               ("would update" if t["reports"] else "would add")
+        print(f"{now:8} {t['id']:40} {verb if will else 'unchanged'}")
+    if not a.apply:
+        print(f"\n{changed} file(s) would change. Nothing written; add --apply to do it.")
+        if not a.remove:
+            print("Each changed SKILL.md keeps its original as SKILL.md.nightforge.bak.")
+            print("\nThe footer added to each prompt:\n")
+            print(desktop.footer(tasks[0]["id"]))
+    else:
+        print(f"\n{changed} file(s) changed. The next run of each task uses it.")
+    if not a.remove:
+        print("\nIf a task's permission mode asks before running commands, its last step will wait for you."
+              " Answer \"always allow\" the first time, or allow this prefix in ~/.claude/settings.json:\n"
+              "  " + json.dumps(f'Bash("{desktop.posix(sys.executable)}" "{desktop.posix(desktop.BOTLOG)}" report:*)'))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--config", default=str(HERE / "config.json"))
@@ -168,6 +202,11 @@ def main(argv=None) -> int:
     rm = sub.add_parser("remove", help="forget a bot and its runs")
     rm.add_argument("bot")
     sub.add_parser("collect", help="run the configured collectors once")
+    d = sub.add_parser("desktop", help="list desktop scheduled tasks; --apply adds the report-back step")
+    d.add_argument("--apply", action="store_true", help="write the change (default: preview only)")
+    d.add_argument("--remove", action="store_true", help="take the report-back step out again")
+    d.add_argument("--only", action="append", metavar="TASK", help="just this task folder or id; repeatable")
+    d.add_argument("--dir", help="the scheduled-tasks folder (default ~/.claude/scheduled-tasks)")
 
     a = ap.parse_args(argv)
     store = routines.Store(a.db or routines.db_path(load_cfg(a.config)))
@@ -176,7 +215,7 @@ def main(argv=None) -> int:
             print("removed" if store.remove_bot(a.bot) else f"no bot named {a.bot}")
             return 0
         return {"report": cmd_report, "bot": cmd_bot, "list": cmd_list, "runs": cmd_runs,
-                "collect": cmd_collect}[a.cmd](store, a)
+                "collect": cmd_collect, "desktop": cmd_desktop}[a.cmd](store, a)
     except (routines.ReportError, ValueError, OSError) as exc:
         print(f"botlog: {exc}", file=sys.stderr)
         return 2

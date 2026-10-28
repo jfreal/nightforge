@@ -74,6 +74,8 @@ DEFAULTS = {
     "reportAuthors": [],      # accounts whose report comments count; [] means owners
     "actionsRepos": [],       # "owner/repo" whose scheduled GitHub Actions runs are listed
     "windowsTasks": [],       # Task Scheduler task names (wildcards allowed), Windows only
+    "desktopTasks": True,     # list Claude desktop scheduled tasks as bots (desktop.py)
+    "desktopTasksDir": "",    # "" means ~/.claude/scheduled-tasks (or CLAUDE_CONFIG_DIR's)
     "collectMinutes": 5,
 }
 

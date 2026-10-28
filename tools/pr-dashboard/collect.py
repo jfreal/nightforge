@@ -4,6 +4,8 @@
               Cloud routines can't reach this PC, so they report here and this reads it back.
     actions   scheduled GitHub Actions runs in the repos you name. Nothing to change in them.
     windows   Windows Task Scheduler's last run and result for the tasks you name.
+    desktop   Claude desktop scheduled tasks, listed from ~/.claude/scheduled-tasks (desktop.py).
+              Their runs arrive through botlog.py, from the footer desktop.py adds.
 
 Each collector returns how many new runs it stored. A source that fails raises; collect_all
 catches that per source, so one broken source never hides the others.
@@ -16,7 +18,9 @@ import os
 import re
 import subprocess
 from datetime import timedelta
+from pathlib import Path
 
+import desktop
 import github
 from routines import ReportError, iso, parse_time, slug, utcnow
 
@@ -188,6 +192,9 @@ def sources(cfg) -> list[tuple[str, callable]]:
         out.append((f"actions {repo}", lambda s, repo=repo: collect_actions(s, repo)))
     if cfg.get("windowsTasks") and os.name == "nt":
         out.append(("windows tasks", lambda s: collect_windows(s, cfg["windowsTasks"])))
+    if cfg.get("desktopTasks", True):
+        root = Path(cfg["desktopTasksDir"]).expanduser() if cfg.get("desktopTasksDir") else None
+        out.append(("desktop tasks", lambda s: desktop.collect(s, root)))
     return out
 
 

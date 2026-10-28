@@ -126,7 +126,8 @@ class Windows(Store):
 
 class All(Store):
     def test_one_failing_source_does_not_hide_the_others(self):
-        cfg = {"owners": ["jfreal"], "reportInbox": "jfreal/bot-reports", "actionsRepos": ["jfreal/pheidi"]}
+        cfg = {"owners": ["jfreal"], "reportInbox": "jfreal/bot-reports", "actionsRepos": ["jfreal/pheidi"],
+               "desktopTasks": False}
 
         def gh(args):
             if "issues/comments" in args[-1]:

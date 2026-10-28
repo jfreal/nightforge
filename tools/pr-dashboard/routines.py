@@ -278,10 +278,10 @@ class Store:
             db.execute(f"UPDATE bots SET {key} = ? WHERE id = ? AND ({key} IS NULL OR {key} = '')",
                        (value, bot_id))
 
-    def ensure_bot_now(self, bot_id: str, name: str = "", kind: str = "") -> None:
+    def ensure_bot_now(self, bot_id: str, name: str = "", kind: str = "", **extra) -> None:
         """ensure_bot on its own connection: list a bot before its first run arrives."""
         with self.connect() as db:
-            self.ensure_bot(db, bot_id, name, kind)
+            self.ensure_bot(db, bot_id, name, kind, **extra)
 
     def set_next(self, bot_id: str, next_at: str | None) -> None:
         """The source's own next run time. The source owns it, so it overwrites every poll."""

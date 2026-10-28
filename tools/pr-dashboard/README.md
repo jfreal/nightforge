@@ -252,18 +252,37 @@ Late and never-reported aren't statuses a bot sends. The page works them out fro
 
 `run` is the run's own id, so a report sent twice is stored once. Links must be `http(s)`. Counts must be whole numbers.
 
-### Reporting from this PC
+### Claude desktop scheduled tasks
 
-This covers scripts, Windows tasks and Claude desktop scheduled tasks. Run `botlog.py` once at the end of each run:
+These need no setup to appear. Every task in `~/.claude/scheduled-tasks/` shows up as a bot, named from its `SKILL.md`. That's `%USERPROFILE%\.claude\scheduled-tasks\` on Windows, or `CLAUDE_CONFIG_DIR`'s folder when that's set.
+
+What a run did reaches the page only if the run says so. Desktop keeps the schedule and run history inside the app, and nothing on disk ties a session to the task that started it ([docs](https://code.claude.com/docs/en/desktop-scheduled-tasks)). So one command adds a short "Report back" step to the end of every task's prompt:
+
+```bat
+python tools\pr-dashboard\botlog.py desktop            &REM preview: lists the tasks, shows the step, writes nothing
+python tools\pr-dashboard\botlog.py desktop --apply    &REM add it to every task
+python tools\pr-dashboard\botlog.py desktop --apply --only error-sweep-pheidi
+python tools\pr-dashboard\botlog.py desktop --remove --apply
+```
+
+- The step tells Claude to run `botlog.py report <task> <status> "<one sentence>"` as its last step, with counts and links.
+- It sits between `nightforge-report` markers. Running `--apply` again replaces it, and `--remove` takes it out, leaving the file as it was.
+- The first change to each file keeps the original as `SKILL.md.nightforge.bak`.
+- Desktop reads `SKILL.md` fresh on every run, so the next run already reports.
+- Until a task has the step, the page names it in a banner, since it can never report.
+
+**Allow the command once.** In a task whose permission mode asks before running commands, the report step waits for an answer. Pick "always allow" the first time it asks, or add the rule `botlog.py desktop` prints to `permissions.allow` in `~/.claude/settings.json`.
+
+**Give each task its cadence.** The schedule isn't on disk either. Set it with `botlog.py bot <task> --every 1d`, or let the page guess it after three runs. Desktop skips a run while the PC sleeps or the app is closed, and then runs only the latest missed one. So a task that keeps being skipped shows up here as **Late**, which is the point.
+
+### Reporting from anything else on this PC
+
+For scripts and Windows tasks, run `botlog.py` once at the end of each run:
 
 ```bat
 python tools\pr-dashboard\botlog.py report error-sweep-pheidi found "2 new signatures filed, 1 fix PR" ^
   --count issues=2 --count prs=1 --link "pheidi #1262=https://github.com/jfreal/pheidi/pull/1262"
 ```
-
-For a Claude scheduled task, end its prompt with something like this:
-
-> When you finish, run `python <clone>\tools\pr-dashboard\botlog.py report <bot-id> <ok|found|needs-you|failed> "<one line, plain words>"`, with a `--count name=N` for each number worth tracking and a `--link "label=url"` for each PR or issue you opened. Use `needs-you` if you stopped on a question for John, and `failed` if you couldn't do the job.
 
 ### Reporting from the cloud
 
@@ -284,6 +303,7 @@ Only comments by `reportAuthors` count. It defaults to `owners`. The comment's o
 | `actionsRepos` | Scheduled GitHub Actions runs (`event=schedule`) in these `owner/repo`s. One bot per workflow. A failed, timed-out or cancelled run counts as `failed`. |
 | `windowsTasks` | Task Scheduler's last run time, exit code and next run time for these task names. Wildcards like `Nightforge*` work. Exit code 0 is `ok`, and anything else is `failed`. A running task waits until it finishes. |
 | `reportInbox` | The cloud report comments above. |
+| `desktopTasks` | `true` by default. Lists Claude desktop scheduled tasks, see above. `desktopTasksDir` points it at another folder. |
 
 The server runs every collector when it starts and again every `collectMinutes` (5 by default). **Collect now** runs them straight away. A source that can't be read shows in a banner above the table, and the others still load.
 
@@ -319,7 +339,7 @@ You can also add a bot before it has ever run. If it stays silent past its caden
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_routines.py test_collect.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_routines.py test_collect.py test_desktop.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.
