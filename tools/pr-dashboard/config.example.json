@@ -1,0 +1,13 @@
+{
+  "owners": [
+    "jfreal"
+  ],
+  "excludeRepos": [
+    "archive"
+  ],
+  "reposRoot": "C:\\Users\\John\\source\\repos\\jfreal",
+  "port": 8765,
+  "refreshSeconds": 60,
+  "sessionTarget": "cloud",
+  "keepAwake": true
+}

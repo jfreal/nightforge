@@ -7,3 +7,7 @@ tools/coderabbit-sweep/config.json
 # Python bytecode
 __pycache__/
 *.pyc
+
+# local, machine-specific PR dashboard config (config.example.json is the tracked copy)
+tools/pr-dashboard/config.json
+tools/pr-dashboard/dashboard.log*
