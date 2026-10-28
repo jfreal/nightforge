@@ -251,6 +251,8 @@ skills/short-form-video-edit/
   scripts/transcribe.py         Whisper word timings, transcript with pauses and retake cues
   scripts/faces.py              OpenCV face track, so cuts frame the speaker and graphics find empty space
   scripts/render.py             the renderer: crop and zoom per cut, word captions, graphics, sync check
+skills/postiz-post/
+  SKILL.md                      posts one video to every channel in a Postiz group, copy tailored per channel
 .claude-plugin/
   plugin.json                   the repo as one plugin: every skill under skills/
   marketplace.json              the repo as its own marketplace, listing that plugin
@@ -551,6 +553,20 @@ The render adds one-word-at-a-time captions and places a screenshot in the empty
 frame, then checks audio/video sync and writes one frame per cut to look at. Adapted from Brooke
 Lacey's workflow on ChatPRD's *How I AI*. User-invokable: `/nightforge:short-form-video-edit`.
 Needs `ffmpeg` and `ffprobe` (with libx264 and libass) and `python` with `openai-whisper` and `opencv-python`.
+
+### Install
+
+Comes with the plugin (see [Install](#install)).
+
+## `postiz-post`
+
+Posts one finished video to every channel in a Postiz group, such as "Personal", through the
+Postiz MCP. It makes a small upload copy, writes text for each channel (X's 280 characters,
+LinkedIn's long version, a YouTube title and tags, a TikTok caption), and waits for your yes
+before anything goes out. You pick the file in the Postiz upload box, and one call publishes or
+schedules every channel. It reports each post's preview link. The skill also lists the platform
+settings that broke a post before, such as X's reply setting and TikTok's required toggles.
+User-invokable: `/nightforge:postiz-post`. Needs the Postiz MCP connected, and `ffmpeg` for the upload copy.
 
 ### Install
 
