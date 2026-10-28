@@ -126,7 +126,10 @@ function render() {
   const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset : {};
   let visible = state.filter === 'all' ? state.rows : state.rows.filter((r) => r.lane === state.filter);
   // The server sends oldest first; a stable sort by repo keeps that order inside each repo.
-  if (state.sort === 'repo') visible = [...visible].sort((a, b) => a.repo.localeCompare(b.repo));
+  // Grouped by owner and repo, so two owners' same-named repos stay apart.
+  const repoKey = (r) => `${r.owner}/${r.repo}`;
+  const manyOwners = new Set(state.rows.map((r) => r.owner)).size > 1;
+  if (state.sort === 'repo') visible = [...visible].sort((a, b) => repoKey(a).localeCompare(repoKey(b)));
   $('filters').innerHTML = FILTERS.map((f) => {
     const n = f.id === 'all' ? state.rows.length : state.rows.filter((r) => r.lane === f.id).length;
     return `<button class="filter" data-filter="${f.id}" aria-pressed="${state.filter === f.id}">${f.name} <span>${n}</span></button>`;
@@ -135,10 +138,10 @@ function render() {
     `<button class="filter" data-sort="${s.id}" aria-pressed="${state.sort === s.id}">${s.name}</button>`).join('');
   $('title').textContent = SORTS.find((s) => s.id === state.sort).title;
   $('rows').innerHTML = visible.length ? visible.map((r, i) =>
-    (state.sort === 'repo' && (i === 0 || visible[i - 1].repo !== r.repo)
-      ? `<div class="repo-head">${esc(r.repo)} <span>${visible.filter((v) => v.repo === r.repo).length}</span></div>` : '')
+    (state.sort === 'repo' && (i === 0 || repoKey(visible[i - 1]) !== repoKey(r))
+      ? `<div class="repo-head">${esc(manyOwners ? repoKey(r) : r.repo)} <span>${visible.filter((v) => repoKey(v) === repoKey(r)).length}</span></div>` : '')
     + rowHtml(r, now)).join('') : '<div class="empty">Nothing here.</div>';
-  const repos = new Set(state.rows.map((r) => r.repo)).size;
+  const repos = new Set(state.rows.map(repoKey)).size;
   if (state.rows.length) {
     $('sub').textContent = `${state.rows.length} open across ${repos} projects. Click Details to see what is inside.`;
     const o = state.rows[0];

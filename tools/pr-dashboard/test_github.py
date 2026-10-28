@@ -175,6 +175,17 @@ class ClaudeReview(unittest.TestCase):
                                     comments={"totalCount": 1, "nodes": [comment(marker("success"))]}))
         self.assertEqual(row["claudeReview"], "fail")
 
+    def test_a_verdict_past_the_fetched_comments_blocks_ready(self):
+        # Only the newest 100 comments come back; an older verdict could be a failure.
+        row = github.build_row(node(commits=rollup(CI_OK), labels={"nodes": [{"name": "verified"}]},
+                                    comments={"totalCount": 150, "nodes": [comment("thanks")]}))
+        self.assertEqual(row["claudeReview"], "unknown")
+        self.assertNotEqual(row["lane"], "ready")
+        self.assertIn({"text": "Over 100 comments, check Claude's verdict on GitHub", "hard": False}, row["blockers"])
+        row = github.build_row(node(commits=rollup(CI_OK),
+                                    comments={"totalCount": 150, "nodes": [comment(marker("success"))]}))
+        self.assertEqual(row["claudeReview"], "pass")
+
     def test_newest_marker_wins(self):
         row = self.marked(comment(marker("failure")), comment("thanks"), comment(marker("success")))
         self.assertEqual(row["claudeReview"], "pass")

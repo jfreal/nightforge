@@ -42,6 +42,12 @@ class Cloud(unittest.TestCase):
             self.assertNotIn("`gh pr ", p, mode)
             self.assertIn("gh api repos/jfreal/demo/pulls/7", p, mode)
 
+    def test_cloud_checkout_uses_the_real_head_and_refuses_forks(self):
+        p = launch.build_prompt(row(), "send", cloud=True)
+        self.assertIn("git fetch origin pull/7/head:pr-7", p)
+        self.assertIn(".head.repo.full_name", p)
+        self.assertIn("from a fork", p)
+
     def test_cloud_merge_uses_rest_with_the_head_sha(self):
         p = launch.build_prompt(row(), "merge", cloud=True)
         self.assertIn("gh api -X PUT repos/jfreal/demo/pulls/7/merge -f merge_method=squash -f sha=<head sha>", p)

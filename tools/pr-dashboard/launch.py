@@ -66,8 +66,15 @@ class Gh:
         if cloud:
             self.view = f"`gh api repos/{slug}/pulls/{n}` and `gh api repos/{slug}/issues/{n}/comments`"
             self.diff = f"`gh api repos/{slug}/pulls/{n} -H 'Accept: application/vnd.github.diff'`"
-            self.checkout = (f"Fetch the PR with `git fetch origin pull/{n}/head`, then check out its head branch "
-                             f"(`gh api repos/{slug}/pulls/{n} --jq .head.ref`) so you can push to it.")
+            # pull/<n>/head is the PR's real head commit even for a fork, where a branch of
+            # the same name on origin may be some other branch. Pushing is safe only when
+            # the head lives in this repo.
+            self.checkout = (f"Fetch the PR's head into a branch of its own with `git fetch origin pull/{n}/head:pr-{n}` "
+                             f"and `git checkout pr-{n}`. Find where it lives with "
+                             f"`gh api repos/{slug}/pulls/{n} --jq .head.repo.full_name` and "
+                             f"`gh api repos/{slug}/pulls/{n} --jq .head.ref`. If the repo is {slug}, push with "
+                             f"`git push origin pr-{n}:<head ref>`. If it is any other repo, the PR comes from a fork "
+                             "you cannot push to: stop and tell me.")
             self.head = f"`gh api repos/{slug}/pulls/{n} --jq .head.sha`"
             self.checks = (f"poll `gh api repos/{slug}/commits/<head sha>/check-runs` and "
                            f"`gh api repos/{slug}/commits/<head sha>/status` every minute until nothing is pending")

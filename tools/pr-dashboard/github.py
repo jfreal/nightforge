@@ -25,7 +25,7 @@ commits(last: 1) { nodes { commit { oid statusCheckRollup { state contexts(first
   __typename ... on StatusContext { context state } ... on CheckRun { name status conclusion } } } } } } }
 reviews(last: 30) { nodes { author { login } state submittedAt commit { oid } } }
 reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved isOutdated } }
-comments(last: 50) { totalCount nodes { viewerDidAuthor body } }
+comments(last: 100) { totalCount nodes { viewerDidAuthor body } }
 files(first: 100) { nodes { path additions deletions } }
 """
 
@@ -163,7 +163,8 @@ def threads_truncated(node) -> bool:
 
 def claude_review_of(node) -> str:
     """pass / fail from the claude-review status on the head commit, else from the newest
-    verdict marker for that commit in a comment of yours, else none."""
+    verdict marker for that commit in a comment of yours, else none (unknown when the
+    comments past the newest 100 were not read)."""
     for c in (rollup_of(node).get("contexts") or {}).get("nodes") or []:
         if c.get("__typename") == "StatusContext" and c["context"] == CLAUDE_REVIEW:
             return {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}.get(c["state"], "none")
@@ -173,6 +174,10 @@ def claude_review_of(node) -> str:
         for verdict, sha in reversed(MARKER.findall(c.get("body") or "")):
             if sha == node["headRefOid"]:
                 return "pass" if verdict == "success" else "fail"
+    # Only the newest 100 comments are fetched. A verdict older than those may be a
+    # failure, so a long thread with no verdict in view must not pass as unreviewed.
+    if (node["comments"].get("totalCount") or 0) > len(node["comments"].get("nodes") or []):
+        return "unknown"
     return "none"
 
 
@@ -181,7 +186,7 @@ def review_of(node) -> str:
     or Claude's review found problems. stale: CodeRabbit only reviewed an older commit.
     pending: no review yet."""
     claude = claude_review_of(node)
-    if open_threads(node) or threads_truncated(node) or claude == "fail":
+    if open_threads(node) or threads_truncated(node) or claude in ("fail", "unknown"):
         return "changes"
     if claude == "pass":
         return "done"
@@ -226,6 +231,8 @@ def blockers_of(row) -> list:
         out.append({"text": "Over 100 review threads, check GitHub", "hard": True})
     if row["claudeReview"] == "fail":
         out.append({"text": "Claude review found problems", "hard": True})
+    if row["claudeReview"] == "unknown":
+        out.append({"text": "Over 100 comments, check Claude's verdict on GitHub", "hard": False})
     if row["checks"] == "running":
         out.append({"text": "Checks running", "hard": False})
     # A verified PR does not wait on CodeRabbit (see lane_of), so do not say it does.
@@ -245,7 +252,7 @@ def lane_of(row) -> str:
         return "fix"
     # A verified label means John ran the PR in the real app, which is a stronger
     # signal than CodeRabbit, so either one clears the review gate.
-    reviewed = row["review"] == "done" or row["verify"] == "pass"
+    reviewed = (row["review"] == "done" or row["verify"] == "pass") and row["claudeReview"] != "unknown"
     if row["checks"] in ("pass", "none") and reviewed and row["conflict"] == "no":
         return "ready"
     return "wait"
