@@ -7,6 +7,7 @@ Serves static/ and three endpoints on 127.0.0.1 only:
     GET  /api/stats   headline numbers from the Night Forge shipping report, if it exists
     GET  /api/screens one PR's Screenery screenshots (?key=owner/repo#n), changed ones first
     POST /api/merge     re-check one PR, then `gh pr merge` it with the repo's merge method
+    POST /api/ready     take one draft PR out of draft with `gh pr ready`
     POST /api/fixmerge  open a session told to fix one PR, wait for green, then merge it
     POST /api/review    open a session that runs /code-review on one PR and records the verdict
     POST /api/send    open a Claude Code session on one PR (see launch.py)
@@ -260,6 +261,25 @@ def merge(cfg, body, dry_run) -> dict:
     return {"ok": True, "method": row["mergeMethod"]}
 
 
+def ready(cfg, body, dry_run) -> dict:
+    """Draft to ready for review. No confirm box on the page: `gh pr ready --undo` reverses it."""
+    owner, repo, num = parse_key(body.get("key"))
+    if owner not in cfg["owners"]:
+        return {"ok": False, "error": f"{owner} is not in this dashboard's owners"}
+    if not github.fetch_row(owner, repo, num)["draft"]:
+        return {"ok": True, "already": True}
+    cmd = ["pr", "ready", str(num), "-R", f"{owner}/{repo}"]
+    if dry_run:
+        log("dry run, would run: gh " + " ".join(cmd))
+        return {"ok": True, "dryRun": True, "command": "gh " + " ".join(cmd)}
+    try:
+        github.gh(cmd)
+    except github.GhError as exc:
+        return {"ok": False, "error": str(exc)}
+    log(f"marked ready {owner}/{repo}#{num}")
+    return {"ok": True}
+
+
 def fix_and_merge(cfg, body, dry_run) -> dict:
     """Not mergeable yet: hand it to a session that fixes it, waits for green, then merges."""
     owner, repo, num = parse_key(body.get("key"))
@@ -343,6 +363,8 @@ def make_handler(cfg, board, token, dry_run):
                 body = json.loads(self.rfile.read(min(length, 10_000)) or b"{}")
                 if self.path == "/api/merge":
                     result = merge(cfg, body, dry_run)
+                elif self.path == "/api/ready":
+                    result = ready(cfg, body, dry_run)
                 elif self.path == "/api/review":
                     result = review(cfg, body, dry_run)
                 elif self.path == "/api/fixmerge":
@@ -353,7 +375,7 @@ def make_handler(cfg, board, token, dry_run):
                     return self.reply(404, {"ok": False, "error": "not found"})
             except (ValueError, github.GhError) as exc:
                 result = {"ok": False, "error": str(exc)}
-            if result.get("ok") and self.path == "/api/merge" and not dry_run:
+            if result.get("ok") and self.path in ("/api/merge", "/api/ready") and not dry_run:
                 board.invalidate()
             self.reply(200, result)
 

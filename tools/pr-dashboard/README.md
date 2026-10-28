@@ -4,6 +4,7 @@ A local page with every open PR across your repos in one table, oldest first. It
 signals GitHub's own list hides: merge conflicts, checks, CodeRabbit review, the
 `verified` / `verify-failed` labels, a merge-risk guess, and a timer for how long each PR
 has waited. Buttons on each row act on it:
+- **Mark ready** shows on every draft. One click runs `gh pr ready`, with no confirm box, because `gh pr ready --undo` turns it back into a draft.
 - **Merge** merges a ready PR. Any other PR gets **Fix and merge** instead, which hands it to Claude to fix and then merge.
 - **Review with Claude** shows when a PR has no review of its latest commit. It runs `/code-review` in a Claude session.
 - **Send to Claude** opens a Claude Code session on it.

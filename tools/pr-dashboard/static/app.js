@@ -28,6 +28,7 @@ const ICON = {
   claude: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 17 6-5-6-5"></path><path d="M12 19h8"></path></svg>',
   hard: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20L12 3z"></path><path d="M12 10v4"></path><path d="M12 17h.01"></path></svg>',
   soft: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4h3"></path></svg>',
+  ready: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="m8 12 3 3 5-6"></path></svg>',
   check: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>',
   review: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path><path d="m8.5 11 2 2 3.5-4"></path></svg>',
   camera: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>',
@@ -74,6 +75,10 @@ function rowHtml(r, now) {
     ? r.blockers.map((b) => `<span class="blocker ${b.hard ? '' : 'soft'}">${b.hard ? ICON.hard : ICON.soft}${esc(b.text)}</span>`).join('')
     : `<span class="blocker clear">${ICON.check}Nothing blocking</span>`;
   let actions = '';
+  // A draft only waits on you saying it is done, so that is the first button it gets.
+  if (local.readied) actions += '<span class="done merged">Marked ready</span>';
+  else if (r.draft && !local.merged && !local.fixing)
+    actions += `<button class="btn" data-act="ready" data-key="${esc(r.key)}" ${local.busy ? 'disabled' : ''}>${ICON.ready}Mark ready</button>`;
   // Every row can be merged: a ready PR merges now, any other hands Claude a fix-then-merge job.
   if (local.merged) actions += '<span class="done merged">Merged</span>';
   else if (local.fixing) actions += `<span class="done">Claude is fixing it, then merging${esc(local.where)}</span>`;
@@ -251,10 +256,10 @@ async function act(kind, key) {
   }
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
-  else state.local[key] = { ...({ merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true }),
+  else state.local[key] = { ...({ merge: { merged: true }, ready: { readied: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true }),
     where: { background: ' · open it in Claude desktop', cloud: ' · in the cloud, open it in Claude desktop' }[result.target] || '' };
   render();
-  if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
+  if ((kind === 'merge' || kind === 'ready') && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }
 
 document.addEventListener('click', (e) => {

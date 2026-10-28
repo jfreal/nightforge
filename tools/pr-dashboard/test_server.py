@@ -73,5 +73,24 @@ class OtherGates(unittest.TestCase):
         fetch.assert_not_called()
 
 
+
+class Ready(unittest.TestCase):
+    def call(self, **over):
+        with mock.patch.object(server.github, "fetch_row", return_value=row(**over)),              mock.patch.object(server.github, "gh", return_value="") as gh:
+            return server.ready(CFG, {"key": "jfreal/demo#7"}, dry_run=False), gh
+
+    def test_draft_is_marked_ready(self):
+        result, gh = self.call(draft=True)
+        self.assertTrue(result["ok"])
+        gh.assert_called_once_with(["pr", "ready", "7", "-R", "jfreal/demo"])
+
+    def test_already_ready_does_nothing(self):
+        result, gh = self.call(draft=False)
+        self.assertTrue(result["already"])
+        gh.assert_not_called()
+
+    def test_unknown_owner_refuses(self):
+        self.assertFalse(server.ready(CFG, {"key": "someone/demo#7"}, dry_run=False)["ok"])
+
 if __name__ == "__main__":
     unittest.main()
