@@ -107,13 +107,15 @@ Rules live in `github.py`, and `test_github.py` covers each one.
 
 ## Review with Claude
 
-This button opens a Claude session that runs `/code-review` on the PR. When it's done, Claude sets a commit status named `claude-review` on the head commit:
+This button opens a Claude session that runs `/code-review` on the PR. When it's done, Claude posts one PR comment with the findings (or "No findings") and sets a commit status named `claude-review` on the head commit:
 - `success` if no finding is a real bug or security problem
-- `failure` otherwise, with the findings posted as one PR comment
+- `failure` otherwise
+
+The comment's last line repeats the verdict as a hidden marker: `<!-- claude-review: success <head sha> -->`. Cloud sessions can post comments, but GitHub may refuse their status call, so when there is no status the dashboard reads the newest marker instead. Only markers in comments by your own `gh` account count, and only for the current head commit, so a PR author can't fake one. It's a guard rail: any session acting as you could still write one.
 
 The dashboard counts a `success` the same as a CodeRabbit review of that commit, so the row turns Ready and gets plain Merge. A `failure` shows as "Claude review found problems" and the row gets Fix and merge. CI checks ignore this status, so a failed review never shows as failed checks.
 
-A status belongs to one commit, so a new push leaves the PR unreviewed again. The session never edits code, pushes, approves or merges.
+Both the status and the marker belong to one commit, so a new push leaves the PR unreviewed again. The session never edits code, pushes, approves or merges.
 
 ## Fix and merge
 

@@ -26,6 +26,9 @@ from datetime import datetime
 from pathlib import Path
 
 CLAUDE_STATUS = "claude-review"   # must match github.CLAUDE_REVIEW
+# The verdict again, as the review comment's last line, for when GitHub refuses the status
+# call (cloud sessions). Must match github.MARKER.
+MARKER = "<!-- claude-review: <success or failure> <the full 40-character head sha> -->"
 TARGETS = ("background", "cloud", "terminal")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 BG_ID = re.compile(r"backgrounded\s*·\s*([0-9a-f]{6,})")
@@ -148,16 +151,19 @@ def merge_prompt(row, pr, gh, hard, soft) -> str:
 
 def review_prompt(row, pr, gh) -> str:
     """Review with Claude: a code review whose verdict lands on the head commit as a status,
-    which the dashboard counts the same as a CodeRabbit review of that commit."""
+    which the dashboard counts the same as a CodeRabbit review of that commit. The verdict
+    also ends the review comment, which the dashboard reads when the status never landed."""
     refused = (" If GitHub refuses the status call, say so plainly at the end, with its error."
                if gh.cloud else "")
     return (f"Review PR {pr} ({row['url']}) with the code-review skill: `/code-review {row['url']}`. "
-            f"{gh.preamble()} Before you start, note the head commit with {gh.head}. When the review is done, "
+            f"{gh.preamble()} Before you start, note the head commit with {gh.head}. The verdict is success "
+            "only if no finding is a real bug or security problem, else failure. When the review is done, "
+            f"post it as exactly one PR comment with {gh.comment}, even with no findings (then say \"No findings\"). "
+            f"The comment's last line must be exactly `{MARKER}`, using the head commit you noted. Then "
             f"set a commit status named {CLAUDE_STATUS} on that same commit: "
             f"`gh api repos/{gh.slug}/statuses/<head sha> -f state=<success or failure> -f context={CLAUDE_STATUS} "
-            "-f description=<one line, under 140 characters, quoted for your shell>`. Use success only if no "
-            "finding is a real bug or security problem. If there are findings, also post them as one PR comment "
-            f"with {gh.comment}.{refused} Do not edit code, push, approve or merge.")
+            "-f description=<one line, under 140 characters, quoted for your shell>`."
+            f"{refused} Do not edit code, push, approve or merge.")
 
 
 def wt_escape(arg: str) -> str:

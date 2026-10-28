@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import github
 import launch
 
 
@@ -57,6 +58,15 @@ class Cloud(unittest.TestCase):
         for cloud in (False, True):
             self.assertIn("Do not merge the PR.", launch.build_prompt(row(), "send", cloud))
             self.assertIn("Do not edit code, push, approve or merge.", launch.build_prompt(row(), "review", cloud))
+
+    def test_review_comment_ends_with_a_verdict_marker_the_dashboard_reads(self):
+        for cloud in (False, True):
+            p = launch.build_prompt(row(), "review", cloud)
+            self.assertIn(launch.MARKER, p, cloud)
+            self.assertIn("even with no findings", p, cloud)
+        filled = launch.MARKER.replace("<success or failure>", "success").replace(
+            "<the full 40-character head sha>", "a" * 40)
+        self.assertRegex(filled, github.MARKER)
 
 
 class RepoBinding(unittest.TestCase):
