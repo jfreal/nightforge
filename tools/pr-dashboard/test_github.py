@@ -29,7 +29,7 @@ def node(**over):
         "reviews": {"nodes": [{"author": {"login": "coderabbitai"}, "state": "COMMENTED",
                                "submittedAt": "2026-10-20T11:00:00Z", "commit": {"oid": HEAD}}]},
         "reviewThreads": {"nodes": []},
-        "comments": {"totalCount": 0},
+        "comments": {"totalCount": 0, "nodes": []},
         "files": {"nodes": [{"path": "src/thing.py", "additions": 10, "deletions": 2}]},
     }
     n.update(over)
@@ -116,6 +116,14 @@ def claude_status(state):
     return {"__typename": "StatusContext", "context": "claude-review", "state": state}
 
 
+def marker(verdict, sha=HEAD):
+    return f"<!-- claude-review: {verdict} {sha} -->"
+
+
+def comment(body, mine=True):
+    return {"viewerDidAuthor": mine, "body": body}
+
+
 class ClaudeReview(unittest.TestCase):
     no_bot = {"nodes": []}
 
@@ -143,6 +151,44 @@ class ClaudeReview(unittest.TestCase):
     def test_no_review_says_so(self):
         row = github.build_row(node(reviews=self.no_bot))
         self.assertIn({"text": "No review yet", "hard": False}, row["blockers"])
+
+    def marked(self, *comments, **over):
+        return github.build_row(node(reviews=self.no_bot, commits=rollup(CI_OK),
+                                     comments={"totalCount": len(comments), "nodes": list(comments)}, **over))
+
+    def test_marker_in_your_comment_counts_as_the_verdict(self):
+        row = self.marked(comment(f"## Code review\nNo findings.\n{marker('success')}"))
+        self.assertEqual(row["review"], "done")
+        self.assertEqual(row["lane"], "ready")
+        row = self.marked(comment(f"Seven bugs.\n{marker('failure')}"))
+        self.assertEqual(row["lane"], "fix")
+        self.assertIn({"text": "Claude review found problems", "hard": True}, row["blockers"])
+
+    def test_marker_for_an_older_commit_is_ignored(self):
+        self.assertEqual(self.marked(comment(marker("success", "b" * 40)))["review"], "pending")
+
+    def test_marker_from_someone_else_is_ignored(self):
+        self.assertEqual(self.marked(comment(marker("success"), mine=False))["review"], "pending")
+
+    def test_status_beats_marker(self):
+        row = github.build_row(node(reviews=self.no_bot, commits=rollup(CI_OK, claude_status("FAILURE")),
+                                    comments={"totalCount": 1, "nodes": [comment(marker("success"))]}))
+        self.assertEqual(row["claudeReview"], "fail")
+
+    def test_a_verdict_past_the_fetched_comments_blocks_ready(self):
+        # Only the newest 100 comments come back; an older verdict could be a failure.
+        row = github.build_row(node(commits=rollup(CI_OK), labels={"nodes": [{"name": "verified"}]},
+                                    comments={"totalCount": 150, "nodes": [comment("thanks")]}))
+        self.assertEqual(row["claudeReview"], "unknown")
+        self.assertNotEqual(row["lane"], "ready")
+        self.assertIn({"text": "Over 100 comments, check Claude's verdict on GitHub", "hard": False}, row["blockers"])
+        row = github.build_row(node(commits=rollup(CI_OK),
+                                    comments={"totalCount": 150, "nodes": [comment(marker("success"))]}))
+        self.assertEqual(row["claudeReview"], "pass")
+
+    def test_newest_marker_wins(self):
+        row = self.marked(comment(marker("failure")), comment("thanks"), comment(marker("success")))
+        self.assertEqual(row["claudeReview"], "pass")
 
 
 class Risk(unittest.TestCase):

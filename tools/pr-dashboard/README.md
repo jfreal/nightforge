@@ -109,13 +109,15 @@ Rules live in `github.py`, and `test_github.py` covers each one.
 
 ## Review with Claude
 
-This button opens a Claude session that runs `/code-review` on the PR. When it's done, Claude sets a commit status named `claude-review` on the head commit:
+This button opens a Claude session that runs `/code-review` on the PR. When it's done, Claude posts one PR comment with the findings (or "No findings") and sets a commit status named `claude-review` on the head commit:
 - `success` if no finding is a real bug or security problem
-- `failure` otherwise, with the findings posted as one PR comment
+- `failure` otherwise
+
+The comment's last line repeats the verdict as a hidden marker: `<!-- claude-review: success <head sha> -->`. Cloud sessions can post comments, but GitHub may refuse their status call, so when there is no status the dashboard reads the newest marker instead. Only markers in comments by your own `gh` account count, and only for the current head commit, so a PR author can't fake one. It's a guard rail: any session acting as you could still write one.
 
 The dashboard counts a `success` the same as a CodeRabbit review of that commit, so the row turns Ready and gets plain Merge. A `failure` shows as "Claude review found problems" and the row gets Fix and merge. CI checks ignore this status, so a failed review never shows as failed checks.
 
-A status belongs to one commit, so a new push leaves the PR unreviewed again. The session never edits code, pushes, approves or merges.
+Both the status and the marker belong to one commit, so a new push leaves the PR unreviewed again. The session never edits code, pushes, approves or merges.
 
 ## Fix and merge
 
@@ -147,6 +149,20 @@ A row with screenshots gets a **Screenshots (N changed)** button. The gallery sh
 
 Public Screenery projects need no token. A private project, or a PR whose CI pushed nothing, shows no button.
 
+### When a PR has no screenshots
+
+A Screenery project holds at most 100 channels. Each CI push makes two, `pr-<n>` and one named after the branch, and nothing deletes them when the PR closes. Once a project is full, new PRs' shots still upload but get no channel, so they show no button. The CI log says `No channel was created for "pr-<n>" (channel_limit)`.
+
+`prune_screenery.py` deletes the channels closed PRs left behind: `pr-<n>` of a closed PR, and a closed PR's branch channel when no open PR uses that branch. It never touches protected channels, the default branch or `latest`. It needs a Screenery publish token for the project, and it changes nothing without `--apply`:
+
+```powershell
+$env:SCREENERY_TOKEN = "<token>"
+python prune_screenery.py jfreal/pheidi jfreal/auxf
+python prune_screenery.py jfreal/pheidi jfreal/auxf --apply
+```
+
+To stop it filling up again, add a rule to the project in the Screenery console: on `pr.closed`, prune `pr-{pr.number}` and `{branch}` after 0 days.
+
 ## Send to Claude
 
 `sessionTarget` decides where the three Claude buttons' sessions run.
@@ -162,6 +178,10 @@ claude.exe --cloud "<Review|Fix and merge|Fix> · <repo> #<n>. <prompt>"
 The session appears in Claude desktop's main session list and at claude.ai/code, where you can watch it and answer its questions. The list names it after the prompt's first words, so each prompt starts with the job and PR number, like `Review · pheidi #1218`. `--cloud` takes no `-n`, and the PR title stays out because its author wrote it.
 
 The session clones the clone's GitHub remote. If the Claude GitHub app isn't installed on the repo, `claude --cloud` uploads the local clone instead, and on Windows that includes uncommitted changes to tracked files. So keep the clones clean, or install the app.
+
+Cloud sessions also need your GitHub account connected to Claude, for their `gh api` calls. Connect it once at claude.ai/code. Without it, the first `gh api` call in a Review or Fix fails.
+
+A cloud Fix checks out the PR's real head commit (`pull/<n>/head`) and pushes only when that head lives in the same repo. A PR from a fork stops and asks you, because the session can't push to someone else's fork.
 
 Cloud sessions block `gh pr` and other GraphQL commands, so cloud prompts use `git` and `gh api` REST calls instead. One thing can't be done over REST: taking a PR out of draft. So a cloud Fix and merge on a draft stops and asks you to mark it ready.
 
@@ -339,7 +359,7 @@ You can also add a bot before it has ever run. If it stays silent past its caden
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_routines.py test_collect.py test_desktop.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_prune_screenery.py test_routines.py test_collect.py test_desktop.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.
