@@ -173,6 +173,8 @@ async function load(force) {
     for (const k of Object.keys(state.local)) if (!live.has(k)) delete state.local[k];
   } catch (e) {
     state.error = 'The dashboard server is not answering. Is the window still open?';
+    // A stopped server holds nothing, so don't keep claiming the PC is being kept awake.
+    state.awake = 0;
   }
   render();
   probeScreens();
