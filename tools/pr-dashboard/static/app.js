@@ -231,7 +231,7 @@ async function act(kind, key) {
   if (!result.ok) state.local[key] = { error: result.error };
   else if (result.dryRun) state.local[key] = { note: 'Dry run: ' + (Array.isArray(result.command) ? result.command.join(' ') : result.command) };
   else state.local[key] = { ...({ merge: { merged: true }, fixmerge: { fixing: true }, review: { reviewing: true } }[kind] || { sent: true }),
-    where: { background: ' · open it in Claude desktop', cloud: ' · finish the setup in the new terminal tab, then open it in Claude desktop' }[result.target] || '' };
+    where: { background: ' · open it in Claude desktop', cloud: ' · in the cloud, open it in Claude desktop' }[result.target] || '' };
   render();
   if (kind === 'merge' && result.ok && !result.dryRun) setTimeout(() => load(true), 4000);
 }

@@ -57,10 +57,10 @@ DEFAULTS = {
     # Written every Monday by the night-forge-weekly routine; the header shows its headline numbers.
     "statsFile": str(Path.home() / ".claude" / "scheduled-tasks" / "pr-shipping-report" / "report.json"),
     "statsUrl": "https://claude.ai/artifact/5DELXS2AMoHrbGMWVYPkDm",
-    # Where Review, Fix and merge and Send to Claude run: "background" (no window; pick it up in
-    # Claude desktop through Remote Control), "cloud" (Anthropic's servers, started from a
-    # terminal tab) or "terminal" (a local session in a new Windows Terminal tab).
-    "sessionTarget": "background",
+    # Where Review, Fix and merge and Send to Claude run: "cloud" (Anthropic's servers, no
+    # window, in Claude desktop's session list; this PC can sleep), "background" (this PC, no
+    # window, through Remote Control) or "terminal" (this PC, a new Windows Terminal tab).
+    "sessionTarget": "cloud",
     # Screenery project per repo, when it is not "<owner>/<repo>". "" turns a repo off.
     "screeneryProjects": {},
     # Hold off idle sleep while a background session under reposRoot is working (awake.py).

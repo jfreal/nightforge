@@ -2,18 +2,18 @@
 
 Three places a session can run (config `sessionTarget`):
 
-- background (default): `claude --bg --remote-control` in a fresh worktree of the clone.
-  No window opens; the session runs on this PC and shows up in Claude desktop and
-  claude.ai/code through Remote Control, where it can be watched and answered.
-- cloud: `claude --cloud "<prompt>"` from the repo's local clone. The session runs
-  on Anthropic's servers against the clone's GitHub remote, and shows up in Claude desktop
-  and claude.ai/code. Cloud sessions cannot use `gh pr` (its GraphQL calls are blocked), so
+- cloud (default): `claude --cloud "<prompt>"` from the repo's local clone, in a console
+  window that is never shown. The session runs on Anthropic's servers against the clone's
+  GitHub remote, so this PC can sleep, and it shows up in Claude desktop's session list and
+  at claude.ai/code. Cloud sessions cannot use `gh pr` (its GraphQL calls are blocked), so
   their prompts spell out git and `gh api` REST calls instead.
+- background: `claude --bg --remote-control` in a fresh worktree of the clone. No window
+  opens; the session runs on this PC (awake.py keeps it from idle-sleeping) and shows up in
+  Claude desktop and claude.ai/code through Remote Control.
 - terminal: a local session in a fresh worktree of the clone, in a new Windows Terminal tab.
 
-Cloud and terminal sessions start in a new Windows Terminal tab: `claude --cloud` shows its
-setup checklist interactively before the session moves to the cloud. Background and cloud
-sessions need the command-line `claude` to be signed in (`claude auth login`).
+Cloud and background sessions need the command-line `claude` to be signed in
+(`claude auth login`).
 """
 
 from __future__ import annotations
@@ -211,17 +211,42 @@ def background_command(row, mode="send") -> list:
             build_prompt(row, mode, cloud=False)]
 
 
-def session_command(row, clone: Path, mode="send", target="cloud") -> list:
+def cloud_command(row, mode="send") -> list:
+    # `--cloud` takes no -n; the session list names a cloud session after its prompt's opening
+    # words, so the prompt opens with the job and PR number. Never the PR title: that is
+    # untrusted text and must stay out of prompts.
+    lead = f"{ACTION.get(mode, mode)} · {row['repo']} #{row['num']}. "
+    return [claude_exe(), "--cloud", lead + build_prompt(row, mode, cloud=True)]
+
+
+def session_command(row, clone: Path, mode="send") -> list:
+    """A local session in a new Windows Terminal tab (sessionTarget "terminal")."""
     title = session_name(row, mode)
-    prompt = build_prompt(row, mode, cloud=target == "cloud")
-    if target == "cloud":
-        # The cloud session clones the GitHub remote itself; the local checkout is not touched.
-        inner = [claude_exe(), "--cloud", prompt]
-        title = "cloud: " + title
-    else:
-        inner = [claude_exe(), *local_flags(row, mode, title), prompt]
+    inner = [claude_exe(), *local_flags(row, mode, title), build_prompt(row, mode, cloud=False)]
     return ["wt.exe", "-w", "0", "nt", "--title", wt_escape(title), "-d", str(clone),
             *[wt_escape(a) for a in inner]]
+
+
+def start_cloud(cmd, clone: Path, wait=60) -> dict:
+    """`claude --cloud` refuses to run without a terminal, even with only stderr redirected,
+    so it gets a console of its own that is never shown. It hands the session to the cloud
+    and exits within seconds; its exit code is the only answer it gives back."""
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 0   # SW_HIDE
+    try:
+        proc = subprocess.Popen(cmd, cwd=str(clone), startupinfo=si,
+                                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+    except OSError as exc:
+        return {"ok": False, "error": f"Could not start Claude: {exc}"}
+    try:
+        code = proc.wait(wait)
+    except subprocess.TimeoutExpired:
+        return {"ok": True}   # still setting up; it carries on in its hidden console
+    if code != 0:
+        return {"ok": False, "error": f"Claude could not start the cloud session (exit {code}). To see why, "
+                                      f"run `claude --cloud \"test\"` in a terminal in {clone}."}
+    return {"ok": True}
 
 
 REMOTE = re.compile(r"github\.com[:/]([^/]+)/(.+?)(?:\.git)?/?$", re.I)
@@ -279,13 +304,16 @@ def open_session(row, repos_root, dry_run=False, mode="send", target="background
     want, got = f"{row['owner']}/{row['repo']}", remote_slug(clone)
     if not got or got.lower() != want.lower():
         return {"ok": False, "error": f"{clone} is a clone of {got or 'no GitHub repo'}, not {want}"}
-    cmd = background_command(row, mode) if target == "background" else session_command(row, clone, mode, target)
+    cmd = {"background": background_command, "cloud": cloud_command}.get(target)
+    cmd = cmd(row, mode) if cmd else session_command(row, clone, mode)
     if dry_run:
         return {"ok": True, "dryRun": True, "command": cmd, "target": target}
     if target in ("background", "cloud") and not signed_in():
         return {"ok": False, "error": NOT_SIGNED_IN.format(target=target)}
     if target == "background":
         return {**start_background(cmd, clone), "command": cmd, "target": target}
+    if target == "cloud":
+        return {**start_cloud(cmd, clone), "command": cmd, "target": target}
     try:
         # A list, never a shell string: PR titles are untrusted text.
         subprocess.Popen(cmd, cwd=str(clone), creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))

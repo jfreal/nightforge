@@ -37,7 +37,7 @@ The task runs `supervise.py` with `pythonw.exe`, which starts `server.py --watch
 - **After a code change**, such as a `git pull`, the server exits on purpose and comes straight back with the new code. Page files load fresh on every refresh. An open tab notices the restart and reloads itself.
 - **After a crash**, the supervisor waits 2 seconds and starts it again. If it keeps crashing, the wait doubles each time, up to 5 minutes.
 
-**The PC stays awake while sessions work.** Background sessions run on this PC, so they stop when it sleeps. Claude desktop's "keep awake" setting covers only its own sessions, not these. So every minute the server asks `claude agents --json` about the background sessions under `reposRoot`. While any of them has state `working`, it tells Windows not to idle-sleep, and the header shows "keeping this PC awake for N sessions".
+**The PC stays awake while sessions work.** This matters only with `sessionTarget` `"background"`; cloud sessions don't need this PC. Background sessions run on this PC, so they stop when it sleeps. Claude desktop's "keep awake" setting covers only its own sessions, not these. So every minute the server asks `claude agents --json` about the background sessions under `reposRoot`. While any of them has state `working`, it tells Windows not to idle-sleep, and the header shows "keeping this PC awake for N sessions".
 - A session waiting on you (state `blocked`) keeps the PC awake for 1 more hour, so you can still answer it from your phone. After that the PC may sleep again.
 - If `claude agents` fails or times out, the last answer stands for 10 minutes before the hold is dropped.
 - When the last session finishes, the hold is released within a minute.
@@ -69,7 +69,7 @@ gitignored) and edit it:
 | `refreshSeconds` | `60` | How often the page reloads the list. The server asks GitHub at most every half of this. |
 | `statsFile` | `~/.claude/scheduled-tasks/pr-shipping-report/report.json` | The Night Forge weekly report's data. If it is missing, the header shows no stats. |
 | `statsUrl` | the Night Forge artifact | Where the "report" link in the header goes. |
-| `sessionTarget` | `"background"` | Where Review with Claude, Fix and merge and Send to Claude run. `"background"`: no window, and the session shows up in Claude desktop and claude.ai/code through Remote Control. `"cloud"`: Anthropic's servers, started from a terminal tab. `"terminal"`: a local session in a terminal tab. |
+| `sessionTarget` | `"cloud"` | Where Review with Claude, Fix and merge and Send to Claude run. `"cloud"`: Anthropic's servers, no window, in Claude desktop's session list, and this PC can sleep. `"background"`: this PC, no window, in Claude desktop through Remote Control. `"terminal"`: this PC, a local session in a terminal tab. |
 | `keepAwake` | `true` | Keep the PC from idle-sleeping while a background session under `reposRoot` is working (see above). |
 | `screeneryProjects` | `{}` | Screenery project per repo name, when it isn't `<owner>/<repo>`. `""` turns a repo off. |
 
@@ -149,7 +149,21 @@ Public Screenery projects need no token. A private project, or a PR whose CI pus
 
 `sessionTarget` decides where the three Claude buttons' sessions run.
 
-**Background (the default).** No window opens. The server runs this in the repo's local clone, hidden:
+**Cloud (the default).** No window opens, and the work runs on Anthropic's servers, so this PC can sleep. The server runs this in the repo's local clone:
+
+```text
+claude.exe --cloud "<Review|Fix and merge|Fix> · <repo> #<n>. <prompt>"
+```
+
+`claude --cloud` refuses to run without a terminal (even with only its output redirected), so it gets a console window of its own that is never shown. It hands the session to the cloud and exits within seconds. Its exit code is the only answer it gives back, so the page says the session started but can't link to it.
+
+The session appears in Claude desktop's main session list and at claude.ai/code, where you can watch it and answer its questions. The list names it after the prompt's first words, so each prompt starts with the job and PR number, like `Review · pheidi #1218`. `--cloud` takes no `-n`, and the PR title stays out because its author wrote it.
+
+The session clones the clone's GitHub remote. If the Claude GitHub app isn't installed on the repo, `claude --cloud` uploads the local clone instead, and on Windows that includes uncommitted changes to tracked files. So keep the clones clean, or install the app.
+
+Cloud sessions block `gh pr` and other GraphQL commands, so cloud prompts use `git` and `gh api` REST calls instead. One thing can't be done over REST: taking a PR out of draft. So a cloud Fix and merge on a draft stops and asks you to mark it ready.
+
+**Background.** No window opens, but the session runs on this PC. The server runs this in the repo's local clone, hidden:
 
 ```text
 claude.exe --bg --remote-control "<repo> #<n> <mode>" --allowedTools … -n … -w pr-<n>-<mode>-<time> "<prompt>"
@@ -171,16 +185,6 @@ Some forms are refused even though a rule above would allow them:
 - `gh api` with `-X` or `--method`, or a path containing `/merge`
 
 These rules match the command's text, so they are a guard rail, not a sandbox. A command written in an unusual form (an alias, say) goes to the normal question instead. Anything else, like editing files or running tests, still asks.
-
-**Cloud.** The server opens a terminal tab, because `claude --cloud` shows its setup steps there. The tab runs:
-
-```text
-claude.exe --cloud "<prompt>"
-```
-
-The session runs on Anthropic's servers, against the clone's GitHub remote, and appears in Claude desktop and at claude.ai/code. Once it has started, you can close the tab. The repo must be on GitHub with the Claude GitHub app installed.
-
-Cloud sessions block `gh pr` and other GraphQL commands, so cloud prompts use `git` and `gh api` REST calls instead. One thing can't be done over REST: taking a PR out of draft. So a cloud Fix and merge on a draft stops and asks you to mark it ready.
 
 **Terminal.** A new tab runs a local session in a fresh worktree, so the clone's own checkout is untouched:
 
