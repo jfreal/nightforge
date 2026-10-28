@@ -11,6 +11,8 @@ has waited. Buttons on each row act on it:
 
 The header also shows this week's shipping numbers from the Night Forge weekly report.
 
+The **Routines** tab at `/routines` shows every bot and scheduled job: when each one last ran, whether it is late, what it found and its recent runs. See [Routines](#routines).
+
 Plain Python, standard library only. The only outside dependency is the `gh` CLI, signed in.
 
 ## Run it
@@ -203,6 +205,107 @@ No prompt contains the PR's title, description or branch name, because the PR's 
 
 `wt.exe` re-parses its command line, so two characters get swapped: `;` is escaped, and straight double quotes become curly ones. Without that, a PR title could cut the prompt into pieces. The npm `claude.cmd` shim can't be started by `wt.exe`, so the launcher finds the real `claude.exe` next to it.
 
+## Routines
+
+`http://127.0.0.1:8765/routines` has one row per bot, worst first:
+- **Needs you**: its last run stopped on a decision.
+- **Broken or late**: its last run failed, or it hasn't reported within its cadence plus grace, or it has never reported.
+- **Healthy**: the rest.
+- **Paused**: you turned its alarms off.
+
+Each row shows:
+- how long ago it last ran, and a bar that fills as its next report comes due
+- its last result in one line, with counts such as `2 prs · 11 findings`
+- runs this week and in total, and a square for each of its last 14 runs
+- under **Details**, every run with its summary, links and notes
+
+### Where the data lives
+
+One SQLite file, `~/.nightforge/routines.db` (`%USERPROFILE%\.nightforge\routines.db` on Windows). Set `routinesDb` in `config.json` or the `NIGHTFORGE_DB` variable to put it somewhere else. It's outside the repo on purpose: run summaries carry whatever the bots found. `*.db` is gitignored as well, in case you point it inside a clone. Open it with any SQLite tool. It has three tables: `bots`, `runs` and `cursors`.
+
+### The report every run sends
+
+Every source turns into the same report. Only `bot` and `status` are required:
+
+```json
+{
+  "bot": "notion-pickup",
+  "status": "found",
+  "summary": "2 tickets coded: 1 verified, 1 verify-failed",
+  "counts": {"prs": 2, "tickets": 2},
+  "links": [{"label": "mergetel #655", "url": "https://github.com/jfreal/mergetel/pull/655"}],
+  "details": "Longer notes, shown under Notes.",
+  "run": "cse_01SSK7fcjmqhWjEYVazmeK8x",
+  "started": "2026-10-28T12:55:37Z",
+  "finished": "2026-10-28T12:56:53Z"
+}
+```
+
+| `status` | Means |
+|---|---|
+| `ok` | It ran, and nothing needs you. |
+| `found` | It ran and produced something: PRs, issues, findings. |
+| `needs-you` | It stopped on a decision only you can make. |
+| `failed` | It didn't finish its job. |
+
+Late and never-reported aren't statuses a bot sends. The page works them out from the clock.
+
+`run` is the run's own id, so a report sent twice is stored once. Links must be `http(s)`. Counts must be whole numbers.
+
+### Reporting from this PC
+
+This covers scripts, Windows tasks and Claude desktop scheduled tasks. Run `botlog.py` once at the end of each run:
+
+```bat
+python tools\pr-dashboard\botlog.py report error-sweep-pheidi found "2 new signatures filed, 1 fix PR" ^
+  --count issues=2 --count prs=1 --link "pheidi #1262=https://github.com/jfreal/pheidi/pull/1262"
+```
+
+For a Claude scheduled task, end its prompt with something like this:
+
+> When you finish, run `python <clone>\tools\pr-dashboard\botlog.py report <bot-id> <ok|found|needs-you|failed> "<one line, plain words>"`, with a `--count name=N` for each number worth tracking and a `--link "label=url"` for each PR or issue you opened. Use `needs-you` if you stopped on a question for John, and `failed` if you couldn't do the job.
+
+### Reporting from the cloud
+
+Cloud routines can't reach this PC, so they post their report as a GitHub issue comment and the dashboard reads it back:
+
+1. Make a **private** repo, for example `jfreal/bot-reports`, and open one issue in it called "Run reports".
+2. Set `"reportInbox": "jfreal/bot-reports"` in `config.json`.
+3. End each routine's prompt with:
+
+> When you finish, attach `jfreal/bot-reports` with `add_repo` (access "push") and post one comment on its issue #1. Say in a sentence or two what you did, then end the comment with a fenced code block tagged `nightforge-report` holding one JSON object: `{"bot": "<bot-id>", "status": "ok|found|needs-you|failed", "summary": "<one line>", "counts": {...}, "links": [{"label": "...", "url": "..."}]}`.
+
+Only comments by `reportAuthors` count. It defaults to `owners`. The comment's own link is added to the run, so you can jump from the row to the full write-up. The repo has to be private, because anyone who can read it can read the reports.
+
+### Reading sources without changing them
+
+| Key | Reads |
+|---|---|
+| `actionsRepos` | Scheduled GitHub Actions runs (`event=schedule`) in these `owner/repo`s. One bot per workflow. A failed, timed-out or cancelled run counts as `failed`. |
+| `windowsTasks` | Task Scheduler's last run time, exit code and next run time for these task names. Wildcards like `Nightforge*` work. Exit code 0 is `ok`, and anything else is `failed`. A running task waits until it finishes. |
+| `reportInbox` | The cloud report comments above. |
+
+The server runs every collector when it starts and again every `collectMinutes` (5 by default). **Collect now** runs them straight away. A source that can't be read shows in a banner above the table, and the others still load.
+
+### Telling it what to expect
+
+A bot appears with its first report. To let the page notice when a bot goes quiet, give it a cadence:
+
+```bat
+python botlog.py bot notion-pickup --name "Notion Pickup" --kind "cloud routine" ^
+  --schedule "8:47 and 14:47 ET" --every 6h --grace 2h --desc "Ready tickets to reviewed PRs" ^
+  --url https://claude.ai/code/routines
+```
+
+- `--every` is how often it should report. `--grace` is how long past that it may be before it counts as late, and defaults to half of `--every`, between 15 minutes and 4 hours.
+- With no `--every`, the page guesses one from the median gap between its last runs, once it has three, and marks it "(guessed)".
+- `--schedule` is only shown, never parsed.
+- `--pause` stops the alarms and `--resume` brings them back.
+
+You can also add a bot before it has ever run. If it stays silent past its cadence, the page says "Never reported".
+
+`python botlog.py list` prints the same health view in a terminal. `runs <bot>` lists one bot's history, `remove <bot>` forgets a bot and its runs, and `collect` runs the collectors once.
+
 ## Safety
 
 - The server listens on `127.0.0.1` only.
@@ -216,7 +319,7 @@ No prompt contains the PR's title, description or branch name, because the PR's 
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_routines.py test_collect.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.

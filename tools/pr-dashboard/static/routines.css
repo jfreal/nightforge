@@ -1,0 +1,49 @@
+/* Routines page. Builds on style.css: same header, table, buttons and type scale. */
+:root { --ok: #9DB7D9; --found: #1F4E8C; --you: #FFB020; --fail: #EA580C; }
+
+.table-inner:has(.rgrid) { min-width: 1300px; }
+.grid.rgrid { grid-template-columns: 200px minmax(0, 1fr) 330px 230px 170px; }
+.when { font-size: 16px; font-weight: 700; }
+.kindline { font-family: var(--mono); font-size: 17px; color: var(--muted); }
+.name { font-size: 22px; font-weight: 700; line-height: 1.25; }
+
+.result { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 17px; font-weight: 700; border-radius: 8px; padding: 3px 10px; white-space: nowrap; }
+.st-ok { background: var(--blue-tint); color: var(--blue); }
+.st-found { background: var(--found); color: #FFFFFF; }
+.st-needs-you { background: var(--you); color: #111111; }
+.st-failed { background: var(--fail); color: #111111; }
+.st-none { background: var(--btn); color: var(--soft); }
+.said { font-size: 18px; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.counts { font-family: var(--mono); font-size: 16px; color: var(--muted); }
+
+.record { display: flex; flex-direction: column; gap: 8px; }
+.record-n { font-size: 18px; }
+.record-n strong { font-family: var(--mono); font-size: 20px; }
+.strip { display: flex; gap: 4px; }
+.sq { width: 12px; height: 22px; border-radius: 3px; background: var(--line-soft); }
+.sq-ok { background: var(--ok); } .sq-found { background: var(--found); }
+.sq-needs-you { background: var(--you); } .sq-failed { background: var(--fail); }
+
+.details.rdetails { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); padding-left: 244px; }
+.facts { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; font-size: 18px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.cmd { font-family: var(--mono); font-size: 15px; background: var(--bg); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; word-break: break-all; }
+.runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.runs li { display: grid; grid-template-columns: 170px 210px minmax(0, 1fr); gap: 4px 14px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+.runs time { font-family: var(--mono); font-size: 16px; color: var(--muted); padding-top: 3px; }
+.runs .links { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 17px; margin-top: 4px; }
+.runs details { grid-column: 3; font-size: 17px; }
+.runs details pre { white-space: pre-wrap; font-family: inherit; margin: 6px 0 0; border-left: 3px solid var(--line-soft); padding-left: 12px; max-height: 360px; overflow: auto; }
+
+.howto { background: var(--card); border: 2px solid var(--line); border-radius: 16px; padding: 24px 28px; }
+.howto h2 { margin: 0 0 8px; font-size: 26px; }
+.howto pre { font-family: var(--mono); font-size: 16px; background: var(--bg); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; word-break: break-all; }
+.banner ul { margin: 6px 0 0; padding-left: 22px; font-weight: 400; font-size: 17px; }
+
+@media (max-width: 760px) {
+  .details.rdetails { grid-template-columns: 1fr; padding: 4px 24px 24px; }
+  .runs li { grid-template-columns: 1fr; }
+  .runs details { grid-column: 1; }
+}

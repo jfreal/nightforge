@@ -6,6 +6,8 @@ Serves static/ and three endpoints on 127.0.0.1 only:
     GET  /api/prs     every open PR as a row (cached for refreshSeconds/2)
     GET  /api/stats   headline numbers from the Night Forge shipping report, if it exists
     GET  /api/screens one PR's Screenery screenshots (?key=owner/repo#n), changed ones first
+    GET  /api/routines every bot from the routines database, worst first (routines.py)
+    GET  /api/runs    one bot's recent runs (?bot=id), with their notes
     POST /api/merge     re-check one PR, then `gh pr merge` it with the repo's merge method
     POST /api/fixmerge  open a session told to fix one PR, wait for green, then merge it
     POST /api/review    open a session that runs /code-review on one PR and records the verdict
@@ -65,6 +67,14 @@ DEFAULTS = {
     "screeneryProjects": {},
     # Hold off idle sleep while a background session under reposRoot is working (awake.py).
     "keepAwake": True,
+    # Routines page. The database stays outside the repo; "" means ~/.nightforge/routines.db.
+    "routinesDb": "",
+    # Collectors (collect.py), run every collectMinutes. Each is off until it is given a value.
+    "reportInbox": "",        # "owner/repo" whose issue comments carry ```nightforge-report blocks
+    "reportAuthors": [],      # accounts whose report comments count; [] means owners
+    "actionsRepos": [],       # "owner/repo" whose scheduled GitHub Actions runs are listed
+    "windowsTasks": [],       # Task Scheduler task names (wildcards allowed), Windows only
+    "collectMinutes": 5,
 }
 
 
@@ -100,8 +110,10 @@ if sys.stderr is None:
                                                f"crash in thread {a.thread.name if a.thread else '?'}")
 
 import awake  # noqa: E402
+import collect  # noqa: E402
 import github  # noqa: E402
 import launch  # noqa: E402
+import routines  # noqa: E402
 import screenery  # noqa: E402
 
 
@@ -177,6 +189,60 @@ class Board:
     def invalidate(self):
         with self.lock:
             self.fetched_at = 0.0
+
+
+class Routines:
+    """The routines database and its collectors. Collecting runs on its own thread every
+    collectMinutes; Refresh on the page asks for one straight away."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.lock = threading.Lock()
+        self.status, self.collected_at, self.error = [], 0.0, ""
+        try:
+            self.store = routines.Store(routines.db_path(cfg))
+        except (OSError, routines.sqlite3.Error) as exc:
+            # The PR page must still work when the database can't be opened.
+            self.store, self.error = None, f"routines database unusable: {exc}"
+            log(self.error)
+
+    def collect(self):
+        if not self.store or not self.lock.acquire(blocking=False):
+            return   # a collect is already running; its answer is as fresh as a second one
+        try:
+            self.status = collect.collect_all(self.store, self.cfg, log)
+            self.collected_at = time.time()
+        finally:
+            self.lock.release()
+
+    def run(self):
+        while True:
+            try:
+                self.collect()
+            except Exception as exc:   # noqa: BLE001 - one bad poll must not end the thread
+                log(f"collect crashed: {exc}")
+            time.sleep(max(1, self.cfg["collectMinutes"]) * 60)
+
+    def get(self, force=False) -> dict:
+        if force:
+            self.collect()
+        base = {"bootId": BOOT_ID, "collectors": self.status, "error": self.error,
+                "db": str(self.store.path) if self.store else "",
+                "collectedAt": datetime.fromtimestamp(self.collected_at, timezone.utc).isoformat()
+                if self.collected_at else None}
+        if not self.store:
+            return {**base, "rows": []}
+        try:
+            return {**base, "rows": self.store.board()}
+        except routines.sqlite3.Error as exc:
+            return {**base, "rows": [], "error": f"routines database: {exc}"}
+
+    def runs(self, raw_path) -> dict:
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(raw_path).query)
+        bot = (query.get("bot") or [""])[0]
+        if not self.store or not routines.BOT_ID.match(bot):
+            return {"ok": False, "error": self.error or "bad bot id"}
+        return {"ok": True, "runs": self.store.runs(bot)}
 
 
 def parse_key(key: str):
@@ -291,7 +357,7 @@ def send(cfg, body, dry_run) -> dict:
     return start_session(cfg, owner, repo, num, dry_run, "send", "send")
 
 
-def make_handler(cfg, board, token, dry_run):
+def make_handler(cfg, board, token, dry_run, bots=None):
     origins = {f"http://127.0.0.1:{cfg['port']}", f"http://localhost:{cfg['port']}"}
     # A DNS-rebinding page can point its own name at 127.0.0.1 and read the token and the
     # PR list. It cannot fake the Host header, so only loopback names are served.
@@ -323,7 +389,11 @@ def make_handler(cfg, board, token, dry_run):
                 return self.reply(200, stats(cfg))
             if path == "/api/screens":
                 return self.reply(200, screens(cfg, self.path))
-            name = "index.html" if path == "/" else path.lstrip("/")
+            if path == "/api/routines" and bots:
+                return self.reply(200, bots.get(force="force=1" in self.path))
+            if path == "/api/runs" and bots:
+                return self.reply(200, bots.runs(self.path))
+            name = {"/": "index.html", "/routines": "routines.html"}.get(path, path.lstrip("/"))
             # Only plain file names inside static/: no folders, no `..`.
             file = LOGO if name == "logo.png" else STATIC / name
             if "/" in name or "\\" in name or not file.is_file() or file.suffix not in TYPES:
@@ -373,8 +443,9 @@ def main():
         cfg["port"] = args.port
     token = secrets.token_urlsafe(24)
     board = Board(cfg)
+    bots = Routines(cfg)
     try:
-        server = Server(("127.0.0.1", cfg["port"]), make_handler(cfg, board, token, args.dry_run))
+        server = Server(("127.0.0.1", cfg["port"]), make_handler(cfg, board, token, args.dry_run, bots))
     except OSError:
         raise SystemExit(f"Port {cfg['port']} is already in use. Is the dashboard already running?"
                          " Close that window first, or pass --port.")
@@ -385,6 +456,7 @@ def main():
     server.restart_requested = False
     if args.watch:
         threading.Thread(target=watch_code, args=(server,), daemon=True).start()
+    threading.Thread(target=bots.run, daemon=True, name="collect").start()
     if cfg["keepAwake"]:
         board.keeper = awake.KeepAwake(cfg["reposRoot"], launch.claude_exe(), log)
         threading.Thread(target=board.keeper.run, daemon=True).start()
