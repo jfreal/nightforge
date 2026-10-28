@@ -58,6 +58,8 @@ h1 { margin: 0; font-size: 44px; line-height: 1.1; color: #FFFFFF; }
 .grid { display: grid; grid-template-columns: 190px minmax(0, 1fr) 270px 170px 250px; gap: 20px; align-items: center; padding: 20px 24px; }
 .thead { padding: 16px 24px; background: #EEF1F5; font-size: 17px; font-weight: 700; color: #3A3A3A; text-transform: uppercase; letter-spacing: .04em; }
 .row { border-top: 2px solid var(--line-soft); }
+.repo-head { padding: 14px 24px 10px; border-top: 2px solid var(--line); background: var(--bg); font-size: 22px; font-weight: 800; color: var(--ink); }
+.repo-head span { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--soft); margin-left: 8px; }
 .row.open { background: #F7F8FA; }
 .age { font-family: var(--mono); font-size: 30px; font-weight: 700; line-height: 1; }
 .bar { width: 150px; height: 10px; border-radius: 999px; background: var(--line-soft); margin: 8px 0; }

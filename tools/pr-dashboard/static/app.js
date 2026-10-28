@@ -8,11 +8,20 @@ const FILTERS = [
   { id: 'wait', name: 'Waiting' },
   { id: 'draft', name: 'Drafts' }
 ];
+const SORTS = [
+  { id: 'age', name: 'Oldest first', title: 'Pull requests, oldest first' },
+  { id: 'repo', name: 'By repo', title: 'Pull requests by repo, oldest first in each' }
+];
 const RISK = { low: 'Low', med: 'Medium', high: 'High' };
 const REFRESH_MS = 60000;
 const TICK_MS = 30000;
 
-const state = { rows: [], filter: 'all', open: new Set(), local: {}, error: '', fetchedAt: null, screens: {} };
+const state = { rows: [], filter: 'all', sort: savedSort(), open: new Set(), local: {}, error: '', fetchedAt: null, screens: {} };
+
+// The sort choice is a per-browser convenience; storage can be blocked, so it may not stick.
+function savedSort() {
+  try { return localStorage.getItem('prdash.sort') === 'repo' ? 'repo' : 'age'; } catch (e) { return 'age'; }
+}
 
 const ICON = {
   merge: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1F4E8C" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.5"></circle><circle cx="6" cy="19" r="2.5"></circle><circle cx="18" cy="12" r="2.5"></circle><path d="M6 7.5v9M6 7.5c0 4 4 4.5 9.5 4.5"></path></svg>',
@@ -115,12 +124,20 @@ ${details}
 function render() {
   const now = Date.now();
   const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset : {};
-  const visible = state.filter === 'all' ? state.rows : state.rows.filter((r) => r.lane === state.filter);
+  let visible = state.filter === 'all' ? state.rows : state.rows.filter((r) => r.lane === state.filter);
+  // The server sends oldest first; a stable sort by repo keeps that order inside each repo.
+  if (state.sort === 'repo') visible = [...visible].sort((a, b) => a.repo.localeCompare(b.repo));
   $('filters').innerHTML = FILTERS.map((f) => {
     const n = f.id === 'all' ? state.rows.length : state.rows.filter((r) => r.lane === f.id).length;
     return `<button class="filter" data-filter="${f.id}" aria-pressed="${state.filter === f.id}">${f.name} <span>${n}</span></button>`;
   }).join('');
-  $('rows').innerHTML = visible.length ? visible.map((r) => rowHtml(r, now)).join('') : '<div class="empty">Nothing here.</div>';
+  $('sorts').innerHTML = SORTS.map((s) =>
+    `<button class="filter" data-sort="${s.id}" aria-pressed="${state.sort === s.id}">${s.name}</button>`).join('');
+  $('title').textContent = SORTS.find((s) => s.id === state.sort).title;
+  $('rows').innerHTML = visible.length ? visible.map((r, i) =>
+    (state.sort === 'repo' && (i === 0 || visible[i - 1].repo !== r.repo)
+      ? `<div class="repo-head">${esc(r.repo)} <span>${visible.filter((v) => v.repo === r.repo).length}</span></div>` : '')
+    + rowHtml(r, now)).join('') : '<div class="empty">Nothing here.</div>';
   const repos = new Set(state.rows.map((r) => r.repo)).size;
   if (state.rows.length) {
     $('sub').textContent = `${state.rows.length} open across ${repos} projects. Click Details to see what is inside.`;
@@ -138,8 +155,9 @@ function render() {
   if (state.fetchedAt) $('fetched').textContent = 'Updated ' + new Date(state.fetchedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
     + (state.awake ? ` · keeping this PC awake for ${state.awake} session${state.awake === 1 ? '' : 's'}` : '');
   // Re-rendering replaces the buttons; put keyboard focus back where it was.
-  if (focused.act || focused.filter) {
-    const sel = focused.filter ? `[data-filter="${focused.filter}"]` : `[data-act="${focused.act}"][data-key="${CSS.escape(focused.key || '')}"]`;
+  if (focused.act || focused.filter || focused.sort) {
+    const sel = focused.filter ? `[data-filter="${focused.filter}"]` : focused.sort ? `[data-sort="${focused.sort}"]`
+      : `[data-act="${focused.act}"][data-key="${CSS.escape(focused.key || '')}"]`;
     const el = document.querySelector(sel);
     if (el) el.focus();
   }
@@ -239,6 +257,12 @@ async function act(kind, key) {
 document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-filter]');
   if (f) { state.filter = f.dataset.filter; return render(); }
+  const s = e.target.closest('[data-sort]');
+  if (s) {
+    state.sort = s.dataset.sort;
+    try { localStorage.setItem('prdash.sort', state.sort); } catch (err) { /* blocked storage: just not remembered */ }
+    return render();
+  }
   const b = e.target.closest('[data-act]');
   if (b) act(b.dataset.act, b.dataset.key);
 });
