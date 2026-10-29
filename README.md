@@ -216,7 +216,7 @@ skills/error-sweep/
   adapters/app-insights.md      exceptions, failed requests, traces, dependencies
   adapters/github-auto-issues.md  issues the app files about itself
 skills/docs-sweep/
-  SKILL.md                      the weekly docs sweep — discover, audit, fix, draft PR
+  SKILL.md                      the weekly docs sweep — discover, audit, fix, open PR
 skills/coderabbit-sweep/
   SKILL.md                      the hourly CodeRabbit re-review sweep — find, gate, fire one
   EVIDENCE.md                   dated case law behind each rule — grepped, never read whole

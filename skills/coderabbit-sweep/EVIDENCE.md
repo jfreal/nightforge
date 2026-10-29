@@ -731,7 +731,7 @@ the reason line under the heading tells them apart:
   `@coderabbitai review` command." These are prime candidates. On a fleet where fix agents open the
   PRs, they are most of the backlog, and nothing but this sweep will ever review them.
 - **Draft PR** — excluded unless the card opts drafts in. Triggering one spends the fleet's hourly
-  slot on a PR the bot may refuse anyway, and automated sweeps that open drafts in bulk (docs-sweep,
+  slot on a PR the bot may refuse anyway, and automated sweeps that open drafts in bulk (for example
   error-sweep fix agents) would dominate an oldest-first queue by volume alone.
 
 **Give up on a PR that refuses twice.** If a fired PR comes back *Review skipped* again (step 6
