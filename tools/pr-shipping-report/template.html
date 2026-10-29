@@ -8,7 +8,7 @@
     --panel-2: #eae6df;
     --ink: #1d242c;
     --ink-2: #556170;
-    --ink-3: #8a94a1;
+    --ink-3: #5b6571;
     --rule: #e1ddd5;
     --rule-2: #cac5bb;
     --add: #e0740f;
@@ -26,7 +26,7 @@
       --panel-2: #28323b;
       --ink: #eef1f4;
       --ink-2: #a8b3bf;
-      --ink-3: #75818e;
+      --ink-3: #96a1ad;
       --rule: #2b353f;
       --rule-2: #3a4652;
       --add: #cc6f12;
@@ -42,7 +42,7 @@
     --panel-2: #28323b;
     --ink: #eef1f4;
     --ink-2: #a8b3bf;
-    --ink-3: #75818e;
+    --ink-3: #96a1ad;
     --rule: #2b353f;
     --rule-2: #3a4652;
     --add: #cc6f12;
@@ -397,6 +397,7 @@ const DATA = "__DATA__";
 const NS = "http://www.w3.org/2000/svg";
 
 const fmt = n => n.toLocaleString("en-US");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(n);
 const monthName = m => {
   const [y, mm] = m.split("-");
@@ -666,11 +667,17 @@ document.getElementById("tiles").innerHTML = tiles.map(t =>
     const N = DATA.naive_fit;
     const ahead = F.months.filter(x => x.month !== F.current_month);
     document.getElementById("forecast").innerHTML =
-      `The climb stopped being a climb on <b>${dayLabel(EV.date)}</b>. Since then you have merged ` +
-      `<span class="n">${F.weekly_mean}</span> pull requests a week, give or take ` +
-      `<span class="n">${F.weekly_sd}</span>, and that number is <b>flat</b>. A line fitted to those ` +
-      `${F.weeks} weeks explains <span class="n">${(F.trend && F.trend.r2 != null ? F.trend.r2 : 0).toFixed(3)}</span> ` +
-      `of the movement, which is another way of saying none of it. Hold that rate and ` +
+      (F.rising
+        ? `Since <b>${dayLabel(EV.date)}</b> you have merged <span class="n">${F.weekly_mean}</span> pull requests ` +
+          `a week, give or take <span class="n">${F.weekly_sd}</span>, and that number is <b>still climbing</b>. ` +
+          `A line fitted to those ${F.weeks} weeks explains ` +
+          `<span class="n">${(F.trend && F.trend.r2 != null ? F.trend.r2 : 0).toFixed(3)}</span> of the movement. ` +
+          `Even holding the average flat, `
+        : `The climb stopped being a climb on <b>${dayLabel(EV.date)}</b>. Since then you have merged ` +
+          `<span class="n">${F.weekly_mean}</span> pull requests a week, give or take ` +
+          `<span class="n">${F.weekly_sd}</span>, and that number is <b>flat</b>. A line fitted to those ` +
+          `${F.weeks} weeks explains <span class="n">${(F.trend && F.trend.r2 != null ? F.trend.r2 : 0).toFixed(3)}</span> ` +
+          `of the movement, which is another way of saying none of it. Hold that rate and `) +
       ahead.map(x => `<b>${monthName(x.month)}</b> lands near <span class="n">${fmt(x.prs)}</span>`).join(", ") +
       `. ` +
       (N ? `Fit a straight line through the whole year instead and it claims ` +
@@ -780,7 +787,7 @@ document.getElementById("about").innerHTML =
   `The PR counts are never trimmed. Here is what the filter removes:`;
 
 document.getElementById("biggest").innerHTML = DATA.biggest.map(b => `
-  <li><span class="who">${b.repo}#${b.num}</span><span class="ttl">${b.title}</span>
+  <li><span class="who">${b.repo}#${b.num}</span><span class="ttl">${esc(b.title)}</span>
   <span class="n">+${short(b.add)}</span></li>`).join("");
 
 if (DATA.failed.length) {

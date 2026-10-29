@@ -6,7 +6,8 @@ PR counts and diff sizes, and renders template.html with the data baked in.
 
     python build.py [--owner jfreal] [--out report.html]
 
-Requires the `gh` CLI, authenticated.
+Requires the `gh` CLI, authenticated. On Windows, `pip install tzdata` if Python
+has no time-zone database (`ZoneInfoNotFoundError` on start).
 """
 import argparse, json, os, subprocess, sys, time, statistics as st, datetime as dt
 from collections import Counter, defaultdict
@@ -19,6 +20,9 @@ TZ = ZoneInfo("America/New_York")
 # Anything bigger is almost always a data drop, a vendored tree or a lockfile.
 CODE_MAX = 5000
 WEEKS = 26
+# Fetch ceilings. Hitting one is reported as a failure rather than silently truncating.
+REPO_LIMIT = 1000
+PR_LIMIT = 10000
 # Months of history the naive trend line is fitted on, and months projected past today.
 FIT_MONTHS = 6
 FORECAST_MONTHS = 3
@@ -75,16 +79,20 @@ def gh(args, attempts=4):
 
 def fetch(owner):
     repos = [r["name"] for r in json.loads(
-        gh(["repo", "list", owner, "--limit", "300", "--json", "name"]))]
+        gh(["repo", "list", owner, "--limit", str(REPO_LIMIT), "--json", "name"]))]
     rows, failed = [], []
+    if len(repos) >= REPO_LIMIT:
+        failed.append({"repo": owner, "error": f"hit the {REPO_LIMIT}-repo fetch limit; some repos are missing"})
     for name in sorted(repos):
         try:
             data = json.loads(gh(["pr", "list", "--repo", f"{owner}/{name}",
-                                  "--state", "merged", "--limit", "1000", "--json",
+                                  "--state", "merged", "--limit", str(PR_LIMIT), "--json",
                                   "number,title,mergedAt,createdAt,additions,deletions,changedFiles,author"]))
         except RuntimeError as e:
             failed.append({"repo": name, "error": str(e)[:200]})
             continue
+        if len(data) >= PR_LIMIT:
+            failed.append({"repo": name, "error": f"hit the {PR_LIMIT}-PR fetch limit; older PRs are missing"})
         for p in data:
             if not p.get("mergedAt"):
                 continue
@@ -103,7 +111,8 @@ def fetch(owner):
 def window(rows, now, days):
     rs = [r for r in rows if (now - r["merged"]).days < days]
     if not rs:
-        return None
+        return {"days": days, "prs": 0, "per_day": 0, "median_size": 0, "mean_size": 0,
+                "p90_size": 0, "median_merge_hours": 0, "add": 0, "del": 0, "repos": 0}
     sizes = sorted(r["add"] + r["del"] for r in rs)
     hours = sorted(r["hours"] for r in rs)
     small = [r for r in rs if r["add"] + r["del"] <= CODE_MAX]
@@ -119,7 +128,10 @@ def window(rows, now, days):
 
 def build(rows, failed, repo_count):
     rows.sort(key=lambda r: r["merged"])
-    now = max(r["merged"] for r in rows)
+    # Rolling windows count back from the run, not from the last merge, so a quiet
+    # week reads as quiet instead of repeating the last busy one.
+    now = dt.datetime.now(dt.timezone.utc)
+    last = max(r["merged"] for r in rows)
     small = [r for r in rows if r["add"] + r["del"] <= CODE_MAX]
     top10 = sorted(rows, key=lambda r: -r["add"])[:10]
     total_add = sum(r["add"] for r in rows)
@@ -129,8 +141,11 @@ def build(rows, failed, repo_count):
     for r in rows:
         local = r["merged"].astimezone(TZ)
         byw[(local - dt.timedelta(days=local.weekday())).date()].append(r)
-    for wk in sorted(byw)[-WEEKS:]:
-        rs = byw[wk]
+    today_l = now.astimezone(TZ).date()
+    this_week = today_l - dt.timedelta(days=today_l.weekday())
+    # Every calendar week, zero-PR weeks included, so quiet weeks pull the means down.
+    for wk in (this_week - dt.timedelta(weeks=k) for k in range(WEEKS - 1, -1, -1)):
+        rs = byw.get(wk, [])
         sm = [r for r in rs if r["add"] + r["del"] <= CODE_MAX]
         weekly.append({"week": wk.isoformat(), "prs": len(rs),
                        "add": sum(r["add"] for r in sm), "del": sum(r["del"] for r in sm),
@@ -142,8 +157,12 @@ def build(rows, failed, repo_count):
         bym[r["merged"].astimezone(TZ).strftime("%Y-%m")].append(r)
     today = dt.datetime.now(TZ).date()
     this_month = today.strftime("%Y-%m")
-    for m in sorted(bym):
-        rs = bym[m]
+    months_all, m = [], min(bym)
+    while m <= this_month:
+        months_all.append(m)
+        m = add_months(m, 1)
+    for m in months_all:
+        rs = bym.get(m, [])
         sm = [r for r in rs if r["add"] + r["del"] <= CODE_MAX]
         y, mm = map(int, m.split("-"))
         dim = (dt.date(y + (mm == 12), mm % 12 + 1, 1) - dt.date(y, mm, 1)).days
@@ -183,9 +202,9 @@ def build(rows, failed, repo_count):
     ev = dt.date.fromisoformat(EVENTS[-1]["date"]) if EVENTS else None
     eras = None
     post_weeks = []
-    if ev:
-        last_day = now.astimezone(TZ).date()
-        span = (last_day - ev).days + 1
+    last_day = now.astimezone(TZ).date()
+    span = (last_day - ev).days + 1 if ev else 0
+    if ev and span > 0:
         prev_from = ev - dt.timedelta(days=span)
         def count(a, b):  # [a, b)
             rs = [r for r in rows if a <= r["merged"].astimezone(TZ).date() < b]
@@ -244,16 +263,16 @@ def build(rows, failed, repo_count):
             "code_add": sum(r["add"] for r in small), "code_del": sum(r["del"] for r in small),
             "code_prs": len(small),
             "first": min(r["merged"] for r in rows).astimezone(TZ).date().isoformat(),
-            "last": now.astimezone(TZ).date().isoformat(),
+            "last": last.astimezone(TZ).date().isoformat(),
             "repos_with_prs": len(byr), "repos_scanned": repo_count,
-            "top10_share": round(100 * sum(r["add"] for r in top10) / total_add, 1),
+            "top10_share": round(100 * sum(r["add"] for r in top10) / total_add, 1) if total_add else 0,
             "active_days": len(byday),
             "per_active_day": round(len(rows) / len(byday), 1),
         },
         # the seven days before the last seven, so the page can show a week-over-week move
         "prev7": len([r for r in rows if 7 <= (now - r["merged"]).days < 14]),
         "authors": [{"login": a, "prs": n} for a, n in Counter(r["author"] for r in rows).most_common()],
-        "windows": [w for w in (window(rows, now, d) for d in (7, 30, 90)) if w],
+        "windows": [window(rows, now, d) for d in (7, 30, 90)],
         "weekly": weekly, "monthly": monthly, "repos": repos,
         "events": EVENTS,
         "eras": eras,
