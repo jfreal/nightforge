@@ -9,10 +9,20 @@ A bot runs this once when it finishes:
 STATUS is one of: ok (ran, nothing needs you), found (ran and produced something),
 needs-you (stopped on a decision), failed (did not finish its job).
 
-You tell it what to expect, once per bot:
+With `reportUrl` in config.json, a report goes to the job-reports endpoint (tools/job-reports),
+the one place every job reports to, and the dashboard pulls it from there. Without it, the report
+is written straight into the local database.
 
-    python botlog.py bot notion-pickup --name "Notion Pickup" --kind "cloud routine" \\
-        --schedule "8:47 and 14:47 ET" --every 6h --grace 2h
+Register a job on the endpoint, once per job:
+
+    python botlog.py job add notion-pickup --name "Notion Pickup" --every 6h --grace 2h \\
+        --does "Turns Ready tickets into reviewed PRs" --runs-on "cloud routine" --schedule "8:47 and 14:47 ET"
+    python botlog.py job list           every registered job and its last run
+    python botlog.py job rm notion-pickup
+
+Without an endpoint, `bot` sets the same things in the local database:
+
+    python botlog.py bot notion-pickup --name "Notion Pickup" --kind "cloud routine" --every 6h
 
 Other commands:
 
@@ -34,6 +44,7 @@ import re
 import sys
 from pathlib import Path
 
+import endpoint
 import routines
 
 HERE = Path(__file__).resolve().parent
@@ -81,8 +92,43 @@ def cmd_report(store, a) -> int:
             report["details"] = Path(a.details_file).read_text(encoding="utf-8")
         elif a.details:
             report["details"] = a.details
+    remote = None if a.local else endpoint.settings(a.cfg)
+    if remote:
+        routines.clean_report(report)   # same checks the endpoint makes, so a typo fails here
+        r = endpoint.report(*remote, {**report, "job": report.get("job") or report.get("bot"),
+                                      "source": report.get("source") or "botlog"})
+        print(f"sent {r['job']}: {report['status']}" + (" (already sent)" if r.get("duplicate") else ""))
+        return 0
     new = store.add_run(report, "cli")
     print(f"recorded {report['bot']}: {report['status']}" if new else f"{report['bot']}: that run is already recorded")
+    return 0
+
+
+def cmd_job(store, a) -> int:
+    remote = endpoint.settings(a.cfg)
+    if not remote:
+        raise routines.ReportError("`job` needs reportUrl in config.json; use `bot` for the local database")
+    if a.job_cmd == "list":
+        for j in endpoint.jobs(*remote):
+            last = j.get("last") or {}
+            every = f"every {j['every']} min" if j.get("every") else "no cadence"
+            print(f"{j['id']:32} {every:16} {'registered' if j['registered'] else 'NOT registered':15}"
+                  f" last {last.get('finished', 'never'):20} {last.get('status', ''):9} {last.get('summary', '')}")
+        return 0
+    if a.job_cmd == "rm":
+        r = endpoint.remove(*remote, a.job)
+        print("removed" if r.get("removed") else f"no job named {a.job}")
+        if r.get("removed"):
+            store.remove_bot(a.job)
+        return 0
+    fields = {k: v for k, v in {"name": a.name, "every": a.every, "grace": a.grace, "does": a.does,
+                                "runsOn": a.runs_on, "schedule": a.schedule, "url": a.url}.items()
+              if v is not None}
+    if a.pause or a.resume:
+        fields["paused"] = bool(a.pause)
+    j = endpoint.register(*remote, a.job, fields)["job"]
+    every = f"every {j['every']} min" if j["every"] else "no cadence set"
+    print(f"{j['id']}: {j['name']} · {j['runsOn'] or 'runs-on not set'} · {every}" + (" · paused" if j["paused"] else ""))
     return 0
 
 
@@ -181,6 +227,25 @@ def main(argv=None) -> int:
     r.add_argument("--started")
     r.add_argument("--finished", help="defaults to now")
     r.add_argument("--json", metavar="FILE", help="read the whole report as JSON ('-' for stdin)")
+    r.add_argument("--local", action="store_true", help="write to the local database even when reportUrl is set")
+
+    jb = sub.add_parser("job", help="register jobs on the job-reports endpoint")
+    jsub = jb.add_subparsers(dest="job_cmd", required=True)
+    ja = jsub.add_parser("add", help="register a job, or change one (only the options given change)")
+    ja.add_argument("job")
+    ja.add_argument("--name")
+    ja.add_argument("--every", help="how often it should report: 15m, 6h, 1d, 1w ('' clears)")
+    ja.add_argument("--grace", help="how late it may be before it counts as late ('' = half of --every)")
+    ja.add_argument("--does", help="what it is for, one line")
+    ja.add_argument("--runs-on", help="github action, cloud routine, desktop task, script…")
+    ja.add_argument("--schedule", help="shown as written, like '8:47 and 14:47 ET'")
+    ja.add_argument("--url", help="where to manage it")
+    jg = ja.add_mutually_exclusive_group()
+    jg.add_argument("--pause", action="store_true", help="stop alarming about it")
+    jg.add_argument("--resume", action="store_true")
+    jr = jsub.add_parser("rm", help="forget a job and its runs, on the endpoint and here")
+    jr.add_argument("job")
+    jsub.add_parser("list", help="every registered job and its last run")
 
     b = sub.add_parser("bot", help="add a bot, or change what it is expected to do")
     b.add_argument("bot")
@@ -209,14 +274,15 @@ def main(argv=None) -> int:
     d.add_argument("--dir", help="the scheduled-tasks folder (default ~/.claude/scheduled-tasks)")
 
     a = ap.parse_args(argv)
-    store = routines.Store(a.db or routines.db_path(load_cfg(a.config)))
+    a.cfg = load_cfg(a.config)
+    store = routines.Store(a.db or routines.db_path(a.cfg))
     try:
         if a.cmd == "remove":
             print("removed" if store.remove_bot(a.bot) else f"no bot named {a.bot}")
             return 0
         return {"report": cmd_report, "bot": cmd_bot, "list": cmd_list, "runs": cmd_runs,
-                "collect": cmd_collect, "desktop": cmd_desktop}[a.cmd](store, a)
-    except (routines.ReportError, ValueError, OSError) as exc:
+                "collect": cmd_collect, "desktop": cmd_desktop, "job": cmd_job}[a.cmd](store, a)
+    except (routines.ReportError, endpoint.EndpointError, ValueError, OSError) as exc:
         print(f"botlog: {exc}", file=sys.stderr)
         return 2
 

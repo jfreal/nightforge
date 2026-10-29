@@ -69,12 +69,16 @@ DEFAULTS = {
     "keepAwake": True,
     # Routines page. The database stays outside the repo; "" means ~/.nightforge/routines.db.
     "routinesDb": "",
-    # Collectors (collect.py), run every collectMinutes. Each is off until it is given a value.
+    # The job-reports endpoint (tools/job-reports) every job reports to. reportToken is its
+    # ADMIN_TOKEN; leave it "" and set NF_ADMIN_TOKEN instead to keep it out of this file.
+    "reportUrl": "",
+    "reportToken": "",
+    # Other collectors (collect.py), run every collectMinutes. Each is off until given a value.
     "reportInbox": "",        # "owner/repo" whose issue comments carry ```nightforge-report blocks
     "reportAuthors": [],      # accounts whose report comments count; [] means owners
     "actionsRepos": [],       # "owner/repo" whose scheduled GitHub Actions runs are listed
     "windowsTasks": [],       # Task Scheduler task names (wildcards allowed), Windows only
-    "desktopTasks": True,     # list Claude desktop scheduled tasks as bots (desktop.py)
+    "desktopTasks": False,    # also list every Claude desktop scheduled task as a bot (desktop.py)
     "desktopTasksDir": "",    # "" means ~/.claude/scheduled-tasks (or CLAUDE_CONFIG_DIR's)
     "collectMinutes": 5,
 }

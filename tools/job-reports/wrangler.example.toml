@@ -1,0 +1,14 @@
+# Copy to wrangler.toml (gitignored) and fill in database_id from `npx wrangler d1 create job-reports`.
+name = "job-reports"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "job-reports"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# The two tokens are secrets, never in this file:
+#   npx wrangler secret put ADMIN_TOKEN    (you and the dashboard: register jobs, read everything)
+#   npx wrangler secret put REPORT_TOKEN   (jobs: can only POST /report)

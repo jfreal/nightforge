@@ -140,7 +140,7 @@ def clean_report(report: dict) -> dict:
     whole numbers, and text is cut to size."""
     if not isinstance(report, dict):
         raise ReportError("a report is a JSON object")
-    bot = str(report.get("bot", "")).strip()
+    bot = str(report.get("bot") or report.get("job") or "").strip()   # the endpoint says "job"
     if not BOT_ID.match(bot):
         raise ReportError(f"bot: {bot!r} is not an id (lowercase letters, digits, '-', '.', '_')")
     status = str(report.get("status", "")).strip().lower()

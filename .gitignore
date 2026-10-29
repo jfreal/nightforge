@@ -16,3 +16,9 @@ tools/pr-dashboard/dashboard.log*
 *.db
 *.db-wal
 *.db-shm
+
+# job-reports Worker: the real wrangler.toml names your D1 database; local dev state and secrets
+tools/job-reports/wrangler.toml
+tools/job-reports/.wrangler/
+tools/job-reports/.dev.vars
+tools/job-reports/node_modules/

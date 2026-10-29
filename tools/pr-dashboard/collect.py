@@ -1,5 +1,7 @@
 """Collectors: read runs from the places bots already leave a trace, into routines.Store.
 
+    endpoint  the job-reports Worker (tools/job-reports) every job reports to, wherever it runs.
+              The main source: jobs are registered there and their runs are pulled from it.
     inbox     comments on a GitHub repo's issues that carry a ```nightforge-report block.
               Cloud routines can't reach this PC, so they report here and this reads it back.
     actions   scheduled GitHub Actions runs in the repos you name. Nothing to change in them.
@@ -21,6 +23,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import desktop
+import endpoint
 import github
 from routines import ReportError, iso, parse_time, slug, utcnow
 
@@ -185,6 +188,11 @@ def collect_windows(store, names) -> tuple[int, list[str]]:
 
 def sources(cfg) -> list[tuple[str, callable]]:
     out = []
+    if cfg.get("reportUrl"):
+        def pull(s):
+            url, token = endpoint.settings(cfg)
+            return endpoint.collect_into(s, url, token)
+        out.append((f"endpoint {cfg['reportUrl']}", pull))
     if cfg.get("reportInbox"):
         authors = cfg.get("reportAuthors") or cfg["owners"]
         out.append((f"inbox {cfg['reportInbox']}", lambda s: collect_inbox(s, cfg["reportInbox"], authors)))
@@ -192,7 +200,7 @@ def sources(cfg) -> list[tuple[str, callable]]:
         out.append((f"actions {repo}", lambda s, repo=repo: collect_actions(s, repo)))
     if cfg.get("windowsTasks") and os.name == "nt":
         out.append(("windows tasks", lambda s: collect_windows(s, cfg["windowsTasks"])))
-    if cfg.get("desktopTasks", True):
+    if cfg.get("desktopTasks"):
         root = Path(cfg["desktopTasksDir"]).expanduser() if cfg.get("desktopTasksDir") else None
         out.append(("desktop tasks", lambda s: desktop.collect(s, root)))
     return out
@@ -206,7 +214,8 @@ def collect_all(store, cfg, log=print) -> list[dict]:
         try:
             result = fn(store)
             entry["added"], entry["problems"] = result if isinstance(result, tuple) else (result, [])
-        except (github.GhError, RuntimeError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+        except (github.GhError, endpoint.EndpointError, RuntimeError, OSError, ValueError, KeyError,
+                subprocess.TimeoutExpired) as exc:
             entry["error"] = str(exc)[:500]
             log(f"collect {name} failed: {entry['error']}")
         if entry["added"]:

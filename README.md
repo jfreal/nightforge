@@ -134,11 +134,13 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 | OpenSEO | `index-sweep` | OpenSEO MCP | Reads Google Search Console index status for your own sites' pages. Free. |
 | Omega Indexer | `index-sweep` | Omega Indexer MCP | Reads campaign history and credits. Creates indexing campaigns, at 1 credit per link. |
 | Screenery | `tools/pr-dashboard` | HTTPS, no token | Reads public PR screenshot galleries from `app.screenery.dev`. The page loads the images from `cdn.screenery.dev`. |
+| Cloudflare | `tools/job-reports`, `tools/pr-dashboard` Routines page | HTTPS, a bearer token | Only once you deploy the Worker to your own Cloudflare account. Jobs post run reports to it, and the dashboard reads them back. Nothing is sent until `reportUrl` is set. |
 | Google Fonts | `tools/coderabbit-sweep` board, `tools/pr-dashboard` page | the browser | The generated `board.html` and the dashboard page load their fonts from `fonts.googleapis.com` when you open them. |
 
 An adapter only runs when a project card names it. A repo with no Netlify card never calls
-`netlify`. `tools/` holds Python 3.9+ with no third-party packages, so there are no
-dependencies or install scripts to fetch.
+`netlify`. The Python under `tools/` needs 3.9+ and no third-party packages, so there are no
+dependencies or install scripts to fetch. `tools/job-reports` is a Cloudflare Worker in plain
+JavaScript, with no dependencies. Deploying it runs `npx wrangler`, which you fetch yourself.
 
 ### Pointing at skill files
 

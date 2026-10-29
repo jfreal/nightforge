@@ -243,20 +243,31 @@ Each row shows:
 
 One SQLite file, `~/.nightforge/routines.db` (`%USERPROFILE%\.nightforge\routines.db` on Windows). Set `routinesDb` in `config.json` or the `NIGHTFORGE_DB` variable to put it somewhere else. It's outside the repo on purpose: run summaries carry whatever the bots found. `*.db` is gitignored as well, in case you point it inside a clone. Open it with any SQLite tool. It has three tables: `bots`, `runs` and `cursors`.
 
+### Where jobs report: one endpoint
+
+Jobs run in a lot of places: GitHub Actions, cloud routines, Claude desktop, other agents and scripts. They all report to the same place: the job-reports Worker in [`tools/job-reports`](../job-reports/README.md). You register each job there once, with how often it should report, and each run posts one report as its last step. The dashboard pulls everything new every `collectMinutes`, and when you press **Collect now**. So it never has to go looking for jobs.
+
+Set it up once with the steps in that README, then point the dashboard at it in `config.json`:
+
+```json
+{"reportUrl": "https://job-reports.<you>.workers.dev", "reportToken": "<ADMIN_TOKEN>"}
+```
+
+Leave `reportToken` out and set `NF_ADMIN_TOKEN` instead if you'd rather keep it out of the file. The endpoint is where jobs are registered, so its name, cadence and pause state overwrite the local copy on every pull. If the endpoint can't be reached, the page keeps showing what it last pulled, with a banner.
+
 ### The report every run sends
 
-Every source turns into the same report. Only `bot` and `status` are required:
+Only `job` and `status` are required:
 
 ```json
 {
-  "bot": "notion-pickup",
+  "job": "notion-pickup",
   "status": "found",
   "summary": "2 tickets coded: 1 verified, 1 verify-failed",
   "counts": {"prs": 2, "tickets": 2},
   "links": [{"label": "mergetel #655", "url": "https://github.com/jfreal/mergetel/pull/655"}],
   "details": "Longer notes, shown under Notes.",
   "run": "cse_01SSK7fcjmqhWjEYVazmeK8x",
-  "started": "2026-10-28T12:55:37Z",
   "finished": "2026-10-28T12:56:53Z"
 }
 ```
@@ -268,83 +279,69 @@ Every source turns into the same report. Only `bot` and `status` are required:
 | `needs-you` | It stopped on a decision only you can make. |
 | `failed` | It didn't finish its job. |
 
-Late and never-reported aren't statuses a bot sends. The page works them out from the clock.
+Late and never-reported aren't statuses a job sends. The page works them out from the clock.
 
 `run` is the run's own id, so a report sent twice is stored once. Links must be `http(s)`. Counts must be whole numbers.
 
-### Claude desktop scheduled tasks
-
-These need no setup to appear. Every task in `~/.claude/scheduled-tasks/` shows up as a bot, named from its `SKILL.md`. That's `%USERPROFILE%\.claude\scheduled-tasks\` on Windows, or `CLAUDE_CONFIG_DIR`'s folder when that's set.
-
-What a run did reaches the page only if the run says so. Desktop keeps the schedule and run history inside the app, and nothing on disk ties a session to the task that started it ([docs](https://code.claude.com/docs/en/desktop-scheduled-tasks)). So one command adds a short "Report back" step to the end of every task's prompt:
-
-```bat
-python tools\pr-dashboard\botlog.py desktop            &REM preview: lists the tasks, shows the step, writes nothing
-python tools\pr-dashboard\botlog.py desktop --apply    &REM add it to every task
-python tools\pr-dashboard\botlog.py desktop --apply --only error-sweep-pheidi
-python tools\pr-dashboard\botlog.py desktop --remove --apply
-```
-
-- The step tells Claude to run `botlog.py report <task> <status> "<one sentence>"` as its last step, with counts and links.
-- It sits between `nightforge-report` markers. Running `--apply` again replaces it, and `--remove` takes it out, leaving the file as it was.
-- The first change to each file keeps the original as `SKILL.md.nightforge.bak`.
-- Desktop reads `SKILL.md` fresh on every run, so the next run already reports.
-- Until a task has the step, the page names it in a banner, since it can never report.
-
-**Allow the command once.** In a task whose permission mode asks before running commands, the report step waits for an answer. Pick "always allow" the first time it asks, or add the rule `botlog.py desktop` prints to `permissions.allow` in `~/.claude/settings.json`.
-
-**Give each task its cadence.** The schedule isn't on disk either. Set it with `botlog.py bot <task> --every 1d`, or let the page guess it after three runs. Desktop skips a run while the PC sleeps or the app is closed, and then runs only the latest missed one. So a task that keeps being skipped shows up here as **Late**, which is the point.
-
-### Reporting from anything else on this PC
-
-For scripts and Windows tasks, run `botlog.py` once at the end of each run:
+The `curl` line for GitHub Actions, cloud routines and other agents is in [`tools/job-reports/README.md`](../job-reports/README.md#reporting-from-each-kind-of-job). On this PC, `botlog.py` sends the same report:
 
 ```bat
 python tools\pr-dashboard\botlog.py report error-sweep-pheidi found "2 new signatures filed, 1 fix PR" ^
   --count issues=2 --count prs=1 --link "pheidi #1262=https://github.com/jfreal/pheidi/pull/1262"
 ```
 
-### Reporting from the cloud
-
-Cloud routines can't reach this PC, so they post their report as a GitHub issue comment and the dashboard reads it back:
-
-1. Make a **private** repo, for example `jfreal/bot-reports`, and open one issue in it called "Run reports".
-2. Set `"reportInbox": "jfreal/bot-reports"` in `config.json`.
-3. End each routine's prompt with:
-
-> When you finish, attach `jfreal/bot-reports` with `add_repo` (access "push") and post one comment on its issue #1. Say in a sentence or two what you did, then end the comment with a fenced code block tagged `nightforge-report` holding one JSON object: `{"bot": "<bot-id>", "status": "ok|found|needs-you|failed", "summary": "<one line>", "counts": {...}, "links": [{"label": "...", "url": "..."}]}`.
-
-Only comments by `reportAuthors` count. It defaults to `owners`. The comment's own link is added to the run, so you can jump from the row to the full write-up. The repo has to be private, because anyone who can read it can read the reports.
-
-### Reading sources without changing them
-
-| Key | Reads |
-|---|---|
-| `actionsRepos` | Scheduled GitHub Actions runs (`event=schedule`) in these `owner/repo`s. One bot per workflow. A failed, timed-out or cancelled run counts as `failed`. |
-| `windowsTasks` | Task Scheduler's last run time, exit code and next run time for these task names. Wildcards like `Nightforge*` work. Exit code 0 is `ok`, and anything else is `failed`. A running task waits until it finishes. |
-| `reportInbox` | The cloud report comments above. |
-| `desktopTasks` | `true` by default. Lists Claude desktop scheduled tasks, see above. `desktopTasksDir` points it at another folder. |
-
-The server runs every collector when it starts and again every `collectMinutes` (5 by default). **Collect now** runs them straight away. A source that can't be read shows in a banner above the table, and the others still load.
-
-### Telling it what to expect
-
-A bot appears with its first report. To let the page notice when a bot goes quiet, give it a cadence:
+### Registering jobs
 
 ```bat
-python botlog.py bot notion-pickup --name "Notion Pickup" --kind "cloud routine" ^
-  --schedule "8:47 and 14:47 ET" --every 6h --grace 2h --desc "Ready tickets to reviewed PRs" ^
-  --url https://claude.ai/code/routines
+python botlog.py job add notion-pickup --name "Notion Pickup" --every 6h --grace 2h ^
+  --does "Turns Ready tickets into reviewed PRs" --runs-on "cloud routine" --schedule "8:47 and 14:47 ET"
+python botlog.py job list
+python botlog.py job rm notion-pickup
 ```
 
 - `--every` is how often it should report. `--grace` is how long past that it may be before it counts as late, and defaults to half of `--every`, between 15 minutes and 4 hours.
 - With no `--every`, the page guesses one from the median gap between its last runs, once it has three, and marks it "(guessed)".
-- `--schedule` is only shown, never parsed.
-- `--pause` stops the alarms and `--resume` brings them back.
+- `--schedule` and `--runs-on` are only shown, never parsed.
+- `--pause` stops the alarms and `--resume` brings them back. Only the options you give change.
 
-You can also add a bot before it has ever run. If it stays silent past its cadence, the page says "Never reported".
+A registered job that never reports shows **Never reported** once its cadence passes. A job that reports without being registered shows up marked **not registered**.
 
-`python botlog.py list` prints the same health view in a terminal. `runs <bot>` lists one bot's history, `remove <bot>` forgets a bot and its runs, and `collect` runs the collectors once.
+### Claude desktop scheduled tasks
+
+A desktop task reports like any other job, from the last step of its prompt. One command adds that step to every task's prompt at once:
+
+```bat
+python tools\pr-dashboard\botlog.py desktop            &REM preview: lists the tasks, shows the step, writes nothing
+python tools\pr-dashboard\botlog.py desktop --apply --only ga-traffic-report --only docs-sweep
+python tools\pr-dashboard\botlog.py desktop --remove --apply
+```
+
+- The step runs `botlog.py report <task> <status> "<one sentence>"`, which goes to the endpoint.
+- It sits between `nightforge-report` markers. Running `--apply` again replaces it, and `--remove` takes it out, leaving the file as it was. The first change to each file keeps the original as `SKILL.md.nightforge.bak`.
+- Run it from a clone that stays put: the step names `botlog.py` by its full path.
+- In a task whose permission mode asks before running commands, the step waits for an answer. Pick "always allow" the first time, or add the rule that `botlog.py desktop` prints to `permissions.allow` in `~/.claude/settings.json`.
+- Desktop keeps each task's schedule inside the app, so register its cadence with `job add`. Desktop skips runs while the PC sleeps and then catches up only the latest one, so a task that keeps being skipped shows up here as **Late**.
+
+Set `"desktopTasks": true` to also list every task in `~/.claude/scheduled-tasks/` as a row, reported or not. It's off by default, because that folder also holds one-off tasks that finished long ago.
+
+### Other sources, for jobs you can't change
+
+These read jobs that don't report themselves. Each is off until it's given a value.
+
+| Key | Reads |
+|---|---|
+| `actionsRepos` | Scheduled GitHub Actions runs (`event=schedule`) in these `owner/repo`s. One row per workflow. A failed, timed-out or cancelled run counts as `failed`. |
+| `windowsTasks` | Task Scheduler's last run time, exit code and next run time for these task names. Wildcards like `Nightforge*` work. Exit code 0 is `ok`, and anything else is `failed`. |
+| `reportInbox` | Comments on issues in a private GitHub repo, `owner/repo`. Each one ends with a ` ```nightforge-report ` JSON block. Only comments by `reportAuthors` (default `owners`) count. This came before the endpoint, and is kept for agents that can reach GitHub but not the Worker. |
+| `desktopTasks` | Every Claude desktop scheduled task, as above. `desktopTasksDir` points it at another folder. |
+
+A source that can't be read shows in a banner above the table, and the others still load.
+
+### Without an endpoint
+
+Leave `reportUrl` unset and everything stays on this PC: `botlog.py report` writes straight into the database, and `botlog.py bot <id> --every 1d --kind … --desc …` sets what to expect. `report --local` does the same even when an endpoint is set. Jobs off this PC can then only report through the other sources above.
+
+`python botlog.py list` prints the health view in a terminal. `runs <job>` lists one job's history, `remove <job>` forgets one locally, and `collect` pulls from every source once.
 
 ## Safety
 
@@ -359,7 +356,7 @@ You can also add a bot before it has ever run. If it stays silent past its caden
 ## Test
 
 ```bash
-python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_prune_screenery.py test_routines.py test_collect.py test_desktop.py
+python -m unittest test_github.py test_screenery.py test_server.py test_launch.py test_awake.py test_prune_screenery.py test_routines.py test_collect.py test_desktop.py test_endpoint.py
 ```
 
 The tests use made-up PRs and galleries shaped like the real GitHub and Screenery replies. Real PR bodies from private repos don't belong in this public repo.
