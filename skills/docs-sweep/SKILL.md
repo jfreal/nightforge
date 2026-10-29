@@ -1,10 +1,10 @@
 ---
 name: docs-sweep
-description: Weekly unattended docs sweep. Discover every local repo that uses sync-docs (a .claude/sync-docs/config.json for the shared skill, or a legacy repo-local port), run its audit, and where docs drifted run its fix scope in an isolated worktree and open a draft PR. The scheduled task supplies a roster card; this file supplies everything else. Use when running or editing the docs-sweep scheduled task.
+description: Weekly unattended docs sweep. Discover every local repo that uses sync-docs (a .claude/sync-docs/config.json for the shared skill, or a legacy repo-local port), run its audit, and where docs drifted run its fix scope in an isolated worktree and open a PR, ready for review. The scheduled task supplies a roster card; this file supplies everything else. Use when running or editing the docs-sweep scheduled task.
 ---
 
 Sweep every repo that keeps its docs honest with `sync-docs`: run each repo's audit, and where the
-docs drifted, run its fix in an isolated worktree and open a draft PR for the user to review. Runs unattended, on a weekly schedule, with **no memory of prior runs** — dedup is
+docs drifted, run its fix in an isolated worktree and open a PR, ready for review, for the user to read. Runs unattended, on a weekly schedule, with **no memory of prior runs** — dedup is
 against the trackers, not a ledger.
 
 This file is the pipeline. It is repo-agnostic. **How to audit and fix a repo comes from that repo:**
@@ -16,7 +16,7 @@ card. If you do not, stop and say so.
 
 ## Hard constraints — every repo, no exceptions
 
-- **Never push to a default branch. Never merge a PR.** Output is draft PRs for the user to review.
+- **Never push to a default branch. Never merge a PR.** Output is PRs opened ready for review, never drafts.
 - **Never build, test, commit, or `checkout` in a main checkout.** It may be dirty or on someone
   else's branch. `git fetch` there is fine; all write work happens in a worktree (step 3).
 - **sync-docs defines the write set.** For a config repo that is the shared skill's "Write set"
@@ -103,7 +103,7 @@ PR will be based on — not a dirty checkout mid-someone-else's-work.
 **Audit clean is the normal, healthy result.** Remove the worktree
 (`git worktree remove <path>`), report the repo in one line, move on.
 
-## Step 4 — Fix and open a draft PR
+## Step 4 — Fix and open a PR
 
 Drift found, and under the cap: run the same skill in **fix** scope, in the same worktree.
 
@@ -140,11 +140,11 @@ Two related traps:
   Leave the entry byte-for-byte alone, stale `sources` included. Zeroing it out to tidy up destroys
   the evidence a human needs to decide what the key became.
 
-Commit once — `docs: weekly sync-docs sweep <YYYY-MM-DD>` — push the branch, and open the PR as a
-**draft**:
+Commit once — `docs: weekly sync-docs sweep <YYYY-MM-DD>` — push the branch, and open the PR **ready for review**. Never pass
+`--draft`: a global hook on the owner's machine refuses draft PRs.
 
 ```
-gh pr create --repo <slug> --base <default branch> --draft --title "docs: weekly sync-docs sweep <YYYY-MM-DD>" --body "..."
+gh pr create --repo <slug> --base <default branch> --title "docs: weekly sync-docs sweep <YYYY-MM-DD>" --body "..."
 ```
 
 PR body: the audit findings that triggered the fix (per finding: the doc key, the page, and what

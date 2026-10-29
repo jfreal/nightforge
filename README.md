@@ -349,7 +349,7 @@ The weekly counterpart to `sync-docs` (below): where sync-docs keeps *one* repo'
 you remember to run it, `docs-sweep` runs it for you, across every repo that has it. It discovers
 each local repo carrying a `.claude/sync-docs/config.json` (or, until it migrates, an old repo-local
 `.claude/skills/sync-docs/` port), runs that repo's audit in a fresh worktree off the default branch,
-and where the docs drifted, runs the fix scope and opens a **draft PR** for review. Clean repos get one line in the report; nothing is pushed to a
+and where the docs drifted, runs the fix scope and opens a **PR, ready for review**. Clean repos get one line in the report; nothing is pushed to a
 default branch and nothing is merged.
 
 The split mirrors error-sweep, one level up: the pipeline is identical everywhere, and the per-repo
