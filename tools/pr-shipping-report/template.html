@@ -1,0 +1,798 @@
+<title>Night Forge</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #f4f2ee;
+    --panel: #fbfaf7;
+    --panel-2: #eae6df;
+    --ink: #1d242c;
+    --ink-2: #556170;
+    --ink-3: #8a94a1;
+    --rule: #e1ddd5;
+    --rule-2: #cac5bb;
+    --add: #e0740f;
+    --del: #3f7cb8;
+    --glow: #b35c05;
+    --flame: #f5a623;
+    --shadow: 0 1px 2px rgba(29, 36, 44, 0.07);
+    --font-ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161c22;
+      --panel: #1e262e;
+      --panel-2: #28323b;
+      --ink: #eef1f4;
+      --ink-2: #a8b3bf;
+      --ink-3: #75818e;
+      --rule: #2b353f;
+      --rule-2: #3a4652;
+      --add: #cc6f12;
+      --del: #5b93d1;
+      --glow: #f5892a;
+      --flame: #ffb02e;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161c22;
+    --panel: #1e262e;
+    --panel-2: #28323b;
+    --ink: #eef1f4;
+    --ink-2: #a8b3bf;
+    --ink-3: #75818e;
+    --rule: #2b353f;
+    --rule-2: #3a4652;
+    --add: #cc6f12;
+    --del: #5b93d1;
+    --glow: #f5892a;
+    --flame: #ffb02e;
+    --shadow: none;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 0 72px;
+  }
+  h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 600; letter-spacing: -0.015em; }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- masthead ---------------------------------------------------- */
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding-block: 40px 22px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px 40px;
+  }
+  .title-row { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
+  .mark { width: clamp(34px, 7vw, 48px); height: auto; flex: 0 0 auto; display: block; }
+  .masthead h1 { font-size: clamp(30px, 6vw, 46px); font-weight: 700; letter-spacing: -0.03em; }
+  .masthead p { margin: 6px 0 0; color: var(--ink-2); max-width: 46ch; font-size: 14px; }
+  .headline-rate { text-align: right; flex: 0 0 auto; }
+  .headline-rate .big {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(38px, 8vw, 58px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--glow);
+    display: block;
+  }
+  .headline-rate .cap { margin-top: 6px; }
+  .delta { display: block; margin-top: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2); }
+  .delta b { color: var(--ink); font-weight: 600; }
+  @media (max-width: 560px) { .headline-rate { text-align: left; } }
+
+  /* ---- section ----------------------------------------------------- */
+  section { margin-top: 44px; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sec-head h2 { font-size: 19px; }
+  .sec-head .note { font-size: 13px; color: var(--ink-2); }
+
+  /* ---- stat tiles -------------------------------------------------- */
+  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+  .tile { background: var(--panel); padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 2px; }
+  .tile .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1; }
+  .tile .sub { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+  .tile .sub b { font-weight: 500; color: var(--ink); font-family: var(--font-mono); }
+
+  @media (min-width: 880px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+
+  /* ---- before / after an event ------------------------------------- */
+  .eras { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+          border: 1px solid var(--rule); background: var(--panel); }
+  .era { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 2px; }
+  .era.after { text-align: right; }
+  .era .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 27px;
+            font-weight: 600; letter-spacing: -0.03em; line-height: 1.15; }
+  .era.after .v { color: var(--add); }
+  .era .sub { font-size: 12.5px; color: var(--ink-2); margin-top: 6px; }
+  .era .sub b { font-family: var(--font-mono); font-weight: 500; color: var(--ink); }
+  .era-pivot { align-self: stretch; display: flex; flex-direction: column; align-items: center;
+               justify-content: center; gap: 6px; padding: 14px 18px;
+               border-inline: 1px dashed var(--rule-2); text-align: center; }
+  .era-pivot .x { font-family: var(--font-mono); font-size: 22px; font-weight: 600; color: var(--add); line-height: 1; }
+  .era-pivot .when { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
+                     text-transform: uppercase; color: var(--ink-3); }
+  @media (max-width: 640px) {
+    .eras { grid-template-columns: 1fr; }
+    .era.after { text-align: left; }
+    .era-pivot { flex-direction: row; gap: 10px; border-inline: 0; border-block: 1px dashed var(--rule-2); }
+  }
+
+  /* ---- the ember at the foot of a bar, and under the display type ---- */
+  #grad-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+  #flame .cool { stop-color: var(--add); }
+  #flame .hot { stop-color: var(--flame); }
+
+  .flame-text {
+    color: var(--ink);
+    background-image: linear-gradient(180deg, var(--ink) 56%, var(--flame) 112%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .headline-rate .big.flame-text {
+    color: var(--glow);
+    background-image: linear-gradient(180deg, var(--glow) 48%, var(--flame) 104%);
+  }
+  @media (forced-colors: active) {
+    .flame-text { -webkit-text-fill-color: unset; background-image: none; }
+  }
+
+  /* ---- charts ------------------------------------------------------ */
+  .chart { background: var(--panel); border: 1px solid var(--rule); padding: 18px 16px 12px; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  #c-dow { max-height: 250px; margin-inline: auto; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 12px; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-2); }
+  .legend li { display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; flex: 0 0 auto; }
+  .swatch.ghost { background: transparent; border: 1.5px dashed var(--add); }
+  .swatch.line { height: 0; border-top: 2px dashed var(--ink-2); border-radius: 0; }
+  .callout { margin-top: 14px; border-left: 3px solid var(--add); padding: 2px 0 2px 14px;
+             font-size: 14px; color: var(--ink-2); max-width: 70ch; }
+  .callout b { color: var(--ink); font-weight: 600; }
+  .callout .n { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+                color: var(--ink); font-weight: 600; }
+  .split { display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 680px) { .split { grid-template-columns: 1fr; } }
+
+  #tip {
+    position: fixed;
+    z-index: 30;
+    pointer-events: none;
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    box-shadow: 0 6px 20px rgba(0,0,0,.24);
+    max-width: 230px;
+  }
+  #tip[hidden] { display: none !important; }
+  #tip .t { font-family: var(--font-mono); font-weight: 600; display: block; margin-bottom: 3px; }
+  #tip .r { font-family: var(--font-mono); font-variant-numeric: tabular-nums; opacity: .82; display: block; }
+
+  /* ---- repo ranking ------------------------------------------------ */
+  .repos { display: flex; flex-direction: column; border: 1px solid var(--rule); background: var(--panel); }
+  .repo-row { display: grid; grid-template-columns: 148px 1fr 108px; align-items: center; gap: 14px; padding: 9px 16px; border-bottom: 1px solid var(--rule); }
+  .repo-row:last-child { border-bottom: 0; }
+  .repo-row .name { font-family: var(--font-mono); font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .repo-row .track { display: block; height: 9px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+  .repo-row .fill { display: block; height: 100%; border-radius: 0 2px 2px 0;
+                  background: linear-gradient(180deg, var(--add) 52%, var(--flame) 100%); }
+  .repo-row .fig { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--ink-2); text-align: right; }
+  .repo-row .fig b { color: var(--ink); font-weight: 600; }
+  @media (max-width: 560px) { .repo-row { grid-template-columns: 110px 1fr 78px; gap: 10px; padding-inline: 12px; } }
+
+  /* ---- tables ------------------------------------------------------ */
+  .scroller { overflow-x: auto; border: 1px solid var(--rule); background: var(--panel); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 460px; }
+  th, td { padding: 8px 14px; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  th { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  th:first-child, td:first-child { text-align: left; }
+  td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.plus { color: var(--add); }
+  td.minus { color: var(--del); }
+
+  details { margin-top: 14px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--ink-2); font-family: var(--font-mono); }
+  summary:focus-visible, a:focus-visible { outline: 2px solid var(--add); outline-offset: 3px; }
+
+  .prose { font-size: 14px; color: var(--ink-2); max-width: 66ch; }
+  .prose b { color: var(--ink); font-weight: 600; }
+  .prose code { font-family: var(--font-mono); font-size: 12.5px; background: var(--panel-2); padding: 1px 5px; border-radius: 3px; color: var(--ink); }
+  .biggest { list-style: none; margin: 12px 0 0; padding: 0; font-size: 13px; }
+  .biggest li { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--rule); align-items: baseline; }
+  .biggest .who { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); flex: 0 0 auto; }
+  .biggest .n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--add); flex: 0 0 auto; margin-left: auto; }
+  .biggest .ttl { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 6px 20px; font-family: var(--font-mono); }
+  .warn { margin-top: 12px; border-left: 3px solid var(--del); padding: 8px 0 8px 12px; font-size: 13px; color: var(--ink-2); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .repo-row .fill, .bar { transition: opacity .12s ease; }
+  }
+  .bar:hover { opacity: .78; }
+</style>
+
+<svg id="grad-defs" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop class="cool" offset="0"/>
+      <stop class="cool" offset="0.58"/>
+      <stop class="hot" offset="1"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <span class="eyebrow">Merged pull requests &middot; all jfreal repos</span>
+      <div class="title-row">
+        <svg class="mark" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+          <defs>
+            <radialGradient id="ember" cx="50%" cy="84%" r="70%">
+              <stop offset="0%" stop-color="#ffc24d"/>
+              <stop offset="32%" stop-color="#e8621a"/>
+              <stop offset="70%" stop-color="#8c2410"/>
+              <stop offset="100%" stop-color="#48140a"/>
+            </radialGradient>
+          </defs>
+          <path d="M24 1 44 12.5 24 24 4 12.5Z" fill="#3b4854"/>
+          <path d="M4 12.5 24 24v23L4 35.5Z" fill="#1a222a"/>
+          <path d="M44 12.5 24 24v23l20-11.5Z" fill="#252f39"/>
+          <path d="M24 9 35 15.3 24 21.6 13 15.3Z" fill="#11171c"/>
+          <path d="M13 15.3 24 21.6v16.6l-8-4.6Z" fill="url(#ember)"/>
+          <path d="M35 15.3 24 21.6v16.6l8-4.6Z" fill="url(#ember)"/>
+          <path d="M24 28.4 32 33 24 37.6 16 33Z" fill="#ffb02e"/>
+        </svg>
+        <h1 class="flame-text">Night Forge</h1>
+      </div>
+      <p id="sub"></p>
+    </div>
+    <div class="headline-rate">
+      <span class="big num flame-text" id="rate7"></span>
+      <span class="eyebrow cap">PRs merged per day, last 7 days</span>
+      <span class="delta" id="delta"></span>
+    </div>
+  </header>
+
+  <section>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section id="eras-section" hidden>
+    <div class="sec-head">
+      <h2 id="eras-title"></h2>
+      <span class="note">Equal windows either side, so the comparison is fair.</span>
+    </div>
+    <div class="eras" id="eras"></div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Pull requests merged, by week</h2>
+      <span class="note" id="weeks-note"></span>
+    </div>
+    <div class="chart">
+      <svg id="c-prs" viewBox="0 0 960 250" role="img" aria-label="Merged pull requests per week"></svg>
+    </div>
+    <details>
+      <summary>Week-by-week numbers</summary>
+      <div class="scroller" style="margin-top:10px">
+        <table>
+          <thead><tr><th>Week of</th><th>PRs</th><th>Repos</th><th>Added</th><th>Deleted</th></tr></thead>
+          <tbody id="weekly-tbody"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Pull requests merged, by month</h2>
+      <span class="note" id="month-note"></span>
+    </div>
+    <div class="chart">
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--add)"></span> Merged</li>
+        <li><span class="swatch ghost"></span> Projected</li>
+        <li><span class="swatch line"></span> Trend</li>
+      </ul>
+      <svg id="c-months" viewBox="0 0 960 300" role="img" aria-label="Merged pull requests per month, with trend and forecast"></svg>
+    </div>
+    <p class="callout" id="forecast"></p>
+  </section>
+
+  <section>
+    <div class="split">
+      <div>
+        <div class="sec-head">
+          <h2>Lines written, by week</h2>
+          <span class="note" id="code-note"></span>
+        </div>
+        <div class="chart">
+          <ul class="legend">
+            <li><span class="swatch" style="background:var(--add)"></span> Added (above the line)</li>
+            <li><span class="swatch" style="background:var(--del)"></span> Deleted (below)</li>
+          </ul>
+          <svg id="c-diff" viewBox="0 0 600 260" role="img" aria-label="Lines added and deleted per week"></svg>
+        </div>
+      </div>
+      <div>
+        <div class="sec-head"><h2>Which day you ship</h2></div>
+        <div class="chart">
+          <svg id="c-dow" viewBox="0 0 320 250" role="img" aria-label="Merged pull requests by weekday"></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Where the work goes</h2>
+      <span class="note">PRs merged in the last 90 days, out of all time.</span>
+    </div>
+    <div class="repos" id="repos"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>By month</h2></div>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Month</th><th>PRs</th><th>Added</th><th>Deleted</th><th>Net</th></tr></thead>
+        <tbody id="monthly-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>About these numbers</h2></div>
+    <p class="prose" id="about"></p>
+    <ul class="biggest" id="biggest"></ul>
+    <div class="warn" id="failed" hidden></div>
+  </section>
+
+  <div class="foot">
+    <span id="stamp"></span>
+    <span id="scanned"></span>
+    <span id="authors"></span>
+  </div>
+</div>
+
+<div id="tip" hidden></div>
+
+<script>
+const DATA = "__DATA__";
+const NS = "http://www.w3.org/2000/svg";
+
+const fmt = n => n.toLocaleString("en-US");
+const short = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(n);
+const monthName = m => {
+  const [y, mm] = m.split("-");
+  return new Date(Date.UTC(+y, +mm - 1, 1)).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+};
+const dayLabel = iso => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+};
+
+function el(tag, attrs, text) {
+  const n = document.createElementNS(NS, tag);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  if (text != null) n.textContent = text;
+  return n;
+}
+// Bar anchored to a baseline with its far end rounded.
+function barPath(x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h));
+  return `M${x} ${y + h}V${y + r}a${r} ${r} 0 0 1 ${r} ${-r}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}V${y + h}Z`;
+}
+// A vertical rule where a real-world event moved the baseline.
+function eventRule(svg, x, top, bottom, label, W_) {
+  svg.appendChild(el("line", { x1: x, x2: x, y1: top, y2: bottom, stroke: "var(--ink-2)",
+    "stroke-width": 1.5, "stroke-dasharray": "3 3" }));
+  const right = x > W_ * 0.62;
+  svg.appendChild(el("text", { x: x + (right ? -7 : 7), y: top + 10,
+    "text-anchor": right ? "end" : "start", fill: "var(--ink-2)",
+    "font-family": "var(--font-mono)", "font-size": 10.5, "font-weight": 500 }, label));
+}
+
+function niceTicks(max, count) {
+  if (max <= 0) return [0];
+  const raw = max / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || 10 * mag;
+  // Always run the axis past the data - stopping short clips the top bar's label.
+  const out = [0];
+  while (out[out.length - 1] < max) out.push(+(out[out.length - 1] + step).toFixed(4));
+  return out;
+}
+
+/* ---- tooltip ------------------------------------------------------- */
+const tip = document.getElementById("tip");
+function armTip(node, title, rows) {
+  node.addEventListener("pointerenter", () => {
+    tip.innerHTML = "";
+    const t = document.createElement("span"); t.className = "t"; t.textContent = title;
+    tip.appendChild(t);
+    rows.forEach(r => { const s = document.createElement("span"); s.className = "r"; s.textContent = r; tip.appendChild(s); });
+    tip.hidden = false;
+  });
+  node.addEventListener("pointermove", e => {
+    const b = tip.getBoundingClientRect();
+    let x = e.clientX + 14, y = e.clientY - b.height - 12;
+    if (x + b.width > innerWidth - 8) x = e.clientX - b.width - 14;
+    if (y < 8) y = e.clientY + 18;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  node.addEventListener("pointerleave", () => { tip.hidden = true; });
+}
+
+/* ---- masthead + tiles ---------------------------------------------- */
+const T = DATA.totals, W = DATA.windows;
+const w7 = W.find(w => w.days === 7), w30 = W.find(w => w.days === 30), w90 = W.find(w => w.days === 90);
+
+document.getElementById("rate7").textContent = w7.per_day.toFixed(1);
+(function () {
+  const d = w7.prs - DATA.prev7, pct = DATA.prev7 ? Math.round(100 * d / DATA.prev7) : null;
+  document.getElementById("delta").innerHTML = DATA.prev7
+    ? `<b>${d >= 0 ? "+" : ""}${fmt(d)}</b> vs the week before` +
+      (pct === null ? "" : ` (${d >= 0 ? "+" : ""}${pct}%)`)
+    : "";
+})();
+
+document.getElementById("sub").textContent =
+  `Every pull request you have merged since ${dayLabel(T.first)}, across ${T.repos_with_prs} repositories. ` +
+  `Line counts leave out the ${T.prs - T.code_prs} bulk data drops so the totals mean code you wrote.`;
+
+const tiles = [
+  { v: fmt(w7.prs), l: "PRs merged, last 7 days", s: `${short(w7.add)} added &middot; ${w7.repos} repos &middot; median ${fmt(w7.median_size)} LOC` },
+  { v: fmt(w30.prs), l: "PRs merged, last 30 days", s: `<b>${w30.per_day.toFixed(1)}</b> per day &middot; ${short(w30.add)} added` },
+  { v: w90.median_merge_hours + "h", l: "Median open to merge, 90 days", s: `Median PR is <b>${fmt(w90.median_size)}</b> lines changed` },
+  { v: fmt(T.prs), l: "PRs merged, all time", s: `<b>${short(T.code_add)}</b> lines added &middot; ${fmt(T.active_days)} shipping days` },
+];
+document.getElementById("tiles").innerHTML = tiles.map(t =>
+  `<div class="tile"><span class="v flame-text">${t.v}</span><span class="eyebrow">${t.l}</span><span class="sub">${t.s}</span></div>`).join("");
+
+/* ---- before and after the event ------------------------------------ */
+(function () {
+  const E = DATA.eras;
+  if (!E) return;
+  const span = d => `${dayLabel(d.from)} to ${dayLabel(d.to)}`;
+  document.getElementById("eras-title").textContent = E.event.label + ", " + dayLabel(E.event.date);
+  document.getElementById("eras").innerHTML = `
+    <div class="era before">
+      <span class="eyebrow">The ${E.before.days} days before</span>
+      <span class="v">${E.before.per_day.toFixed(2)} <span style="font-size:14px;font-weight:500">PRs/day</span></span>
+      <span class="sub"><b>${fmt(E.before.prs)}</b> merged across ${E.before.repos} repos<br>${span(E.before)}</span>
+    </div>
+    <div class="era-pivot">
+      <span class="x">&times;${E.multiple}</span>
+      <span class="when">${E.event.note || "the change"}</span>
+    </div>
+    <div class="era after">
+      <span class="eyebrow">The ${E.after.days} days since</span>
+      <span class="v">${E.after.per_day.toFixed(2)} <span style="font-size:14px;font-weight:500">PRs/day</span></span>
+      <span class="sub"><b>${fmt(E.after.prs)}</b> merged across ${E.after.repos} repos<br>${span(E.after)}</span>
+    </div>`;
+  document.getElementById("eras-section").hidden = false;
+})();
+
+/* ---- weekly PR bars ------------------------------------------------ */
+(function () {
+  const svg = document.getElementById("c-prs");
+  const d = DATA.weekly, W_ = 960, H = 250, m = { t: 14, r: 10, b: 30, l: 40 };
+  const iw = W_ - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(...d.map(x => x.prs), 1);
+  const ticks = niceTicks(max * 1.06, 4), top = ticks[ticks.length - 1];
+  const y = v => m.t + ih - (v / top) * ih;
+  const step = iw / d.length, bw = Math.min(step - 3, 26);
+
+  ticks.forEach(t => {
+    svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: y(t), y2: y(t), stroke: "var(--rule)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: m.l - 8, y: y(t) + 4, "text-anchor": "end", fill: "var(--ink-3)",
+      "font-family": "var(--font-mono)", "font-size": 11 }, String(t)));
+  });
+  svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: y(0), y2: y(0), stroke: "var(--rule-2)", "stroke-width": 1 }));
+
+  const every = d.length > 18 ? 4 : 2;
+  d.forEach((wk, i) => {
+    const x = m.l + i * step + (step - bw) / 2;
+    const h = Math.max(1.5, (wk.prs / top) * ih);
+    const p = el("path", { d: barPath(x, y(wk.prs), bw, h, 3), fill: "url(#flame)", class: "bar" });
+    armTip(p, "Week of " + dayLabel(wk.week),
+      [`${wk.prs} PRs merged`, `${wk.repos} repos touched`, `+${fmt(wk.add)} / -${fmt(wk.del)} lines`]);
+    svg.appendChild(p);
+    const isLast = i === d.length - 1;
+    // Label every nth week, plus the final one - but not when the final one
+    // would land on top of its neighbour.
+    if ((i % every === 0 && !(isLast === false && d.length - 1 - i < 2)) || isLast) {
+      svg.appendChild(el("text", { x: x + bw / 2, y: H - 10, "text-anchor": "middle", fill: "var(--ink-3)",
+        "font-family": "var(--font-mono)", "font-size": 10.5 }, dayLabel(wk.week)));
+    }
+  });
+  const EV = DATA.events && DATA.events.length ? DATA.events[DATA.events.length - 1] : null;
+  const evIdx = EV ? d.findIndex(wk => wk.week >= EV.date) : -1;
+
+  // Before the event, the old trend. After it, the level it settled at. One line
+  // across both would read the step change as a rate of improvement.
+  const F = DATA.forecast;
+  if (evIdx > 1) {
+    const pre = DATA.weekly_trend;
+    if (pre) {
+      const at = i => Math.max(0, pre.slope * i + pre.intercept);
+      svg.appendChild(el("path", { d: `M${m.l + step / 2} ${y(at(0))}L${m.l + (evIdx - 1) * step + step / 2} ${y(at(evIdx - 1))}`,
+        stroke: "var(--ink-3)", "stroke-width": 2, "stroke-dasharray": "6 4", fill: "none", "stroke-linecap": "round" }));
+    }
+    if (F) {
+      const yy = y(F.weekly_mean);
+      svg.appendChild(el("path", { d: `M${m.l + evIdx * step + step / 2} ${yy}L${m.l + (d.length - 1) * step + step / 2} ${yy}`,
+        stroke: "var(--ink-2)", "stroke-width": 2, "stroke-dasharray": "6 4", fill: "none", "stroke-linecap": "round" }));
+      svg.appendChild(el("text", { x: W_ - m.r, y: yy - 7, "text-anchor": "end", fill: "var(--ink-2)",
+        "font-family": "var(--font-mono)", "font-size": 10.5 }, `${F.weekly_mean}/wk since ${dayLabel(EV.date)}`));
+    }
+  } else if (DATA.weekly_trend) {
+    const tr = DATA.weekly_trend, at = i => Math.max(0, tr.slope * i + tr.intercept);
+    svg.appendChild(el("path", { d: `M${m.l + step / 2} ${y(at(0))}L${m.l + (d.length - 1) * step + step / 2} ${y(at(d.length - 1))}`,
+      stroke: "var(--ink-2)", "stroke-width": 2, "stroke-dasharray": "6 4", fill: "none", "stroke-linecap": "round" }));
+  }
+  if (evIdx > 0) eventRule(svg, m.l + evIdx * step, m.t, y(0), `${EV.label}, ${dayLabel(EV.date)}`, W_);
+
+  const last = d[d.length - 1];
+  svg.appendChild(el("text", { x: m.l + (d.length - 1) * step + step / 2, y: y(last.prs) - 8,
+    "text-anchor": "middle", fill: "var(--add)", "font-family": "var(--font-mono)",
+    "font-size": 12, "font-weight": 600 }, String(last.prs)));
+
+  document.getElementById("weeks-note").textContent = `Last ${d.length} weeks. Hover a bar for that week.`;
+})();
+
+/* ---- monthly bars, trend and forecast ------------------------------ */
+(function () {
+  const svg = document.getElementById("c-months");
+  const F = DATA.forecast;
+
+  // One continuous month axis: real months, the gaps between them, then the forecast.
+  const byMonth = new Map(DATA.monthly.map(m => [m.month, m]));
+  const nextMonth = k => { let [y, mm] = k.split("-").map(Number); mm += 1; return `${y + ((mm - 1) / 12 | 0)}-${String((mm - 1) % 12 + 1).padStart(2, "0")}`; };
+  const fc = new Map((F ? F.months : []).map(m => [m.month, m.prs]));
+  const axis = [];
+  let k = DATA.monthly[0].month;
+  const end = F && F.months.length ? F.months[F.months.length - 1].month : DATA.monthly[DATA.monthly.length - 1].month;
+  while (true) {
+    const real = byMonth.get(k);
+    if (real) axis.push({ month: k, prs: real.prs, pace: real.pace, kind: real.complete ? "done" : "partial" });
+    else axis.push({ month: k, prs: fc.get(k) || 0, kind: fc.has(k) ? "forecast" : "done" });
+    if (k === end) break;
+    k = nextMonth(k);
+  }
+
+  const W_ = 960, H = 300, m = { t: 26, r: 10, b: 44, l: 44 };
+  const iw = W_ - m.l - m.r, ih = H - m.t - m.b;
+  const peak = Math.max(...axis.map(a => Math.max(a.prs, a.pace || 0)), 1);
+  const ticks = niceTicks(peak * 1.06, 4), top = ticks[ticks.length - 1];
+  const y = v => m.t + ih - (Math.max(0, v) / top) * ih;
+  const step = iw / axis.length, bw = Math.min(step - 10, 46);
+
+  ticks.forEach(t => {
+    svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: y(t), y2: y(t), stroke: "var(--rule)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: m.l - 8, y: y(t) + 4, "text-anchor": "end", fill: "var(--ink-3)",
+      "font-family": "var(--font-mono)", "font-size": 11 }, String(t)));
+  });
+
+  axis.forEach((a, i) => {
+    const x = m.l + i * step + (step - bw) / 2;
+    if (a.kind === "forecast") {
+      svg.appendChild(el("path", { d: barPath(x + 1, y(a.prs), bw - 2, y(0) - y(a.prs), 3), fill: "none",
+        stroke: "var(--add)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+    } else if (a.prs > 0) {
+      const cap = fc.get(a.month) || a.pace;
+      if (cap && cap > a.prs) { a.pace = cap;
+        svg.appendChild(el("path", { d: barPath(x + 1, y(a.pace), bw - 2, y(0) - y(a.pace), 3), fill: "none",
+          stroke: "var(--add)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+      }
+      svg.appendChild(el("path", { d: barPath(x, y(a.prs), bw, y(0) - y(a.prs), 3), fill: "url(#flame)", class: "bar" }));
+    }
+    const hit = el("rect", { x: m.l + i * step, y: m.t, width: step, height: ih, fill: "transparent" });
+    armTip(hit, monthName(a.month), a.kind === "forecast"
+      ? [`${fmt(a.prs)} PRs if the trend holds`, "projection, not history"]
+      : a.pace
+        ? [`${fmt(a.prs)} PRs merged so far`, `${fmt(a.pace)} by month end at this pace`]
+        : [`${fmt(a.prs)} PRs merged`]);
+    svg.appendChild(hit);
+    svg.appendChild(el("text", { x: x + bw / 2, y: H - 26, "text-anchor": "middle",
+      fill: a.kind === "done" ? "var(--ink-3)" : "var(--add)",
+      "font-family": "var(--font-mono)", "font-size": 10.5 },
+      monthName(a.month).replace(" 20", " '")));
+    if (a.prs > 0) {
+      svg.appendChild(el("text", { x: x + bw / 2, y: y(a.pace || a.prs) - 7, "text-anchor": "middle",
+        fill: a.kind === "done" ? "var(--ink-2)" : "var(--add)",
+        "font-family": "var(--font-mono)", "font-size": 11, "font-weight": 600 },
+        fmt(a.pace || a.prs)));
+    }
+  });
+  svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: y(0), y2: y(0), stroke: "var(--rule-2)", "stroke-width": 1 }));
+
+  const EV = DATA.events && DATA.events.length ? DATA.events[DATA.events.length - 1] : null;
+  if (EV) {
+    const em = EV.date.slice(0, 7);
+    const i = axis.findIndex(a => a.month === em);
+    if (i >= 0) {
+      const dim = (byMonth.get(em) || {}).days || 31;
+      const frac = (Number(EV.date.slice(8)) - 1) / dim;
+      eventRule(svg, m.l + (i + frac) * step, m.t, y(0), `${EV.label}, ${dayLabel(EV.date)}`, W_);
+    }
+  }
+
+  if (F) {
+    svg.appendChild(el("text", { x: W_ - m.r, y: H - 8, "text-anchor": "end", fill: "var(--ink-3)",
+      "font-family": "var(--font-mono)", "font-size": 10.5 },
+      `projected from ${F.weekly_mean} PRs/week over the ${F.weeks} weeks since`));
+
+    document.getElementById("month-note").textContent =
+      `Since ${dayLabel(EV ? EV.date : "")}: ${F.weekly_mean} PRs a week, ${F.rising ? "still climbing" : "flat"}.`;
+
+    const cur = DATA.monthly[DATA.monthly.length - 1];
+    const N = DATA.naive_fit;
+    const ahead = F.months.filter(x => x.month !== F.current_month);
+    document.getElementById("forecast").innerHTML =
+      `The climb stopped being a climb on <b>${dayLabel(EV.date)}</b>. Since then you have merged ` +
+      `<span class="n">${F.weekly_mean}</span> pull requests a week, give or take ` +
+      `<span class="n">${F.weekly_sd}</span>, and that number is <b>flat</b>. A line fitted to those ` +
+      `${F.weeks} weeks explains <span class="n">${(F.trend && F.trend.r2 != null ? F.trend.r2 : 0).toFixed(3)}</span> ` +
+      `of the movement, which is another way of saying none of it. Hold that rate and ` +
+      ahead.map(x => `<b>${monthName(x.month)}</b> lands near <span class="n">${fmt(x.prs)}</span>`).join(", ") +
+      `. ` +
+      (N ? `Fit a straight line through the whole year instead and it claims ` +
+           `<span class="n">+${N.per_month}</span> PRs a month forever, ` +
+           `<span class="n">${fmt(N.months[2].prs)}</span> by ${monthName(N.months[2].month)}. That line reads ` +
+           `one step change as a rate of improvement. The step was losing the day job, and it ` +
+           `only happens once.` : "");
+  }
+})();
+
+/* ---- weekly added / deleted (diverging) ---------------------------- */
+(function () {
+  const svg = document.getElementById("c-diff");
+  const d = DATA.weekly.slice(-16), W_ = 600, H = 260, m = { t: 16, r: 10, b: 28, l: 46 };
+  const iw = W_ - m.l - m.r, ih = H - m.t - m.b;
+  const maxA = Math.max(...d.map(x => x.add), 1), maxD = Math.max(...d.map(x => x.del), 1);
+  const span = maxA + maxD;
+  const zero = m.t + (maxA / span) * ih;
+  const step = iw / d.length, bw = Math.min(step - 3, 22);
+
+  svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: zero, y2: zero, stroke: "var(--rule-2)", "stroke-width": 1 }));
+  [[maxA, zero - (maxA / span) * ih, "+" + short(maxA)], [maxD, zero + (maxD / span) * ih, "-" + short(maxD)]]
+    .forEach(([, yy, label]) => {
+      svg.appendChild(el("line", { x1: m.l, x2: W_ - m.r, y1: yy, y2: yy, stroke: "var(--rule)", "stroke-width": 1, "stroke-dasharray": "2 3" }));
+      svg.appendChild(el("text", { x: m.l - 8, y: yy + 4, "text-anchor": "end", fill: "var(--ink-3)",
+        "font-family": "var(--font-mono)", "font-size": 11 }, label));
+    });
+  svg.appendChild(el("text", { x: m.l - 8, y: zero + 4, "text-anchor": "end", fill: "var(--ink-3)",
+    "font-family": "var(--font-mono)", "font-size": 11 }, "0"));
+
+  d.forEach((wk, i) => {
+    const x = m.l + i * step + (step - bw) / 2;
+    const ha = Math.max(1.5, (wk.add / span) * ih), hd = Math.max(1.5, (wk.del / span) * ih);
+    const up = el("path", { d: barPath(x, zero - ha, bw, ha, 3), fill: "url(#flame)", class: "bar" });
+    const dn = el("path", { d: `M${x} ${zero}V${zero + hd - 3}a3 3 0 0 0 3 3h${bw - 6}a3 3 0 0 0 3 -3V${zero}Z`,
+      fill: "var(--del)", class: "bar" });
+    const rows = [`+${fmt(wk.add)} added`, `-${fmt(wk.del)} deleted`, `${wk.prs} PRs`];
+    armTip(up, "Week of " + dayLabel(wk.week), rows);
+    armTip(dn, "Week of " + dayLabel(wk.week), rows);
+    svg.appendChild(up); svg.appendChild(dn);
+    if (i % 3 === 0 || i === d.length - 1) {
+      svg.appendChild(el("text", { x: x + bw / 2, y: H - 9, "text-anchor": "middle", fill: "var(--ink-3)",
+        "font-family": "var(--font-mono)", "font-size": 10.5 }, dayLabel(wk.week)));
+    }
+  });
+
+  const tr = DATA.adds_trend;
+  if (tr) {
+    const yy = i => zero - (Math.max(0, tr.slope * i + tr.intercept) / span) * ih;
+    svg.appendChild(el("path", {
+      d: `M${m.l + step / 2} ${yy(0)}L${m.l + (d.length - 1) * step + step / 2} ${yy(d.length - 1)}`,
+      stroke: "var(--ink-2)", "stroke-width": 2, "stroke-dasharray": "6 4", fill: "none", "stroke-linecap": "round" }));
+  }
+})();
+
+/* ---- weekday rhythm ------------------------------------------------ */
+(function () {
+  const svg = document.getElementById("c-dow");
+  const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const d = DATA.dow, W_ = 320, H = 250, m = { t: 8, r: 46, b: 8, l: 42 };
+  const iw = W_ - m.l - m.r, ih = H - m.t - m.b;
+  const max = Math.max(...d, 1), rowH = ih / 7, bh = Math.min(rowH - 8, 20);
+
+  d.forEach((v, i) => {
+    const yy = m.t + i * rowH + (rowH - bh) / 2;
+    const w = Math.max(2, (v / max) * iw);
+    svg.appendChild(el("text", { x: m.l - 10, y: yy + bh / 2 + 4, "text-anchor": "end", fill: "var(--ink-2)",
+      "font-family": "var(--font-mono)", "font-size": 11.5 }, names[i]));
+    const p = el("path", { d: `M${m.l} ${yy}h${w - 3}a3 3 0 0 1 3 3v${bh - 6}a3 3 0 0 1 -3 3H${m.l}Z`,
+      fill: "url(#flame)", class: "bar" });
+    armTip(p, names[i], [`${fmt(v)} PRs merged all time`, `${(100 * v / d.reduce((a, b) => a + b, 0)).toFixed(0)}% of everything`]);
+    svg.appendChild(p);
+    svg.appendChild(el("text", { x: m.l + w + 8, y: yy + bh / 2 + 4, fill: "var(--ink-3)",
+      "font-family": "var(--font-mono)", "font-size": 11 }, fmt(v)));
+  });
+})();
+
+/* ---- repo ranking -------------------------------------------------- */
+(function () {
+  const rows = DATA.repos.filter(r => r.prs90 > 0).sort((a, b) => b.prs90 - a.prs90).slice(0, 12);
+  const max = Math.max(...rows.map(r => r.prs90), 1);
+  document.getElementById("repos").innerHTML = rows.map(r => `
+    <div class="repo-row">
+      <span class="name" title="${r.repo}">${r.repo}</span>
+      <span class="track"><span class="fill" style="width:${Math.max(1.5, 100 * r.prs90 / max).toFixed(1)}%"></span></span>
+      <span class="fig"><b>${r.prs90}</b> of ${fmt(r.prs)}</span>
+    </div>`).join("");
+})();
+
+/* ---- tables -------------------------------------------------------- */
+document.getElementById("weekly-tbody").innerHTML = DATA.weekly.slice().reverse().map(w => `
+  <tr><td>${dayLabel(w.week)}</td><td>${w.prs}</td><td>${w.repos}</td>
+  <td class="plus">+${fmt(w.add)}</td><td class="minus">-${fmt(w.del)}</td></tr>`).join("");
+
+document.getElementById("monthly-tbody").innerHTML = DATA.monthly.slice().reverse().map(m => `
+  <tr><td>${monthName(m.month)}</td><td>${fmt(m.prs)}</td>
+  <td class="plus">+${fmt(m.add)}</td><td class="minus">-${fmt(m.del)}</td>
+  <td>${(m.add - m.del >= 0 ? "+" : "") + fmt(m.add - m.del)}</td></tr>`).join("");
+
+/* ---- notes --------------------------------------------------------- */
+document.getElementById("code-note").textContent = `Last 16 weeks, PRs under ${short(DATA.code_max)} lines.`;
+document.getElementById("about").innerHTML =
+  `Raw additions across every merged PR come to <b>${fmt(T.add)}</b> lines. That is not code you wrote. ` +
+  `The ten largest PRs alone are <b>${T.top10_share}%</b> of it, and they are data drops and vendored trees. ` +
+  `Every line count on this page therefore counts only PRs at or under <code>${fmt(DATA.code_max)}</code> changed lines, ` +
+  `which keeps <b>${Math.round(100 * T.code_prs / T.prs)}%</b> of the pull requests and <b>${fmt(T.code_add)}</b> added lines. ` +
+  `The PR counts are never trimmed. Here is what the filter removes:`;
+
+document.getElementById("biggest").innerHTML = DATA.biggest.map(b => `
+  <li><span class="who">${b.repo}#${b.num}</span><span class="ttl">${b.title}</span>
+  <span class="n">+${short(b.add)}</span></li>`).join("");
+
+if (DATA.failed.length) {
+  const f = document.getElementById("failed");
+  f.hidden = false;
+  f.textContent = "Could not read " + DATA.failed.map(x => x.repo).join(", ") +
+    " - the repo answered: " + DATA.failed[0].error;
+}
+
+document.getElementById("stamp").textContent = "Rebuilt " + new Date(DATA.generated_at)
+  .toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+document.getElementById("scanned").textContent = DATA.totals.repos_scanned + " repos scanned";
+document.getElementById("authors").textContent = DATA.authors.slice(0, 1).map(a => a.login + " wrote " +
+  Math.round(100 * a.prs / T.prs) + "% of them").join("");
+</script>
