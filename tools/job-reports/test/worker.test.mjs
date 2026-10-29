@@ -1,7 +1,7 @@
 // The checks every report and registration goes through.   node --test test/*.test.mjs
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanJob, cleanReport, parseMinutes, parseTime, iso, BadRequest } from "../src/worker.js";
+import { cleanJob, cleanReport, parseMinutes, parseTime, pathJobId, iso, BadRequest } from "../src/worker.js";
 
 const NOW = new Date("2026-10-29T12:00:00Z");
 const good = (over = {}) => ({ job: "notion-pickup", status: "found", summary: "2 PRs", ...over });
@@ -53,4 +53,15 @@ test("a registration changes only what it names", () => {
                    { name: "Notion Pickup", every: 360, grace: 120, paused: 0 });
   assert.deepEqual(cleanJob({ does: "x" }), { does: "x" });
   assert.throws(() => cleanJob({ url: "ftp://x" }), /url/);
+});
+
+test("paused must be a real boolean", () => {
+  assert.deepEqual(cleanJob({ paused: true }), { paused: 1 });
+  for (const bad of ["false", "true", 0, null]) assert.throws(() => cleanJob({ paused: bad }), /paused/);
+});
+
+test("a malformed job path is a 400, not a crash", () => {
+  assert.equal(pathJobId("notion-pickup"), "notion-pickup");
+  assert.throws(() => pathJobId("%"), (e) => e instanceof BadRequest && /not a valid path/.test(e.message));
+  assert.throws(() => pathJobId("Bad%20Id"), BadRequest);
 });

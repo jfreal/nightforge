@@ -16,6 +16,16 @@ const MAX_BODY = 64 * 1024, MAX_SUMMARY = 300, MAX_DETAILS = 20000, MAX_LINKS = 
 
 export class BadRequest extends Error {}
 
+/** The job id in a /jobs/<id> path. A malformed %-escape is the caller's mistake: 400, not 500. */
+export function pathJobId(raw) {
+  let decoded;
+  try { decoded = decodeURIComponent(raw); } catch (err) {
+    if (err instanceof URIError) throw new BadRequest(`job: ${JSON.stringify(raw)} is not a valid path`);
+    throw err;
+  }
+  return jobId(decoded);
+}
+
 // ---- checks, shared with test/worker.test.mjs ----------------------------------------------
 
 export function iso(date) {
@@ -96,7 +106,11 @@ export function cleanJob(body) {
   if (out.url && !/^https?:\/\//i.test(out.url)) throw new BadRequest(`url: ${JSON.stringify(out.url)} is not an http(s) link`);
   if ("every" in body) out.every = parseMinutes(body.every);
   if ("grace" in body) out.grace = parseMinutes(body.grace);
-  if ("paused" in body) out.paused = body.paused ? 1 : 0;
+  if ("paused" in body) {
+    // A string "false" is truthy; from a shell curl that would silence a job's alarms.
+    if (typeof body.paused !== "boolean") throw new BadRequest(`paused: ${JSON.stringify(body.paused)} is not true or false`);
+    out.paused = body.paused ? 1 : 0;
+  }
   return out;
 }
 
@@ -203,9 +217,9 @@ export default {
       if (path === "/report" && request.method === "POST") return await report(request, env);
       if (who !== "admin") return json({ ok: false, error: "this token can only POST /report" }, 403);
       const jobPath = path.match(/^\/jobs\/([^/]+)$/);
-      if (jobPath && request.method === "PUT") return await putJob(jobId(decodeURIComponent(jobPath[1])), request, env);
+      if (jobPath && request.method === "PUT") return await putJob(pathJobId(jobPath[1]), request, env);
       if (jobPath && request.method === "DELETE") {
-        const id = jobId(decodeURIComponent(jobPath[1]));
+        const id = pathJobId(jobPath[1]);
         const [, gone] = await env.DB.batch([env.DB.prepare("DELETE FROM runs WHERE job_id = ?").bind(id),
                                              env.DB.prepare("DELETE FROM jobs WHERE id = ?").bind(id)]);
         return json({ ok: true, removed: gone.meta.changes > 0 });

@@ -39,6 +39,11 @@ class Discover(Tasks):
         t, = desktop.discover(self.root)
         self.assertEqual((t["id"], t["name"], t["description"]), ("my-task", "My Task", ""))
 
+    def test_file_in_another_encoding_is_skipped(self):
+        self.task("bad", "", raw="---\nname: \u201cquoted\u201d\n---\n".encode("cp1252"))
+        self.task("good", "---\nname: Good\n---\nGo.\n")
+        self.assertEqual([t["id"] for t in desktop.discover(self.root)], ["good"])
+
     def test_missing_folder_is_empty(self):
         self.assertEqual(desktop.discover(self.root / "nope"), [])
 

@@ -54,8 +54,28 @@ class CleanReport(unittest.TestCase):
         self.assertTrue(r["summary"].startswith("a b x"))
         self.assertEqual(len(r["summary"]), routines.MAX_SUMMARY)
 
+    def test_infinite_or_nan_count_refused(self):
+        for bad in (float("inf"), float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ReportError, "counts.prs"):
+                routines.clean_report(report(counts={"prs": bad}))
+
+    def test_out_of_range_time_refused(self):
+        for bad in (1e20, float("inf"), float("nan")):
+            with self.subTest(bad=bad), self.assertRaises(ReportError):
+                routines.clean_report(report(finished=bad))
+
     def test_run_id_defaults_to_finish_time(self):
         self.assertEqual(routines.clean_report(report())["run"], "2026-10-28T11:00:00Z")
+
+
+class Slug(unittest.TestCase):
+    def test_ids_are_always_valid_and_distinct(self):
+        self.assertEqual(routines.slug("CodeRabbit Sweep"), "coderabbit-sweep")
+        self.assertEqual(routines.slug("_nightly."), "nightly")
+        a, b = routines.slug("任务一"), routines.slug("任务二")
+        self.assertNotEqual(a, b)
+        for s in (a, b, routines.slug("---")):
+            self.assertRegex(s, routines.BOT_ID)
 
 
 class Durations(unittest.TestCase):

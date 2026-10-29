@@ -78,7 +78,7 @@ def discover(root: Path | None = None) -> list[dict]:
     for skill in sorted(root.glob("*/SKILL.md")):
         try:
             text = skill.read_text(encoding="utf-8-sig")
-        except OSError:
+        except (OSError, UnicodeDecodeError):   # unreadable, or saved in another encoding
             continue
         meta = frontmatter(text)
         found.append({"id": bot_id(skill.parent), "folder": skill.parent.name, "path": skill,

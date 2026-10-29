@@ -17,6 +17,7 @@ summaries carry whatever the bots found, and that is not for a public repo.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -99,11 +100,12 @@ def iso(dt: datetime) -> str:
 def parse_time(value) -> datetime:
     """ISO 8601 (with Z or an offset) or Unix seconds. A time with no zone is taken as UTC,
     because every source that writes one (GitHub, our own CLI) means UTC."""
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, timezone.utc)
     text = str(value).strip()
-    if re.fullmatch(r"\d{9,11}(\.\d+)?", text):
-        return datetime.fromtimestamp(float(text), timezone.utc)
+    if isinstance(value, (int, float)) or re.fullmatch(r"\d{9,11}(\.\d+)?", text):
+        try:
+            return datetime.fromtimestamp(float(value), timezone.utc)
+        except (OverflowError, OSError, ValueError) as exc:   # out of range, inf or nan
+            raise ReportError(f"not a time: {value!r}") from exc
     try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError as exc:
@@ -128,8 +130,10 @@ def parse_minutes(value) -> int | None:
 
 
 def slug(text: str) -> str:
-    """A bot id from a display name: 'CodeRabbit Sweep' -> 'coderabbit-sweep'."""
-    return re.sub(r"[^a-z0-9._-]+", "-", text.lower()).strip("-")[:80] or "bot"
+    """A bot id from a display name: 'CodeRabbit Sweep' -> 'coderabbit-sweep'. A name with no
+    ASCII letters or digits gets a short hash, so two such names never share an id."""
+    out = re.sub(r"[^a-z0-9._-]+", "-", text.lower()).strip("-._")[:80].rstrip("-._")
+    return out or "bot-" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:10]
 
 
 # ---- a report, checked ------------------------------------------------------------------
@@ -150,7 +154,8 @@ def clean_report(report: dict) -> dict:
     started = parse_time(report["started"]) if report.get("started") else None
     counts = {}
     for k, v in (report.get("counts") or {}).items():
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v != int(v):
+        # is_integer() is False for inf and nan, which JSON lets through as Infinity and NaN.
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not float(v).is_integer():
             raise ReportError(f"counts.{k}: {v!r} is not a whole number")
         counts[str(k)[:40]] = int(v)
     links = []

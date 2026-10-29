@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -48,6 +49,18 @@ import endpoint
 import routines
 
 HERE = Path(__file__).resolve().parent
+
+
+class LazyStore:
+    """routines.Store, created the first time a command touches it."""
+
+    def __init__(self, path):
+        self.path, self.store = path, None
+
+    def __getattr__(self, name):
+        if self.store is None:
+            self.store = routines.Store(self.path)
+        return getattr(self.store, name)
 
 
 def load_cfg(path) -> dict:
@@ -100,7 +113,8 @@ def cmd_report(store, a) -> int:
         print(f"sent {r['job']}: {report['status']}" + (" (already sent)" if r.get("duplicate") else ""))
         return 0
     new = store.add_run(report, "cli")
-    print(f"recorded {report['bot']}: {report['status']}" if new else f"{report['bot']}: that run is already recorded")
+    name = report.get("bot") or report.get("job")
+    print(f"recorded {name}: {report['status']}" if new else f"{name}: that run is already recorded")
     return 0
 
 
@@ -185,8 +199,10 @@ def cmd_desktop(store, a) -> int:
         return 1
     changed = 0
     for t in tasks:
-        store.ensure_bot_now(t["id"], t["name"], "desktop task", description=t["description"][:300])
         will = desktop.remove(t, a.apply) if a.remove else desktop.install(t, a.apply)
+        if a.apply and not a.remove:
+            # Only a task that now reports gets a row; the preview writes nothing at all.
+            store.ensure_bot_now(t["id"], t["name"], "desktop task", description=t["description"][:300])
         changed += will
         now = "reports" if t["reports"] else "silent"
         verb = ("removed" if a.apply else "would remove") if a.remove else \
@@ -274,15 +290,16 @@ def main(argv=None) -> int:
     d.add_argument("--dir", help="the scheduled-tasks folder (default ~/.claude/scheduled-tasks)")
 
     a = ap.parse_args(argv)
-    a.cfg = load_cfg(a.config)
-    store = routines.Store(a.db or routines.db_path(a.cfg))
     try:
+        a.cfg = load_cfg(a.config)
+        # Opened on first use, so a report sent to the endpoint never needs the local file.
+        store = LazyStore(a.db or routines.db_path(a.cfg))
         if a.cmd == "remove":
             print("removed" if store.remove_bot(a.bot) else f"no bot named {a.bot}")
             return 0
         return {"report": cmd_report, "bot": cmd_bot, "list": cmd_list, "runs": cmd_runs,
                 "collect": cmd_collect, "desktop": cmd_desktop, "job": cmd_job}[a.cmd](store, a)
-    except (routines.ReportError, endpoint.EndpointError, ValueError, OSError) as exc:
+    except (routines.ReportError, endpoint.EndpointError, ValueError, OSError, sqlite3.Error) as exc:
         print(f"botlog: {exc}", file=sys.stderr)
         return 2
 

@@ -80,12 +80,14 @@ def collect_inbox(store, repo: str, authors) -> tuple[int, list[str]]:
             if not isinstance(report, dict):
                 problems.append(f"{where}: report block is not a JSON object")
                 continue
-            report.setdefault("run", f"comment-{c['id']}" + (f"-{i}" if len(reports) > 1 else ""))
-            report.setdefault("finished", c.get("created_at"))
-            report["links"] = list(report.get("links") or []) + [{"label": "report", "url": c["html_url"]}]
+            # One malformed report is a problem to show, never a reason to stop reading: an
+            # exception here would leave the cursor behind and stall every later poll on it.
             try:
+                report.setdefault("run", f"comment-{c['id']}" + (f"-{i}" if len(reports) > 1 else ""))
+                report.setdefault("finished", c.get("created_at"))
+                report["links"] = list(report.get("links") or []) + [{"label": "report", "url": c["html_url"]}]
                 added += store.add_run(report, "inbox", kind="cloud routine")
-            except (ReportError, KeyError, TypeError, AttributeError) as exc:
+            except (ReportError, KeyError, TypeError, AttributeError, ValueError, OverflowError) as exc:
                 problems.append(f"{where}: {exc}")
     store.set_cursor(key, newest)
     return added, problems
@@ -214,8 +216,7 @@ def collect_all(store, cfg, log=print) -> list[dict]:
         try:
             result = fn(store)
             entry["added"], entry["problems"] = result if isinstance(result, tuple) else (result, [])
-        except (github.GhError, endpoint.EndpointError, RuntimeError, OSError, ValueError, KeyError,
-                subprocess.TimeoutExpired) as exc:
+        except Exception as exc:   # noqa: BLE001 - each source is its own failure boundary
             entry["error"] = str(exc)[:500]
             log(f"collect {name} failed: {entry['error']}")
         if entry["added"]:

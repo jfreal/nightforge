@@ -19,6 +19,7 @@ import urllib.request
 import routines
 
 TIMEOUT = 30
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 MAX_PAGES = 50       # 500 runs a page; anything past this waits for the next collect
 
 
@@ -31,7 +32,10 @@ def settings(cfg: dict) -> tuple[str, str] | None:
     token = cfg.get("reportToken") or os.environ.get("NF_ADMIN_TOKEN") or ""
     if not url:
         return None
-    if not url.startswith("https://") and not url.startswith("http://localhost") and not url.startswith("http://127.0.0.1"):
+    parts = urllib.parse.urlsplit(url)
+    # The admin token rides on every call, so plain http is allowed only to this machine.
+    if not parts.hostname or not (parts.scheme == "https"
+                                  or (parts.scheme == "http" and parts.hostname in LOCAL_HOSTS)):
         raise EndpointError(f"reportUrl must be https (or localhost for testing): {url}")
     if not token:
         raise EndpointError("reportUrl is set but there is no token: set reportToken or NF_ADMIN_TOKEN")
@@ -64,11 +68,14 @@ def kind_of(job: dict) -> str:
 def collect_into(store, url: str, token: str) -> int:
     """Pull jobs and every run received since the last pull. The endpoint is where jobs are
     registered, so its fields overwrite the local copy."""
-    key = f"endpoint:{url}"
+    key, known_key = f"endpoint:{url}", f"endpoint-jobs:{url}"
     after = int(store.cursor(key) or 0)
-    added = 0
+    known = set(json.loads(store.cursor(known_key) or "[]"))
+    added, seen = 0, None
     for _ in range(MAX_PAGES):
         page = call(url, token, "GET", f"/sync?after={after}")
+        # Every page carries the endpoint's whole job list, so one page is enough to know it.
+        seen = {job["id"] for job in page.get("jobs", [])}
         for job in page.get("jobs", []):
             store.set_bot(job["id"], name=job.get("name") or job["id"], kind=kind_of(job),
                           schedule=job.get("schedule") or "", every_minutes=job.get("every"),
@@ -84,6 +91,12 @@ def collect_into(store, url: str, token: str) -> int:
         store.set_cursor(key, str(after))
         if not page.get("more"):
             break
+    if seen is not None:
+        # A job deleted on the endpoint goes here too. Only jobs this collector put here are
+        # removed, so rows from other sources are left alone.
+        for gone in known - seen:
+            store.remove_bot(gone)
+        store.set_cursor(known_key, json.dumps(sorted(seen)))
     return added
 
 

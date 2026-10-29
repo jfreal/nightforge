@@ -56,6 +56,14 @@ class Inbox(Store):
         self.assertEqual(added, 1)
         self.assertIn("issuecomment-1", problems[0])
 
+    def test_malformed_report_is_a_problem_and_later_comments_still_count(self):
+        bad_links = fenced('{"bot": "x", "status": "ok", "links": 5}')
+        no_url = comment(2, fenced(BLOCK))
+        del no_url["html_url"]
+        (added, problems), _ = self.run_inbox([comment(1, bad_links), no_url, comment(3, fenced(BLOCK))])
+        self.assertEqual((added, len(problems)), (1, 2))
+        self.assertEqual(self.store.cursor("inbox:jfreal/bot-reports"), "2026-10-28T12:53:00Z")
+
     def test_cursor_moves_and_rereads_are_not_counted_twice(self):
         self.run_inbox([comment(1, fenced(BLOCK))])
         self.assertEqual(self.store.cursor("inbox:jfreal/bot-reports"), "2026-10-28T12:53:00Z")
@@ -125,6 +133,18 @@ class Windows(Store):
 
 
 class All(Store):
+    def test_any_exception_stays_inside_its_source(self):
+        cfg = {"owners": ["jfreal"], "actionsRepos": ["a/b", "c/d"]}
+
+        def gh(args):
+            if "a/b" in args[-1]:
+                raise TypeError("odd data")
+            return json.dumps({"workflow_runs": [wf_run(1)]})
+
+        with mock.patch.object(collect.github, "gh", side_effect=gh):
+            status = collect.collect_all(self.store, cfg, log=lambda m: None)
+        self.assertEqual([(s["added"], bool(s["error"])) for s in status], [(0, True), (1, False)])
+
     def test_one_failing_source_does_not_hide_the_others(self):
         cfg = {"owners": ["jfreal"], "reportInbox": "jfreal/bot-reports", "actionsRepos": ["jfreal/pheidi"],
                "desktopTasks": False}

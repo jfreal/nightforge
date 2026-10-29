@@ -39,6 +39,13 @@ class Settings(unittest.TestCase):
         with mock.patch.dict("os.environ", {"NF_ADMIN_TOKEN": ""}), self.assertRaisesRegex(endpoint.EndpointError, "token"):
             endpoint.settings({"reportUrl": URL})
 
+    def test_lookalike_local_hosts_are_not_local(self):
+        for bad in ("http://localhost.example.com", "http://127.0.0.1.example.com", "ftp://localhost"):
+            with self.subTest(url=bad), self.assertRaisesRegex(endpoint.EndpointError, "https"):
+                endpoint.settings({"reportUrl": bad, "reportToken": "x"})
+        self.assertEqual(endpoint.settings({"reportUrl": "http://localhost:8787", "reportToken": "x"})[0],
+                         "http://localhost:8787")
+
     def test_token_from_environment(self):
         with mock.patch.dict("os.environ", {"NF_ADMIN_TOKEN": "env"}):
             self.assertEqual(endpoint.settings({"reportUrl": URL + "/"}), (URL, "env"))
@@ -69,6 +76,15 @@ class Collect(unittest.TestCase):
             endpoint.collect_into(self.store, URL, TOKEN)
         row, = self.store.board()
         self.assertEqual((row["name"], row["health"]["every"], row["paused"]), ("FrogDB daily feature", 1440, False))
+
+    def test_job_deleted_on_the_endpoint_goes_here_too(self):
+        self.store.set_bot("from-elsewhere", name="local only")
+        two = {"jobs": [job(), job(id="old", name="Old")], "runs": [], "next": 0}
+        one = {"jobs": [job()], "runs": [], "next": 0}
+        with mock.patch.object(endpoint, "call", side_effect=[two, one]):
+            endpoint.collect_into(self.store, URL, TOKEN)
+            endpoint.collect_into(self.store, URL, TOKEN)
+        self.assertEqual(sorted(r["id"] for r in self.store.board()), ["frogdb-daily", "from-elsewhere"])
 
     def test_unregistered_job_is_marked(self):
         page = {"jobs": [job(id="mystery", name="mystery", registered=False, runsOn="", every=None)],
@@ -106,6 +122,30 @@ class Botlog(unittest.TestCase):
             self.assertEqual(botlog.main(self.args + ["report", "x", "ok", "--local"]), 0)
         send.assert_not_called()
         self.assertEqual(len(routines.Store(Path(self.tmp.name) / "r.db").board()), 1)
+
+    def test_remote_report_works_without_a_usable_local_database(self):
+        args = ["--config", self.args[1], "--db", str(Path(self.tmp.name) / "no" / "such" / "dir" / "x" / "\0bad.db")]
+        with mock.patch.object(endpoint, "report", return_value={"ok": True, "job": "x"}):
+            self.assertEqual(botlog.main(args + ["report", "x", "ok"]), 0)
+
+    def test_local_json_report_with_only_job(self):
+        f = Path(self.tmp.name) / "r.json"
+        f.write_text('{"job": "x", "status": "ok"}')
+        self.assertEqual(botlog.main(self.args + ["report", "--json", str(f), "--local"]), 0)
+
+    def test_broken_config_is_an_error_not_a_traceback(self):
+        bad = Path(self.tmp.name) / "bad.json"
+        bad.write_text("{nope")
+        self.assertEqual(botlog.main(["--config", str(bad), "list"]), 2)
+
+    def test_desktop_preview_writes_nothing(self):
+        d = Path(self.tmp.name) / "tasks" / "a"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text("---\nname: A\n---\nGo.\n")
+        botlog.main(self.args + ["desktop", "--dir", str(d.parent)])
+        self.assertFalse((Path(self.tmp.name) / "r.db").exists())
+        botlog.main(self.args + ["desktop", "--dir", str(d.parent), "--apply"])
+        self.assertEqual([r["id"] for r in routines.Store(Path(self.tmp.name) / "r.db").board()], ["a"])
 
     def test_job_add_sends_only_the_given_fields(self):
         with mock.patch.object(endpoint, "register", return_value={"job": job()}) as reg:
