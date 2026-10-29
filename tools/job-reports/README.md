@@ -122,16 +122,17 @@ It saves the tokens to `~/.nightforge/job-reports.json`, outside the repo, and p
 
 To use your own domain instead of `*.workers.dev`, add it under the Worker's **Settings > Domains & Routes** in the Cloudflare dashboard, then set `DASHBOARD_URL` to it in `wrangler.toml` and deploy.
 
-**Deploy on every push** (optional). `.github/workflows/job-reports.yml` runs the tests on every PR that touches these tools. It also migrates and deploys on every push to `main` once these repository settings exist (Settings > Secrets and variables > Actions):
+**Or let GitHub host it, with nothing run on your PC.** `.github/workflows/job-reports.yml` runs the tests on every PR that touches these tools. On every push to `main`, or when you press **Run workflow** on its Actions page, it runs `scripts/setup.mjs` itself: it creates the database the first time, applies the migrations, deploys, and sets the tokens and alert channels. It needs these repository secrets (Settings > Secrets and variables > Actions):
 
-| Name | Kind | Value |
-|---|---|---|
-| `CLOUDFLARE_API_TOKEN` | secret | An API token with the "Edit Cloudflare Workers" template, plus D1 Edit. |
-| `CLOUDFLARE_ACCOUNT_ID` | secret | Your account id, shown on the Workers overview page. |
-| `JOB_REPORTS_D1_ID` | secret | The `database_id` in your `wrangler.toml`. |
-| `JOB_REPORTS_URL` | variable | The site's address, for links in alerts. Optional. |
+| Secret | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | A Cloudflare API token from the "Edit Cloudflare Workers" template, plus Account > D1 > Edit. |
+| `CLOUDFLARE_ACCOUNT_ID` | Your account id, shown on the Workers & Pages overview. |
+| `JOB_REPORTS_ADMIN_TOKEN` | Any random string of 24 characters or more: the site's sign-in password. |
+| `JOB_REPORTS_REPORT_TOKEN` | Another one: what jobs send with their reports. |
+| `ALERT_SLACK_WEBHOOK`, `ALERT_NTFY_URL` | Optional: where alerts go. |
 
-Without `CLOUDFLARE_API_TOKEN`, the deploy step is skipped. Secrets set with `wrangler secret put` stay on the Worker across deploys.
+Without `CLOUDFLARE_API_TOKEN`, the deploy job is skipped. Without the two `JOB_REPORTS_*` tokens it stops before deploying, because a runner can't show you a token it makes up. A new Cloudflare account must pick its `workers.dev` subdomain once, by opening **Workers & Pages** in the dashboard, before the first deploy.
 
 **The local dashboard** can keep showing the same jobs. Point it at the site in `tools/pr-dashboard/config.json`:
 

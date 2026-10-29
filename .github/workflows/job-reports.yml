@@ -1,11 +1,14 @@
-# Tests the Routines tools on every PR that touches them, and deploys the hosted site
-# (tools/job-reports) on every push to main.
+# Tests the Routines tools on every PR that touches them, and puts the hosted site
+# (tools/job-reports) live on every push to main, or by hand from the Actions tab.
 #
-# Deploying needs these repository settings (Settings > Secrets and variables > Actions):
-#   secrets   CLOUDFLARE_API_TOKEN   a token with "Edit Cloudflare Workers" and "D1 Edit"
-#             CLOUDFLARE_ACCOUNT_ID
-#             JOB_REPORTS_D1_ID      the database_id scripts/setup.mjs wrote into wrangler.toml
-#   variable  JOB_REPORTS_URL        optional: the site's address, for links in alerts
+# Hosting needs four repository secrets (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN      a Cloudflare API token: the "Edit Cloudflare Workers" template,
+#                             plus Account > D1 > Edit
+#   CLOUDFLARE_ACCOUNT_ID     shown on the Cloudflare dashboard's Workers overview
+#   JOB_REPORTS_ADMIN_TOKEN   any long random string: the site's sign-in password
+#   JOB_REPORTS_REPORT_TOKEN  another one: what jobs send with their reports
+# and, for alerts, optionally ALERT_SLACK_WEBHOOK and/or ALERT_NTFY_URL.
+# scripts/setup.mjs does the rest: it creates the database the first time, migrates and deploys.
 # Without CLOUDFLARE_API_TOKEN the deploy job is skipped, so forks and fresh clones stay green.
 name: job-reports
 
@@ -15,9 +18,14 @@ on:
   push:
     branches: [main]
     paths: ["tools/job-reports/**", "tools/pr-dashboard/**", ".github/workflows/job-reports.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Two deploys at once could both create the database; let one finish first.
+concurrency:
+  group: job-reports-deploy-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
 
 jobs:
   test:
@@ -38,7 +46,7 @@ jobs:
 
   deploy:
     needs: test
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     env:
       HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
@@ -48,21 +56,14 @@ jobs:
       - uses: actions/setup-node@v4
         if: env.HAS_TOKEN == 'true'
         with: { node-version: 22 }
-      - name: Write wrangler.toml
-        if: env.HAS_TOKEN == 'true'
-        working-directory: tools/job-reports
-        env:
-          D1_ID: ${{ secrets.JOB_REPORTS_D1_ID }}
-          SITE: ${{ vars.JOB_REPORTS_URL }}
-        run: |
-          sed -e "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$D1_ID/" -e "s#^DASHBOARD_URL = \"\"#DASHBOARD_URL = \"$SITE\"#" \
-            wrangler.example.toml > wrangler.toml
-      - name: Migrate and deploy
+      - name: Create, migrate and deploy
         if: env.HAS_TOKEN == 'true'
         working-directory: tools/job-reports
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          npx --yes wrangler@4 d1 migrations apply job-reports --remote
-          npx --yes wrangler@4 deploy
+          JOB_REPORTS_ADMIN_TOKEN: ${{ secrets.JOB_REPORTS_ADMIN_TOKEN }}
+          JOB_REPORTS_REPORT_TOKEN: ${{ secrets.JOB_REPORTS_REPORT_TOKEN }}
+          ALERT_SLACK_WEBHOOK: ${{ secrets.ALERT_SLACK_WEBHOOK }}
+          ALERT_NTFY_URL: ${{ secrets.ALERT_NTFY_URL }}
+        run: node scripts/setup.mjs
