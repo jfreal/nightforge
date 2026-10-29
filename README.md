@@ -134,7 +134,8 @@ CLIs you have already installed and signed in to, and it uses their credentials:
 | OpenSEO | `index-sweep` | OpenSEO MCP | Reads Google Search Console index status for your own sites' pages. Free. |
 | Omega Indexer | `index-sweep` | Omega Indexer MCP | Reads campaign history and credits. Creates indexing campaigns, at 1 credit per link. |
 | Screenery | `tools/pr-dashboard` | HTTPS, no token | Reads public PR screenshot galleries from `app.screenery.dev`. The page loads the images from `cdn.screenery.dev`. |
-| Cloudflare | `tools/job-reports`, `tools/pr-dashboard` Routines page | HTTPS, a bearer token | Only once you deploy the Worker to your own Cloudflare account. Jobs post run reports to it, and the dashboard reads them back. Nothing is sent until `reportUrl` is set. |
+| Cloudflare | `tools/job-reports`, `tools/pr-dashboard` Routines page | HTTPS, a bearer token or a sign-in | Only once you deploy the Worker to your own Cloudflare account. Jobs post run reports to it, it serves the hosted Routines page, and the local dashboard reads the reports back once `reportUrl` is set. |
+| Slack, ntfy | `tools/job-reports` alerts | HTTPS webhook | Only if you set `ALERT_SLACK_WEBHOOK` or `ALERT_NTFY_URL`. The Worker posts one line when a job goes late, fails, needs you or recovers. |
 | Google Fonts | `tools/coderabbit-sweep` board, `tools/pr-dashboard` page | the browser | The generated `board.html` and the dashboard page load their fonts from `fonts.googleapis.com` when you open them. |
 
 An adapter only runs when a project card names it. A repo with no Netlify card never calls

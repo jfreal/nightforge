@@ -1,0 +1,68 @@
+# Tests the Routines tools on every PR that touches them, and deploys the hosted site
+# (tools/job-reports) on every push to main.
+#
+# Deploying needs these repository settings (Settings > Secrets and variables > Actions):
+#   secrets   CLOUDFLARE_API_TOKEN   a token with "Edit Cloudflare Workers" and "D1 Edit"
+#             CLOUDFLARE_ACCOUNT_ID
+#             JOB_REPORTS_D1_ID      the database_id scripts/setup.mjs wrote into wrangler.toml
+#   variable  JOB_REPORTS_URL        optional: the site's address, for links in alerts
+# Without CLOUDFLARE_API_TOKEN the deploy job is skipped, so forks and fresh clones stay green.
+name: job-reports
+
+on:
+  pull_request:
+    paths: ["tools/job-reports/**", "tools/pr-dashboard/**", ".github/workflows/job-reports.yml"]
+  push:
+    branches: [main]
+    paths: ["tools/job-reports/**", "tools/pr-dashboard/**", ".github/workflows/job-reports.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Worker tests
+        working-directory: tools/job-reports
+        run: node --test test/*.test.mjs
+      - name: Dashboard tests
+        working-directory: tools/pr-dashboard
+        # test_launch.py drives Windows-only process flags and is run on Windows by hand.
+        run: python -m unittest test_routines.py test_collect.py test_desktop.py test_endpoint.py test_server.py test_github.py test_screenery.py test_awake.py test_prune_screenery.py
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/setup-node@v4
+        if: env.HAS_TOKEN == 'true'
+        with: { node-version: 22 }
+      - name: Write wrangler.toml
+        if: env.HAS_TOKEN == 'true'
+        working-directory: tools/job-reports
+        env:
+          D1_ID: ${{ secrets.JOB_REPORTS_D1_ID }}
+          SITE: ${{ vars.JOB_REPORTS_URL }}
+        run: |
+          sed -e "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$D1_ID/" -e "s#^DASHBOARD_URL = \"\"#DASHBOARD_URL = \"$SITE\"#" \
+            wrangler.example.toml > wrangler.toml
+      - name: Migrate and deploy
+        if: env.HAS_TOKEN == 'true'
+        working-directory: tools/job-reports
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4 d1 migrations apply job-reports --remote
+          npx --yes wrangler@4 deploy

@@ -108,7 +108,10 @@ function detailsHtml(r) {
     ['First seen', esc(clock(r.createdAt))]
   ].filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
   const manage = r.url ? `<p style="margin-top: 14px"><a class="btn" href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener">${ICON.link}Manage it</a></p>` : '';
-  const setCmd = `python botlog.py bot ${r.id} --every ${h.every ? dur(h.every).replace(/ /g, '') : '1d'} --schedule "…" --desc "…"`;
+  const every = h.every ? dur(h.every).replace(/ /g, '') : '1d';
+  const setCmd = cloudReady
+    ? `curl -fsS -X PUT ${location.origin}/jobs/${r.id} -H "Authorization: Bearer $NF_ADMIN_TOKEN" -d '{"every": "${every}", "schedule": "…", "does": "…"}'`
+    : `python botlog.py bot ${r.id} --every ${every} --schedule "…" --desc "…"`;
   let list;
   if (!runs || runs.loading) list = '<p>Loading runs…</p>';
   else if (runs.error) list = `<p class="err">${esc(runs.error)}</p>`;
@@ -160,8 +163,8 @@ function render() {
   $('sources').innerHTML = bad.length ? 'Some sources need attention:<ul>' + bad.map((c) =>
     `<li><b>${esc(c.source)}</b>: ${esc(c.error || c.problems.slice(0, 3).join('; '))}</li>`).join('') + '</ul>' : '';
   $('howto').hidden = !!state.rows.length || !!state.error;
-  $('howto-cmd').textContent = 'python botlog.py report my-bot ok "Checked 12 sites, nothing new"' + (state.db ? `\n\n(writes to ${state.db})` : '');
-  $('fetched').textContent = state.collectedAt ? 'Collected ' + clock(state.collectedAt) : '';
+  if (!cloudReady) $('howto-cmd').textContent = 'python botlog.py report my-bot ok "Checked 12 sites, nothing new"' + (state.db ? `\n\n(writes to ${state.db})` : '');
+  $('fetched').textContent = state.collectedAt ? (cloudReady ? 'Updated ' : 'Collected ') + clock(state.collectedAt) : '';
 
   if (focused.act || focused.filter) {
     const el = document.querySelector(focused.filter ? `[data-filter="${focused.filter}"]` : `[data-act="${focused.act}"][data-id="${CSS.escape(focused.id || '')}"]`);
@@ -182,9 +185,35 @@ function tick() {
   });
 }
 
+// The same page runs on the hosted site (tools/job-reports), which answers with mode "cloud". There
+// the jobs report straight to the site, so the wording and the nav change a little.
+let cloudReady = false;
+function applyCloud(data) {
+  if (cloudReady || data.mode !== 'cloud') return;
+  cloudReady = true;
+  const prs = document.querySelector('nav a[href="/"]');
+  if (prs) {
+    if (data.prDashboardUrl && /^https?:\/\//i.test(data.prDashboardUrl)) prs.href = data.prDashboardUrl;
+    else prs.remove();
+  }
+  const btn = $('refresh');
+  btn.lastChild.textContent = 'Refresh';
+  btn.insertAdjacentHTML('afterend', '<form method="post" action="/logout" style="margin: 0"><button class="btn" type="submit">Sign out</button></form>');
+  $('howto').innerHTML = `<h2>No jobs yet</h2>
+<p>A job shows up here the first time it reports. As the last step of any job, wherever it runs:</p>
+<pre>${esc(`curl -fsS -X POST ${location.origin}/report -H "Authorization: Bearer $NF_REPORT_TOKEN" \\\n  -d '{"job": "my-job", "status": "ok", "summary": "Checked 12 sites, nothing new"}'`)}</pre>
+<p>To say how often it should report, so this page can tell you when it goes quiet:</p>
+<pre>${esc(`curl -fsS -X PUT ${location.origin}/jobs/my-job -H "Authorization: Bearer $NF_ADMIN_TOKEN" \\\n  -d '{"name": "My job", "every": "1d", "runsOn": "github action"}'`)}</pre>
+<p>tools/job-reports/README.md has the step for GitHub Actions, cloud routines and desktop tasks.</p>`;
+}
+
 async function load(force) {
   try {
-    const data = await (await fetch('/api/routines' + (force ? '?force=1' : ''))).json();
+    const res = await fetch('/api/routines' + (force ? '?force=1' : ''));
+    // The hosted site signs you out after 30 days; send the browser to its sign-in page.
+    if (res.status === 401) return location.assign('/login');
+    const data = await res.json();
+    applyCloud(data);
     if (state.bootId && data.bootId && data.bootId !== state.bootId) return location.reload();
     state.bootId = data.bootId;
     state.rows = data.rows; state.error = data.error; state.collectors = data.collectors || [];

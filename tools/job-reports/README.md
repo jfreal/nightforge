@@ -1,11 +1,48 @@
 # job-reports
 
-One endpoint every job reports to, wherever it runs: GitHub Actions, cloud routines, Claude
-desktop tasks, scripts on any machine. You register each job once with how often it should
-report. Each run then posts one short report. The PR dashboard's **Routines** tab
-(`tools/pr-dashboard`) pulls the reports, and shows which jobs are late, failing or waiting on you.
+A hosted website that shows every job you run, wherever it runs: GitHub Actions, cloud routines, Claude desktop tasks, scripts on any machine.
+- You register each job once, with how often it should report.
+- Each run posts one short report.
+- The site shows which jobs are late, failing or waiting on you, worst first, with each job's history.
+- It sends you an alert when a job goes wrong, and again when it recovers, even with every browser closed.
 
-It's a Cloudflare Worker with a D1 database. Plain JavaScript, no dependencies.
+It's one Cloudflare Worker with a D1 database. Plain JavaScript, no dependencies. The page is the same one the local PR dashboard shows at `/routines`: it's copied from `tools/pr-dashboard/static` on every build, so the two never drift.
+
+## The site
+
+| Address | What it is |
+|---|---|
+| `/` | The Routines page. Signed-out visitors are sent to `/login`. |
+| `/login` | Sign in with the site's admin token. You stay signed in on that browser for 30 days. |
+| `/api/routines`, `/api/runs?bot=<id>` | What the page reads. Open with a session, or with the admin token as a bearer token. |
+| `/report`, `/jobs`, `/sync` | For jobs and scripts, with a bearer token (below). |
+| `/health` | Health check, no token. |
+
+**Sign-in.** The site has one user, so the password is the admin token.
+- A session is a cookie holding an expiry and an HMAC keyed by that token, so nothing is stored on the server.
+- The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`.
+- Pages can't be framed by other sites.
+- Changing the admin token signs every browser out.
+- The report token can't sign in.
+
+For a second lock, put [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/) in front of `/`, `/login` and `/api/*`. Leave `/report`, `/jobs`, `/sync` and `/health` outside it, so jobs can still reach them.
+
+**Alerts.** Every 5 minutes a cron trigger works out each job's state, and sends a message when the state changes:
+- ⏰ a job hasn't reported in time
+- ✖ its last run failed
+- 👤 it needs you
+- ✓ it's healthy again
+
+A job that stays broken isn't repeated every 5 minutes. A paused job never alerts. Choose where the messages go with secrets:
+
+| Secret | Sends to |
+|---|---|
+| `ALERT_SLACK_WEBHOOK` | A Slack channel, through an [incoming webhook](https://api.slack.com/messaging/webhooks) URL. |
+| `ALERT_NTFY_URL` | Your phone, through [ntfy](https://ntfy.sh): install the app, subscribe to a topic with a long random name, and set `https://ntfy.sh/<that topic>`. |
+
+Set either, both or neither. Each message links to the site when `DASHBOARD_URL` is set, which `scripts/setup.mjs` does for you.
+
+**Housekeeping.** Once a day, runs older than `RETENTION_DAYS` (365 by default) are deleted, so the database stays well inside D1's free tier. Each job's total run count keeps counting them.
 
 ## The two calls
 
@@ -67,20 +104,36 @@ Tokens are compared in constant time. There's no other auth, so treat both as pa
 
 ## Set it up
 
-Once, from this folder, signed in with `npx wrangler login`:
+You need a free Cloudflare account and Node 18 or newer. From this folder:
 
 ```bash
-npx wrangler d1 create job-reports            # prints a database_id
-cp wrangler.example.toml wrangler.toml        # paste the database_id in; wrangler.toml is gitignored
-npx wrangler d1 migrations apply job-reports --remote
-npx wrangler secret put ADMIN_TOKEN           # paste a long random string
-npx wrangler secret put REPORT_TOKEN          # and another one
-npx wrangler deploy                           # prints https://job-reports.<you>.workers.dev
+npx wrangler login                     # once: opens the browser to sign in to Cloudflare
+node scripts/setup.mjs                 # creates everything and deploys
+node scripts/setup.mjs --ntfy https://ntfy.sh/<your topic> --slack <webhook url>   # alerts, any time
 ```
 
-On Windows, `python -c "import secrets; print(secrets.token_urlsafe(32))"` makes a good token.
+`setup.mjs` is safe to run again. It:
+1. finds or creates the D1 database `job-reports`, and writes `wrangler.toml` from the example (`wrangler.toml` is gitignored)
+2. applies the migrations
+3. deploys, then writes the site's address into `DASHBOARD_URL` and deploys again
+4. sets `ADMIN_TOKEN` and `REPORT_TOKEN` to long random values the first time (`--rotate-tokens` makes new ones), and the alert channels you pass
 
-Then point the dashboard at it in `tools/pr-dashboard/config.json`:
+It saves the tokens to `~/.nightforge/job-reports.json`, outside the repo, and prints the site's address. Open it and sign in with the admin token.
+
+To use your own domain instead of `*.workers.dev`, add it under the Worker's **Settings > Domains & Routes** in the Cloudflare dashboard, then set `DASHBOARD_URL` to it in `wrangler.toml` and deploy.
+
+**Deploy on every push** (optional). `.github/workflows/job-reports.yml` runs the tests on every PR that touches these tools. It also migrates and deploys on every push to `main` once these repository settings exist (Settings > Secrets and variables > Actions):
+
+| Name | Kind | Value |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | secret | An API token with the "Edit Cloudflare Workers" template, plus D1 Edit. |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | Your account id, shown on the Workers overview page. |
+| `JOB_REPORTS_D1_ID` | secret | The `database_id` in your `wrangler.toml`. |
+| `JOB_REPORTS_URL` | variable | The site's address, for links in alerts. Optional. |
+
+Without `CLOUDFLARE_API_TOKEN`, the deploy step is skipped. Secrets set with `wrangler secret put` stay on the Worker across deploys.
+
+**The local dashboard** can keep showing the same jobs. Point it at the site in `tools/pr-dashboard/config.json`:
 
 ```json
 {"reportUrl": "https://job-reports.<you>.workers.dev", "reportToken": "<ADMIN_TOKEN>"}
@@ -131,13 +184,16 @@ python tools\pr-dashboard\botlog.py job add ga-traffic-report --name "GA traffic
 node --test test/*.test.mjs
 ```
 
-These cover the checks every report and registration goes through. To try the whole Worker locally:
+These cover the checks every report and registration goes through, the health rules (the same cases as the local dashboard's `test_routines.py`), alert changes and sign-in sessions. To try the whole site locally:
 
 ```bash
 cp wrangler.example.toml wrangler.toml
 printf 'ADMIN_TOKEN=admin\nREPORT_TOKEN=report\n' > .dev.vars
 npx wrangler d1 migrations apply job-reports --local
-npx wrangler dev
+npx wrangler dev --test-scheduled
 ```
 
-Then use the curl calls above against `http://localhost:8787`.
+Then:
+- Open `http://localhost:8787` and sign in with `admin`.
+- Use the curl calls above against the same address.
+- Run the alert check by hand with `curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`.

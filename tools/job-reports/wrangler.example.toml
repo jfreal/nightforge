@@ -1,7 +1,17 @@
-# Copy to wrangler.toml (gitignored) and fill in database_id from `npx wrangler d1 create job-reports`.
+# Copy to wrangler.toml (gitignored) and fill in database_id, or let scripts/setup.mjs write it.
 name = "job-reports"
 main = "src/worker.js"
 compatibility_date = "2026-10-01"
+
+# Copies the Routines page from tools/pr-dashboard/static into public/ before every dev and deploy.
+[build]
+command = "node scripts/build.mjs"
+
+# The Worker runs first for every request, so it can check the sign-in before serving the page.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
 
 [[d1_databases]]
 binding = "DB"
@@ -9,6 +19,20 @@ database_name = "job-reports"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 migrations_dir = "migrations"
 
-# The two tokens are secrets, never in this file:
-#   npx wrangler secret put ADMIN_TOKEN    (you and the dashboard: register jobs, read everything)
-#   npx wrangler secret put REPORT_TOKEN   (jobs: can only POST /report)
+# Every 5 minutes: work out which jobs went late, failed or need you, and send alerts.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+# The page's address, put in alert messages so you can tap through. Optional.
+DASHBOARD_URL = ""
+# Where the "Pull requests" tab links to, such as your local dashboard. Empty hides the tab.
+PR_DASHBOARD_URL = ""
+# Runs older than this many days are deleted once a day (job totals keep counting them).
+RETENTION_DAYS = "365"
+
+# Secrets, never in this file (scripts/setup.mjs sets the first two for you):
+#   npx wrangler secret put ADMIN_TOKEN           you and the dashboard: sign in, register jobs, read
+#   npx wrangler secret put REPORT_TOKEN          jobs: can only POST /report
+#   npx wrangler secret put ALERT_SLACK_WEBHOOK   optional: a Slack incoming-webhook URL
+#   npx wrangler secret put ALERT_NTFY_URL        optional: https://ntfy.sh/<your topic>, for phone pushes

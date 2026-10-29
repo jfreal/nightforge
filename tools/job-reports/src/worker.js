@@ -1,14 +1,26 @@
-// job-reports: one endpoint every job reports to, wherever it runs.
+// job-reports: one endpoint every job reports to, wherever it runs, and the Routines page that
+// shows them.
 //
+// For jobs and scripts, with `Authorization: Bearer <token>`:
 //   POST   /report      a job says what one run did             REPORT_TOKEN or ADMIN_TOKEN
 //   PUT    /jobs/:id    register a job, or change it            ADMIN_TOKEN
 //   DELETE /jobs/:id    forget a job and its runs               ADMIN_TOKEN
 //   GET    /jobs        every job with its last run             ADMIN_TOKEN
-//   GET    /sync?after= jobs, plus runs received after a cursor ADMIN_TOKEN (the dashboard)
-//   GET    /            health check, no token
+//   GET    /sync?after= jobs, plus runs received after a cursor ADMIN_TOKEN (the local dashboard)
+//   GET    /health      health check, no token
 //
-// Tokens go in `Authorization: Bearer <token>`. REPORT_TOKEN can only add runs, so it is the one
-// to hand to GitHub Actions secrets and job prompts. Storage is one D1 database (migrations/).
+// For you, in a browser, after signing in at /login (session.js):
+//   GET    /            the Routines page (public/, built from tools/pr-dashboard/static)
+//   GET    /api/routines   every job, worst first, with health      session or ADMIN_TOKEN
+//   GET    /api/runs?bot=  one job's recent runs                    session or ADMIN_TOKEN
+//
+// The cron trigger (scheduled, below) sends alerts when a job's state changes (alerts.js).
+// REPORT_TOKEN can only add runs, so it is the one to hand to GitHub Actions secrets and job
+// prompts. Storage is one D1 database (migrations/).
+
+import { changes, send } from "./alerts.js";
+import { buildRows, STRIP } from "./health.js";
+import { clearCookie, loginPage, makeSession, sessionFrom, setCookie, validSession } from "./session.js";
 
 const JOB_ID = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 export const STATUSES = ["ok", "found", "needs-you", "failed"];
@@ -155,7 +167,8 @@ async function report(request, env) {
     + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(r.job, r.run, now, r.started, r.finished, r.status, r.summary, JSON.stringify(r.counts),
           JSON.stringify(r.links), r.details, r.source).run();
-  // The same run sent twice (a retried step) is stored once.
+  // The same run sent twice (a retried step) is stored once, and counted once.
+  if (res.meta.changes) await env.DB.prepare("UPDATE jobs SET runs_total = runs_total + 1 WHERE id = ?").bind(r.job).run();
   return json({ ok: true, job: r.job, run: r.run, duplicate: res.meta.changes === 0 });
 }
 
@@ -205,13 +218,127 @@ async function sync(url, env) {
                 next: page.length ? page[page.length - 1].seq : after, more: runs.length > SYNC_PAGE });
 }
 
+// ---- the Routines page --------------------------------------------------------------------
+
+const HISTORY = 50;
+const ASSETS = new Set(["/style.css", "/routines.css", "/routines.js", "/logo.png"]);
+
+/** Every job with its health, worst first: the same rows the local dashboard serves. */
+export async function board(env, now = Date.now()) {
+  const { results: jobs } = await env.DB.prepare("SELECT * FROM jobs").all();
+  const weekAgo = iso(new Date(now - 7 * 86400000));
+  const statements = [env.DB.prepare("SELECT job_id, counts FROM runs WHERE finished_at >= ?").bind(weekAgo),
+    ...jobs.map((j) => env.DB.prepare("SELECT run_id, source, started_at, finished_at, status, summary, counts, links"
+      + " FROM runs WHERE job_id = ? ORDER BY finished_at DESC LIMIT ?").bind(j.id, Math.max(STRIP, 10)))];
+  const [week, ...recent] = statements.length > 1 ? await env.DB.batch(statements) : [await statements[0].all()];
+  const weekByJob = new Map(), recentByJob = new Map();
+  for (const r of week.results) {
+    if (!weekByJob.has(r.job_id)) weekByJob.set(r.job_id, []);
+    weekByJob.get(r.job_id).push(r);
+  }
+  jobs.forEach((j, i) => recentByJob.set(j.id, recent[i].results));
+  return buildRows(jobs, recentByJob, weekByJob, now);
+}
+
+async function runsOf(url, env) {
+  const id = jobId(url.searchParams.get("bot") || url.searchParams.get("job"));
+  const { results } = await env.DB.prepare("SELECT * FROM runs WHERE job_id = ? ORDER BY finished_at DESC LIMIT ?")
+    .bind(id, HISTORY).all();
+  // The page's run list wants the same fields as the local dashboard's, so drop the sync ones.
+  return json({ ok: true, runs: results.map((r) => {
+    const { seq, job, receivedAt, ...run } = shapeRun(r);
+    return run;
+  }) });
+}
+
+/** HTML and its assets can't be framed, so no other site can steer clicks on this one. */
+function guard(response) {
+  const r = new Response(response.body, response);
+  r.headers.set("X-Frame-Options", "DENY");
+  r.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+  r.headers.set("Referrer-Policy", "same-origin");
+  return r;
+}
+
+const html = (body, status = 200, headers = {}) => guard(new Response(body, {
+  status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", ...headers } }));
+
+async function signedIn(request, env) {
+  return (await validSession(env.ADMIN_TOKEN, sessionFrom(request))) || (await role(request, env)) === "admin";
+}
+
+/** Browser routes. Returns null when the path isn't one of them. */
+async function page(request, env, url, path) {
+  const secure = url.protocol === "https:";
+  if (ASSETS.has(path) && request.method === "GET") return guard(await env.ASSETS.fetch(request));
+  if (path === "/login" && request.method === "GET") return html(loginPage());
+  if (path === "/login" && request.method === "POST") {
+    const form = await request.formData().catch(() => null);
+    const token = String(form?.get("token") || "").trim();
+    if (!(await same(token, env.ADMIN_TOKEN))) return html(loginPage("That isn't this site's admin token."), 401);
+    return new Response(null, { status: 303, headers: { Location: "/", "Set-Cookie": setCookie(await makeSession(env.ADMIN_TOKEN), secure) } });
+  }
+  if (path === "/logout" && request.method === "POST") {
+    return new Response(null, { status: 303, headers: { Location: "/login", "Set-Cookie": clearCookie(secure) } });
+  }
+  if ((path === "/" || path === "/routines") && request.method === "GET") {
+    if (!(await signedIn(request, env))) return Response.redirect(new URL("/login", url).toString(), 303);
+    return guard(await env.ASSETS.fetch(new Request(new URL("/", url), request)));
+  }
+  if (path.startsWith("/api/") && request.method === "GET") {
+    if (!(await signedIn(request, env))) return json({ ok: false, error: "sign in at /login" }, 401);
+    if (path === "/api/routines") {
+      return json({ mode: "cloud", rows: await board(env), error: "", collectors: [], bootId: "cloud",
+                    collectedAt: iso(new Date()), db: "", prDashboardUrl: env.PR_DASHBOARD_URL || "" });
+    }
+    if (path === "/api/runs") return await runsOf(url, env);
+  }
+  return null;
+}
+
+// ---- alerts, from the cron trigger ---------------------------------------------------------
+
+export async function checkAlerts(env, now = Date.now()) {
+  const rows = await board(env, now);
+  const { results } = await env.DB.prepare("SELECT job_id, state FROM alerts").all();
+  const known = new Map(results.map((r) => [r.job_id, r.state]));
+  const { messages, states } = changes(rows, known, now);
+  if (!messages.length) return messages;
+  // Not delivered (Slack or ntfy down): remember nothing, so the next cron run tries again.
+  if (!(await send(env, messages, env.DASHBOARD_URL || ""))) return [];
+  const at = iso(new Date(now));
+  await env.DB.batch(messages.map((m) => env.DB.prepare(
+    "INSERT INTO alerts (job_id, state, changed_at) VALUES (?, ?, ?)"
+    + " ON CONFLICT(job_id) DO UPDATE SET state = excluded.state, changed_at = excluded.changed_at")
+    .bind(m.job, states.get(m.job), at)));
+  return messages;
+}
+
+/** Once a day: drop runs older than RETENTION_DAYS (365 by default), so the database stays small.
+ *  runs_total keeps counting them. */
+async function prune(env, now) {
+  const days = Math.max(30, Number(env.RETENTION_DAYS) || 365);
+  await env.DB.prepare("DELETE FROM runs WHERE finished_at < ?").bind(iso(new Date(now - days * 86400000))).run();
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    const now = event.scheduledTime || Date.now();
+    ctx.waitUntil((async () => {
+      await checkAlerts(env, now);
+      const d = new Date(now);
+      if (d.getUTCHours() === 3 && d.getUTCMinutes() < 5) await prune(env, now);
+    })());
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     try {
-      if (path === "/" && request.method === "GET") return json({ ok: true, service: "job-reports" });
+      if (path === "/health" && request.method === "GET") return json({ ok: true, service: "job-reports" });
       if (!env.ADMIN_TOKEN || !env.REPORT_TOKEN) return json({ ok: false, error: "server has no tokens set" }, 500);
+      const browser = await page(request, env, url, path);
+      if (browser) return browser;
       const who = await role(request, env);
       if (!who) return json({ ok: false, error: "missing or wrong token" }, 401);
       if (path === "/report" && request.method === "POST") return await report(request, env);
@@ -221,7 +348,8 @@ export default {
       if (jobPath && request.method === "DELETE") {
         const id = pathJobId(jobPath[1]);
         const [, gone] = await env.DB.batch([env.DB.prepare("DELETE FROM runs WHERE job_id = ?").bind(id),
-                                             env.DB.prepare("DELETE FROM jobs WHERE id = ?").bind(id)]);
+                                             env.DB.prepare("DELETE FROM jobs WHERE id = ?").bind(id),
+                                             env.DB.prepare("DELETE FROM alerts WHERE job_id = ?").bind(id)]);
         return json({ ok: true, removed: gone.meta.changes > 0 });
       }
       if (path === "/jobs" && request.method === "GET") return await listJobs(env);

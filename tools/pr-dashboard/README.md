@@ -245,6 +245,8 @@ One SQLite file, `~/.nightforge/routines.db` (`%USERPROFILE%\.nightforge\routine
 
 ### Where jobs report: one endpoint
 
+The same page also runs as a hosted website on Cloudflare, with sign-in and alerts when a job goes late or fails. See [`tools/job-reports`](../job-reports/README.md). With the site set up, this local tab is optional: it shows the same jobs, pulled from the site.
+
 Jobs run in a lot of places: GitHub Actions, cloud routines, Claude desktop, other agents and scripts. They all report to the same place: the job-reports Worker in [`tools/job-reports`](../job-reports/README.md). You register each job there once, with how often it should report, and each run posts one report as its last step. The dashboard pulls everything new every `collectMinutes`, and when you press **Collect now**. So it never has to go looking for jobs.
 
 Set it up once with the steps in that README, then point the dashboard at it in `config.json`:

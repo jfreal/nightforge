@@ -22,3 +22,4 @@ tools/job-reports/wrangler.toml
 tools/job-reports/.wrangler/
 tools/job-reports/.dev.vars
 tools/job-reports/node_modules/
+tools/job-reports/public/
