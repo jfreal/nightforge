@@ -216,7 +216,7 @@ skills/error-sweep/
   adapters/app-insights.md      exceptions, failed requests, traces, dependencies
   adapters/github-auto-issues.md  issues the app files about itself
 skills/docs-sweep/
-  SKILL.md                      the weekly docs sweep — discover, audit, fix, draft PR
+  SKILL.md                      the weekly docs sweep — discover, audit, fix, open PR
 skills/coderabbit-sweep/
   SKILL.md                      the hourly CodeRabbit re-review sweep — find, gate, fire one
   EVIDENCE.md                   dated case law behind each rule — grepped, never read whole
@@ -349,7 +349,7 @@ The weekly counterpart to `sync-docs` (below): where sync-docs keeps *one* repo'
 you remember to run it, `docs-sweep` runs it for you, across every repo that has it. It discovers
 each local repo carrying a `.claude/sync-docs/config.json` (or, until it migrates, an old repo-local
 `.claude/skills/sync-docs/` port), runs that repo's audit in a fresh worktree off the default branch,
-and where the docs drifted, runs the fix scope and opens a **draft PR** for review. Clean repos get one line in the report; nothing is pushed to a
+and where the docs drifted, runs the fix scope and opens a **PR, ready for review**. Clean repos get one line in the report; nothing is pushed to a
 default branch and nothing is merged.
 
 The split mirrors error-sweep, one level up: the pipeline is identical everywhere, and the per-repo

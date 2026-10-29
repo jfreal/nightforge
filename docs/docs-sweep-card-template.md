@@ -19,7 +19,7 @@ slugs of everything you work on. Not credentials, but not worth publishing.
 ```markdown
 ---
 name: docs-sweep
-description: Weekly docs sweep across every repo carrying a sync-docs skill; opens a draft PR per repo whose docs drifted.
+description: Weekly docs sweep across every repo carrying a sync-docs skill; opens a PR, ready for review, per repo whose docs drifted.
 ---
 
 **Run the `docs-sweep` skill against the roster card below.** The pipeline lives at

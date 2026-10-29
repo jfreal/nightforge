@@ -304,7 +304,7 @@
     <div class="night">
       <div class="tick reveal"><time>Every hour</time><h3>Retry starved reviews</h3><p>coderabbit-sweep finds PRs that hit CodeRabbit's rate limit and spends the next free review on the one that has waited longest.</p></div>
       <div class="tick reveal"><time>Overnight</time><h3>Sweep production errors</h3><p>error-sweep collects errors, dedupes them against the issue tracker, files an issue and opens a fix PR.</p></div>
-      <div class="tick reveal"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a draft PR wherever a page no longer matches its code.</p></div>
+      <div class="tick reveal"><time>Weekly</time><h3>Catch docs drift</h3><p>docs-sweep audits every repo that opts in and opens a PR, ready for review, wherever a page no longer matches its code.</p></div>
       <div class="tick reveal"><time>Morning</time><h3>You review</h3><p>Small PRs, each with evidence and test output. Nothing gets merged until you merge it.</p></div>
     </div>
   </div>
@@ -319,7 +319,7 @@
       <p class="group-label">Scheduled sweeps</p>
       <div class="grid">
         <div class="card reveal"><h3>error-sweep</h3><span class="when">Overnight</span><p>Collects production errors, normalizes them to stable signatures, triages each against the real source, files an issue and opens a fix PR from an isolated worktree. Adapters for Netlify, Supabase, Azure Application Insights and GitHub.</p></div>
-        <div class="card reveal"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a draft PR. Clean repos get one line.</p></div>
+        <div class="card reveal"><h3>docs-sweep</h3><span class="when">Weekly</span><p>Runs sync-docs across every local repo that carries its config. Where the docs drifted, it opens a PR, ready for review. Clean repos get one line.</p></div>
         <div class="card reveal"><h3>coderabbit-sweep</h3><span class="when">Hourly</span><p>CodeRabbit's review allowance is shared across all your repos, and PRs that miss it are never retried. This is the retry. Label a PR to put it first in line.</p></div>
         <div class="card reveal"><h3>ga-traffic-report</h3><span class="when">3x a week</span><p>Pulls a week of GA4 traffic for every site in OpenSEO, flags drops, lost conversions and bot traffic, keeps site audits on a schedule, and republishes one report page.</p></div>
         <div class="card reveal"><h3>index-sweep</h3><span class="when">Weekly</span><p>Asks Search Console which sitemap pages Google never indexed, checks that they load clean, and sends a capped batch per site to Omega Indexer. It never re-sends a page that failed twice.</p></div>
