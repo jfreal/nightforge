@@ -563,10 +563,11 @@ Comes with the plugin (see [Install](#install)).
 Posts one finished video to every channel in a Postiz group, such as "Personal", through the
 Postiz MCP. It makes a small upload copy, writes text for each channel (X's 280 characters,
 LinkedIn's long version, a YouTube title and tags, a TikTok caption), and waits for your yes
-before anything goes out. You pick the file in the Postiz upload box, and one call publishes or
+before anything goes out. After your yes it uploads the file through the Postiz public API
+(with `POSTIZ_API_KEY` set) or has you pick it in the Postiz upload box, and one call publishes or
 schedules every channel. It reports each post's preview link. The skill also lists the platform
 settings that broke a post before, such as X's reply setting and TikTok's required toggles.
-User-invokable: `/nightforge:postiz-post`. Needs the Postiz MCP connected, and `ffmpeg` for the upload copy.
+User-invokable: `/nightforge:postiz-post`. Needs the Postiz MCP connected, and `ffmpeg` for the upload copy. Optional: `POSTIZ_API_KEY` in the environment, to upload without the upload box.
 
 ### Install
 

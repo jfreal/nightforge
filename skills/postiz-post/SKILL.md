@@ -1,6 +1,6 @@
 ---
 name: postiz-post
-description: Post a finished video (or image) to every channel in a Postiz group, such as "Personal", through the Postiz MCP. Makes a small upload copy, writes copy tailored to each channel (X, LinkedIn, YouTube, TikTok and the rest), gets the user's approval, uploads through the Postiz upload widget, and publishes or schedules all channels in one call. Use when the user wants to post, publish, share, cross-post or schedule a video or short to their socials, a Postiz group, or "all my channels", or invokes /postiz-post.
+description: Post a finished video (or image) to every channel in a Postiz group, such as "Personal", through the Postiz MCP. Makes a small upload copy, writes copy tailored to each channel (X, LinkedIn, YouTube, TikTok and the rest), gets the user's approval, uploads through the Postiz public API (or the upload widget when no API key is set), and publishes or schedules all channels in one call. Use when the user wants to post, publish, share, cross-post or schedule a video or short to their socials, a Postiz group, or "all my channels", or invokes /postiz-post.
 ---
 
 # Postiz post
@@ -16,7 +16,7 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
 |---|---|
 | `groupList`, `integrationList` | the group and the channels in it |
 | `integrationSchema` | each platform's rules and required settings |
-| `uploadWidgetTool`, `uploadWidgetStatusTool` | getting a local file into the media library |
+| `uploadWidgetTool`, `uploadWidgetStatusTool` | getting a local file into the media library, when `POSTIZ_API_KEY` is not set |
 | `uploadFromUrlTool`, `mediaStatusTool` | the same, when the file is already on a public URL |
 | `integrationSchedulePostTool` | posting: now, scheduled, or as a draft |
 
@@ -55,11 +55,27 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
    accounts, so wait for a clear yes. An approval covers the text as shown. Any later change
    to the text needs a new yes. A fix to a setting the user never saw, such as X's reply
    setting, does not.
-6. **Upload.** Call `uploadWidgetTool`. It returns a `sessionId` and shows the user an upload
-   box. Tell them which file to pick, then wait for them to say it finished. Check with
-   `uploadWidgetStatusTool` (or `read_widget_context` on the widget) until the file shows
-   `"status":"ready"` with a `path` on `https://uploads.postiz.com/`. If it says
-   `processing`, wait about 10 s and check again.
+6. **Upload, only after the yes.** Check whether `POSTIZ_API_KEY` is set (test that it is
+   non-empty; never print it). If it is, upload the upload copy through the Postiz public
+   API. The key goes from the environment straight into the header:
+
+   ```powershell
+   curl.exe -sS -w "`nHTTP %{http_code}`n" -X POST "https://api.postiz.com/public/v1/upload" `
+     -H "Authorization: $env:POSTIZ_API_KEY" -F "file=@short-upload.mp4;type=video/mp4"
+   ```
+
+   On Windows, run it from PowerShell with `curl.exe`. Git Bash's curl failed on this call
+   with `curl: (43) A libcurl function was given a bad argument`. Elsewhere,
+   `curl -H "Authorization: $POSTIZ_API_KEY"` is the same call. HTTP 201 returns
+   `{"id", "path", "status":"ready"}`; `path` on `https://uploads.postiz.com/` is the
+   attachment.
+
+   If the key is not set, call `uploadWidgetTool`. It returns a `sessionId` and shows the
+   user an upload box. Tell them which file to pick, then wait for them to say it finished.
+   Check with `uploadWidgetStatusTool` (or `read_widget_context` on the widget) until the
+   file shows `"status":"ready"` with a `path` on `https://uploads.postiz.com/`. If it says
+   `processing`, wait about 10 s and check again. Widget sessions expire, so open a fresh
+   one if the user comes back later.
 7. **Post.** One `integrationSchedulePostTool` call with one `socialPost` item per channel.
    Every item gets the upload `path` in `attachments`, its own `content` and `settings`,
    `shortLink: false` unless there is a link, and a `type`:
@@ -84,13 +100,15 @@ Read `integrationSchema` anyway. These are the settings that failed or were easy
 | LinkedIn | One video at most. No required settings. |
 | YouTube | `title` (2 to 100 characters) and `type` (`public`, `private`, `unlisted`) are required. `selfDeclaredMadeForKids` is `yes`/`no`. `tags` is a list of `{value, label}`. |
 | TikTok Business | Required: `privacy_level`, `duet`, `stitch`, `comment`, `autoAddMusic`, `brand_content_toggle`, `brand_organic_toggle`, `content_posting_method`. Use `DIRECT_POST`. `UPLOAD` only puts a draft in the TikTok app inbox and drops every other setting. `privacy_level` and `autoAddMusic` are still required for a video even though TikTok ignores them there; send `PUBLIC_TO_EVERYONE` and `no`. `title` at most 90 characters. |
+| Instagram | `post_type` is required: `post` (a video posts as a Reel) or `story`. At least one attachment. |
 
 ## If it goes wrong
 
 | Problem | Fix |
 |---|---|
 | `mediaListTool` returns `{"pages":0,"output":[]}` even though the user sees the file in the Postiz web app | The library list did not show files uploaded in the web app. Don't rely on it. Open a fresh `uploadWidgetTool` session and have the user upload there. |
-| No upload box appears | The app does not show MCP Apps widgets. Ask the user to copy the file's link from the Postiz web media library (`https://uploads.postiz.com/...`) and use it as the attachment. Failing that, the user runs the Postiz CLI (`postiz upload`) themself. It needs their API key, which you never handle. |
+| No upload box appears | The app does not show MCP Apps widgets. Ask the user to set `POSTIZ_API_KEY` to their Postiz public API key and use the API upload in step 6. Failing that, ask them to copy the file's link from the Postiz web media library (`https://uploads.postiz.com/...`) and use it as the attachment. |
+| API upload returns 401 | The key is wrong or was revoked. Ask the user to check it in Postiz settings. Never ask them to paste it into the chat. |
 | The video is on a public URL already | `uploadFromUrlTool` with that URL. Pass `adjust: true` only if a platform rejected the file's size or encoding, then wait for `mediaStatusTool` to say `ready`. |
 | `SendUserFile` refuses the video | It caps files at 30 MiB for phone viewers. Send the contact sheet instead and give the path to the video. |
 | The call returns `output.errors` | Nothing went out. Fix the named setting and resend all channels in one call. Don't resend only the failed one, or the posts go out at different times. |
