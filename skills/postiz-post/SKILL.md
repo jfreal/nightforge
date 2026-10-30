@@ -56,8 +56,9 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
    to the text needs a new yes. A fix to a setting the user never saw, such as X's reply
    setting, does not.
 6. **Upload, only after the yes.** Check whether `POSTIZ_API_KEY` is set (test that it is
-   non-empty; never print it). If it is, upload the upload copy through the Postiz public
-   API. The key goes from the environment straight into the header:
+   non-empty; never print it). If it is, upload the step 3 copy through the Postiz public
+   API. Put that file's real path in place of `short-upload.mp4`. The key goes from the
+   environment straight into the header:
 
    ```powershell
    curl.exe -sS -w "`nHTTP %{http_code}`n" -X POST "https://api.postiz.com/public/v1/upload" `
@@ -65,10 +66,17 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
    ```
 
    On Windows, run it from PowerShell with `curl.exe`. Git Bash's curl failed on this call
-   with `curl: (43) A libcurl function was given a bad argument`. Elsewhere,
-   `curl -H "Authorization: $POSTIZ_API_KEY"` is the same call. HTTP 201 returns
-   `{"id", "path", "status":"ready"}`; `path` on `https://uploads.postiz.com/` is the
-   attachment.
+   with `curl: (43) A libcurl function was given a bad argument`. On macOS or Linux:
+
+   ```bash
+   curl -sS -w "\nHTTP %{http_code}\n" -X POST "https://api.postiz.com/public/v1/upload" \
+     -H "Authorization: $POSTIZ_API_KEY" -F "file=@short-upload.mp4;type=video/mp4"
+   ```
+
+   HTTP 201 returns `{"id", "path", "status":"ready"}`; `path` on
+   `https://uploads.postiz.com/` is the attachment. Go on to step 7 only with a 201 and a
+   non-empty `path`. Any other status (401, 413, 500) means nothing uploaded: stop, tell
+   the user the status and body, and post nothing.
 
    If the key is not set, call `uploadWidgetTool`. It returns a `sessionId` and shows the
    user an upload box. Tell them which file to pick, then wait for them to say it finished.
