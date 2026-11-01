@@ -69,7 +69,7 @@ file does not exist, stop and report exactly that — do not improvise a report.
   issues that come back and note ones that are gone; the owner closes them. `audit-issues.json`
   in the Data folder remembers which audit each site's issues come from; a site whose `gh` writes
   failed is retried on the next run. Leave a site out to get no issues for it. Mobile performance
-  is checked only on sites whose newest completed audit ran Lighthouse (a full audit), and needs a
+  is checked only on sites whose newest completed audit ran Lighthouse (`ranLighthouse: true`), and needs a
   Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because OpenSEO does not
   return Lighthouse scores.
 - **Issue label** — the label on every issue the run files, and how it lists them again. After a
