@@ -16,7 +16,9 @@ but they are not worth publishing.
 
 Before the first run: connect the OpenSEO MCP server, and publish any page once with the Artifact
 tool to get an artifact URL for the card. Each OpenSEO project needs GA4 connected in OpenSEO's
-settings to show traffic; projects without it are listed under "Not connected".
+settings to show traffic; projects without it are listed under "Not connected". If you fill in
+**Repos**, the GitHub CLI (`gh`) must be signed in to an account that can create and update labels
+and open, edit, comment on and reopen issues in those repos.
 
 ---
 
@@ -34,7 +36,7 @@ file does not exist, stop and report exactly that — do not improvise a report.
 
 | Field | Value |
 |---|---|
-| **Data folder** | `<abs path>` — holds report.json, history.json, report.html |
+| **Data folder** | `<abs path>` — holds report.json, history.json, report.html, audit-issues.json |
 | **Artifact** | `https://claude.ai/artifact/<id>` |
 | **Time zone** | `<IANA zone of the GA4 properties, e.g. America/New_York>` |
 | **Parked sites** | `<site>`, `<site>` — untagged on purpose; never raise tagging for them |
@@ -65,9 +67,11 @@ file does not exist, stop and report exactly that — do not improvise a report.
 - **Repos** — Step 2b files or updates one GitHub issue per problem type per site, from the
   newest audit, in the repo listed for that site. Later audits comment on changed counts, reopen
   issues that come back and note ones that are gone; the owner closes them. `audit-issues.json`
-  in the Data folder remembers which audit each site's issues come from. Leave a site out to get no issues for it. Mobile performance
-  issues need a Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because
-  OpenSEO does not return Lighthouse scores.
+  in the Data folder remembers which audit each site's issues come from; a site whose `gh` writes
+  failed is retried on the next run. Leave a site out to get no issues for it. Mobile performance
+  is checked only on sites whose newest completed audit ran Lighthouse (a full audit), and needs a
+  Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because OpenSEO does not
+  return Lighthouse scores.
 - **Issue label** — the label on every issue the run files, and how it lists them again. After a
   change, old issues are no longer found, so the next new audit on each site opens fresh issues
   under the new label.
