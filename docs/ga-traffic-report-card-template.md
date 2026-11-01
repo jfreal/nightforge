@@ -55,7 +55,9 @@ file does not exist, stop and report exactly that — do not improvise a report.
 - **Data folder** — `history.json` lives here, and it is how the page marks an action NEW or
   "open since". The build only stages `history.pending.json`; the run moves it over
   `history.json` (`build.py --commit`) after the publish succeeds, so a run that never publishes
-  leaves that memory untouched. Moving the folder resets it.
+  leaves that memory untouched. Moving the folder resets it, and `audit-issues.json` with it, so
+  the next run treats every site's newest audit as new (it matches existing issues by marker, so
+  it updates them rather than opening duplicates).
 - **Artifact** — the run reads it, then republishes `report.html` to it. A run with no URL would
   create a second artifact, so the field is required.
 - **Plain / Full audit every** — a full audit also counts as a plain one, except on sites over
@@ -69,8 +71,9 @@ file does not exist, stop and report exactly that — do not improvise a report.
   issues that come back and note ones that are gone; the owner closes them. `audit-issues.json`
   in the Data folder remembers which audit each site's issues come from; a site whose `gh` writes
   failed is retried on the next run. Leave a site out to get no issues for it. Mobile performance
-  is checked only on sites whose newest completed audit ran Lighthouse (`ranLighthouse: true`), and needs a
-  Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because OpenSEO does not
+  is checked only on sites whose newest completed audit ran Lighthouse (`ranLighthouse: true`),
+  so a plain audit that finishes after a full one skips it until the next full audit. It also needs
+  a Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because OpenSEO does not
   return Lighthouse scores.
 - **Issue label** — the label on every issue the run files, and how it lists them again. After a
   change, old issues are no longer found, so the next new audit on each site opens fresh issues
