@@ -238,8 +238,8 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
      rewrite the state line first (audit, count, absent=none) with `gh issue edit -R <repo> <n>
      --body-file`, keeping the rest of the body, then comment "Audit <date>: N pages (was M)"
      plus the new URLs. The order matters: if the edit fails, nothing was posted and the retry
-     is clean; if the comment fails, the state is already current and one comment is lost, never
-     doubled. No comment if nothing changed.
+     is clean; if the comment fails, the state is already current and the comment is not reposted,
+     so a comment is never doubled. No comment if nothing changed.
    - Closed match that came back: reopen it (`gh issue reopen`) with a comment saying which audit
      found it again, and rewrite its state line the same way.
    - An open issue for this site whose type this audit checked and no longer finds: if its state
@@ -249,7 +249,8 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
      only when step 3 succeeded.
 5. Record it. Set the site's `audit-issues.json` entry to this audit's id, with `pending` as step
    4 left it. If any `gh` write for the site failed this run, set `pending: true` as well, so the
-   next run retries it.
+   next run reprocesses the site. A failed audit comment is not reposted when the state edit
+   already succeeded.
 6. Report it. One "fyi" action per site where anything was written,
    id `<site>:github-issues:audit`, title "Opened N and updated M GitHub issues from the <date>
    audit", why = the issue titles (and "K more wait for the next run" when pending), fix = "Work

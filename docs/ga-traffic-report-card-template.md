@@ -69,8 +69,9 @@ file does not exist, stop and report exactly that — do not improvise a report.
 - **Repos** — Step 2b files or updates one GitHub issue per problem type per site, from the
   newest audit, in the repo listed for that site. Later audits comment on changed counts, reopen
   issues that come back and note ones that are gone; the owner closes them. `audit-issues.json`
-  in the Data folder remembers which audit each site's issues come from; a site whose `gh` writes
-  failed is retried on the next run. Leave a site out to get no issues for it. Mobile performance
+  in the Data folder remembers which audit each site's issues come from; a site whose `gh`
+  issue edit or issue creation failed is retried on the next run. If the state edit succeeded but
+  the audit comment failed, the comment is not reposted. Leave a site out to get no issues for it. Mobile performance
   is checked only on sites that have a completed audit with Lighthouse (`ranLighthouse: true`);
   a plain audit finishing after a full one does not switch it off. It also needs
   a Google API key at `~/.config/claude-seo/google-api.json` (`api_key`), because OpenSEO does not
