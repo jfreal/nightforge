@@ -214,7 +214,7 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
    If any of these calls fails, add it to `errors` and file nothing for the site this run (its
    record stays as it was, so the next run tries again).
 3. Performance. OpenSEO does not return Lighthouse scores, so read them from the PageSpeed
-   Insights API, and only for sites whose newest completed audit has `ranLighthouse: true`. Test
+   Insights API, and only for sites that have a completed audit with `ranLighthouse: true` (the newest such audit, even if a plain audit finished after it: plain audits run more often and must not switch the check off). Test
    the site's home page plus its top 2 pages by views from Step 1.2 (production host only), mobile:
    `curl -s --max-time 120 -H "X-Goog-Api-Key: <key>" "https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=<url-encoded>&strategy=mobile&category=performance"`.
    The key is `api_key` in `~/.config/claude-seo/google-api.json`. Send it only in that header:
@@ -235,9 +235,11 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
      first (critical, then performance, then warning, then info; bigger counts first). Any site
      with findings left over gets `pending: true`, and the next run files them.
    - Open match: when the state line's count differs, or the audit is new and lists new URLs,
-     comment "Audit <date>: N pages (was M)" plus the new URLs. Then rewrite the state line
-     (audit, count, absent=none) with `gh issue edit -R <repo> <n> --body-file`, keeping the rest
-     of the body. No comment if nothing changed.
+     rewrite the state line first (audit, count, absent=none) with `gh issue edit -R <repo> <n>
+     --body-file`, keeping the rest of the body, then comment "Audit <date>: N pages (was M)"
+     plus the new URLs. The order matters: if the edit fails, nothing was posted and the retry
+     is clean; if the comment fails, the state is already current and the comment is not reposted,
+     so a comment is never doubled. No comment if nothing changed.
    - Closed match that came back: reopen it (`gh issue reopen`) with a comment saying which audit
      found it again, and rewrite its state line the same way.
    - An open issue for this site whose type this audit checked and no longer finds: if its state
@@ -247,7 +249,8 @@ that audit's id differs from the recorded `auditId`, or when the record has `pen
      only when step 3 succeeded.
 5. Record it. Set the site's `audit-issues.json` entry to this audit's id, with `pending` as step
    4 left it. If any `gh` write for the site failed this run, set `pending: true` as well, so the
-   next run retries it.
+   next run reprocesses the site. A failed audit comment is not reposted when the state edit
+   already succeeded.
 6. Report it. One "fyi" action per site where anything was written,
    id `<site>:github-issues:audit`, title "Opened N and updated M GitHub issues from the <date>
    audit", why = the issue titles (and "K more wait for the next run" when pending), fix = "Work
