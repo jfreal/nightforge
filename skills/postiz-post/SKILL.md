@@ -23,7 +23,8 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
 ## Workflow
 
 1. **Find the channels.** `groupList` gives the group's id. `integrationList` gives every
-   channel; keep those in the group. Note each channel's integration id, platform
+   channel. Keep the whole list for now, and narrow it to the group only once a group has
+   been chosen. Note each channel's integration id, platform
    identifier (`x`, `linkedin`, `youtube`, `tiktok-business`, ...) and display name. Tell
    the user which channels you found. If a channel is disabled or needs reconnecting, say
    so now. A channel can belong to no group. A product's own account, such as the
@@ -112,7 +113,11 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
    (`QUEUE`, `PUBLISHED`, `ERROR`) and `error`. Instagram can stay in `QUEUE` after the
    others have published.
 9. **Find the YouTube link, if the user needs it** (for a Help page embed or a reply).
-   Neither the post result nor `postsListTool` returns the YouTube URL, and YouTube search
+   Do this only once `postsListTool` shows the YouTube post as `PUBLISHED`. A scheduled post
+   or a draft will not be in the feed yet, and a `now` post can still be in `QUEUE` or end in
+   `ERROR`. If the video is not in the feed yet, report the link as pending instead of
+   guessing. An `unlisted` or `private` video never appears in the public feed: ask the user
+   to copy its link from YouTube Studio. Neither the post result nor `postsListTool` returns the YouTube URL, and YouTube search
    takes a while to list a new upload. The channel's feed lists it within a minute:
 
    ```bash
