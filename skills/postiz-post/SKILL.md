@@ -23,10 +23,15 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
 ## Workflow
 
 1. **Find the channels.** `groupList` gives the group's id. `integrationList` gives every
-   channel; keep those in the group. Note each channel's integration id, platform
+   channel. Keep the whole list for now, and narrow it to the group only once a group has
+   been chosen. Note each channel's integration id, platform
    identifier (`x`, `linkedin`, `youtube`, `tiktok-business`, ...) and display name. Tell
    the user which channels you found. If a channel is disabled or needs reconnecting, say
-   so now.
+   so now. A channel can belong to no group. A product's own account, such as the
+   "PairingsUp" YouTube channel, may be one of these. When the user names no group, or no
+   group fits the video, ask which channels to use. Offer the channels in groups of two or
+   three, put the best fit first, and say in each option how the video's shape suits it.
+   A 16:9 landscape video plays small, with bars above and below, on TikTok and Instagram.
 2. **Read each platform's schema.** Call `integrationSchema` once per platform, with
    `isPremium: false` unless the user has X Premium. Note the length limit, whether media
    is required, and the required settings. See [Platform notes](#platform-notes) for
@@ -39,8 +44,8 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
      -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart short-upload.mp4
    ```
 
-   A 72 s 1080x1920 short came out at 53 MB this way. Check it with `ffprobe`: h264,
-   yuv420p, AAC, same length as the master.
+   A 72 s 1080x1920 short came out at 53 MB this way. A 111 s 1920x1080 screen recording
+   came out at 12 MB. Check it with `ffprobe`: h264, yuv420p, AAC, same length as the master.
 4. **Write the copy, one version per channel.** Run it through the `unslop` skill. Lead with
    the hook from the video. Fit each platform:
    - **X:** at most 280 characters, including spaces. Count them. The hook, the proof, the
@@ -50,11 +55,18 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
    - **YouTube:** a title of at most 100 characters (end it with `#Shorts` for a short), the
      LinkedIn text as the description, and five or so tags.
    - **TikTok:** a title of at most 90 characters and a one-line caption with hashtags.
+     Instagram can take the same caption.
+   - If the video already has a YouTube title and description (for example from the
+     `explainer-video` skill), start from those. They still go through `unslop`: the first
+     draft there had an em dash in the title and a colon joining two sentences.
 5. **Human checkpoint.** Show the user every channel's text and settings: visibility,
    comments, made-for-kids, and the time (now or a date). Posting publishes to public
    accounts, so wait for a clear yes. An approval covers the text as shown. Any later change
    to the text needs a new yes. A fix to a setting the user never saw, such as X's reply
-   setting, does not.
+   setting, does not. `AskUserQuestion` works well here: put every channel's full text and
+   settings in the first option's `preview`, and offer "Post now", "Schedule instead" and
+   "Save as drafts". If the voice is a cloned or synthetic voice, show TikTok's
+   `video_made_with_ai` as on, and say why.
 6. **Upload, only after the yes.** Check whether `POSTIZ_API_KEY` is set (test that it is
    non-empty; never print it). If it is, upload the step 3 copy through the Postiz public
    API. Put that file's real path in place of `short-upload.mp4`. The key goes from the
@@ -97,6 +109,24 @@ usually deferred: load the ones below with one `ToolSearch` `select:` call befor
 8. **Report.** List each channel with its `previewUrl`. Say plainly that Postiz accepted the
    posts and publishes them in the background. YouTube and TikTok take a few minutes to
    process video, and a failure shows on the post in Postiz, not in this tool's result.
+   `postsListTool` over a window around the post time shows each post's `state`
+   (`QUEUE`, `PUBLISHED`, `ERROR`) and `error`. Instagram can stay in `QUEUE` after the
+   others have published.
+9. **Find the YouTube link, if the user needs it** (for a Help page embed or a reply).
+   Do this only once `postsListTool` shows the YouTube post as `PUBLISHED`. A scheduled post
+   or a draft will not be in the feed yet, and a `now` post can still be in `QUEUE` or end in
+   `ERROR`. If the video is not in the feed yet, report the link as pending instead of
+   guessing. An `unlisted` or `private` video never appears in the public feed: ask the user
+   to copy its link from YouTube Studio. Neither the post result nor `postsListTool` returns the YouTube URL, and YouTube search
+   takes a while to list a new upload. The channel's feed lists it within a minute:
+
+   ```bash
+   curl -s "https://www.youtube.com/feeds/videos.xml?channel_id=<UC...>" | grep -oE "<(yt:videoId|title)>[^<]*"
+   ```
+
+   Each `yt:videoId` line is followed by that video's title. To find a channel id, open any
+   video from the channel and read the `"channelId":"UC..."` value in the page HTML.
+   PairingsUp's channel id is `UCmAeMNuNogjh87jck3wQEwQ`.
 
 ## Platform notes
 
